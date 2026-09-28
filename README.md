@@ -72,6 +72,12 @@ input_boolean.prijs_saldering_energiebelasting_teruggave
 automation.prijzen_*  (2 meld-automatiseringen)
 ```
 
+## Zo ziet je dashboard er daarna uit
+
+![Voorbeeldgrafiek](docs/voorbeeld-grafiek.png)
+
+*15-min staafjes van de bruto spotprijs; groen < €0,10 · lichtgroen < €0,25 · geel < €0,40 · rood ≥ €0,40. De gestippelde lijn is 'nu'. Dit is een nabouwing met echte data van vandaag — in HA tekent ApexCharts-card exact dit beeld, inclusief hover-waarden per kwartier.*
+
 ## Grafiek (optioneel)
 
 Plak deze kaart in een dashboard (vereist `custom:apexcharts-card` via HACS):
