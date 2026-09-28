@@ -67,7 +67,7 @@ sensor.prijzen_bron_energyzero        sensor.stroomprijs_afname
                                     sensor.stroomprijs_levering
 binary_sensor.prijzen_kruiscontrole_afwijking
 binary_sensor.prijzen_morgen_beschikbaar
-input_number.prijs_btw / _energiebelasting / _opslag_afname / _opslag_levering / _afwijkingsdrempel
+input_number.prijs_btw / _energiebelasting / _opslag_afname / _opslag_levering / _afwijkingsdrempel / _laad_drempel
 input_boolean.prijs_saldering_energiebelasting_teruggave
 automation.prijzen_*  (2 meld-automatiseringen)
 ```
