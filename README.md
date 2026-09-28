@@ -1,64 +1,122 @@
-# Energyprijs — stroomprijs-package installer
+![HA](https://img.shields.io/badge/Home%20Assistant-2024.1%2B-blue?logo=homeassistant)
+![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-orange?logo=hackthebox)
+![license](https://img.shields.io/badge/license-MIT-green)
 
-Eén service-call installeert het complete stroomprijs-package in Home Assistant:
+# ⚡ Energyprijs
 
-- **3 bronnen** met kruiscontrole: Nord Pool, EnerPrice, EnergyZero
-- **Bruto basisprijs** (mediaan van ≥2 verse bronnen, 15-min-klaar)
-- **All-in afname/levering** met invoervelden (btw, energiebelasting, opslagen)
-- **Kruiscontrole-meldingen** bij bronuitval of afwijking
-- **2027-bestendig**: saldering weg? Zet één schakelaar om
+**Eén service-call plant het complete dynamische-stroomprijs-package in Home Assistant.**
 
-## Installatie (3 stappen)
-
-1. **HACS → ⋮ (drie puntjes) → Custom repositories →**
-   repository-URL invullen → type **Integration** → **Add**.
-2. Zoek **Energyprijs** in HACS → **Download**.
-3. **Herstart Home Assistant** (nodig om de integratie te laden).
-
-Daarna:
-
-4. Bel de service (via Developer Tools → YAML → Services):
-
-   ```yaml
-   service: energyprijs.install
-   data: {}
-   ```
-
-   of optioneel met directe herstart:
-
-   ```yaml
-   service: energyprijs.install
-   data:
-     force_restart: true
-   ```
-
-5. Controleer het resultaat (Developer Tools → YAML → Services):
-
-   ```yaml
-   service: energyprijs.status
-   data: {}
-   ```
-
-## Wat doet de installer?
-
-| Stap | Actie |
+| Wat je krijgt | Details |
 |---|---|
-| 1 | `package.yaml` → `/config/packages/energyprijs.yaml` |
-| 2 | `configuration.yaml`: voegt `homeassistant: packages: !include_dir_named packages` toe (alleen als die nog ontbreekt) |
-| 3 | Meldt of een herstart nodig is (of forceert die met `force_restart: true`) |
+| 🔀 3 bronnen, kruiscontrole | Nord Pool · EnerPrice · EnergyZero — basisprijs faalt als <2 bronnen vers zijn |
+| 📊 Bruto daglijst (15 min) | Direct grafiekklaar voor ApexCharts-card, vandaag + morgen |
+| 💶 All-in formules | Afname/levering via instelbare velden: btw, energiebelasting, opslagen |
+| 🔔 Meldingen | Automatisch bij bronuitval, spreiding of ontbrekende morgenprijzen |
+| 🗓️ 2027-bestendig | Saldering vervalt 1-1-2027 → één schakelaar om, formules passen zichzelf aan |
 
-Het package zelf is *niet* ingebed in automatiseringen — het levert sensoren,
-helpers en waarschuwingsautomatiseringen. Verwijderen = bestand weg + herstart.
+## Installatie
 
-## Benodigde integraties
+### Stap 1 — HACS
+1. **HACS → ⋮ → Custom repositories → Add repository**
+   - Repository: `jouw-naam/energyprijs` (of de URL van deze repo)
+   - Category: **Integration**
+2. Zoek **Energyprijs** → **Download**
+3. **Herstart Home Assistant**
 
-- **Nord Pool** (core)
-- **EnerPrice** (HACS) — *extended attributes* aanzetten in de opties
-- **EnergyZero** (core)
-- Notificatie-service `notify.home` (pas de naam aan in het package als je
-  een andere Telegram-notify hebt)
+### Stap 2 — Installeren
+Developer Tools → Actions (Service):
 
-## Na installatie
+```yaml
+action: energyprijs.install
+data: {}
+```
 
-Zie de comments in `/config/packages/energyprijs.yaml` — daar staat de
-controlelijst (entiteiten-check, notify-naam, saldering-schakelaar voor 2027).
+De installer doet dan automatisch:
+
+| # | Actie | Veiligheid |
+|---|---|---|
+| 1 | Package schrijven naar `/config/packages/energyprijs.yaml` | Overschrijft alleen dit bestand |
+| 2 | `packages: !include_dir_named packages` toevoegen aan configuration.yaml | Alleen als afwezig; nooit dubbel |
+| 3 | Melden dat herstart nodig is | Forceert niets — jij kiest het moment |
+
+Optioneel: `force_restart: true` meesturen als je de herstart meteen wilt.
+
+### Stap 3 — Controleren
+
+```yaml
+action: energyprijs.status
+```
+
+Toont of package + include aanwezig zijn.
+
+## Voorwaarden
+
+De package gebruikt sensoren van integraties die al geïnstalleerd moeten zijn:
+
+- **Nord Pool** (core-integratie)
+- **EnerPrice** (HACS: `LenFaki/home-assistant-nl-day-ahead-prices`) — zet *extended attributes* aan in de opties
+- **EnergyZero** (core-integratie)
+- Een notify-service genaamd `notify.home` (anders de naam in het package aanpassen)
+
+## Entiteiten na installatie
+
+```
+sensor.prijzen_bron_nordpool          sensor.stroomprijs_basis
+sensor.prijzen_bron_enerprice         sensor.stroomprijs_daglijst
+sensor.prijzen_bron_energyzero        sensor.stroomprijs_afname
+                                    sensor.stroomprijs_levering
+binary_sensor.prijzen_kruiscontrole_afwijking
+binary_sensor.prijzen_morgen_beschikbaar
+input_number.prijs_btw / _energiebelasting / _opslag_afname / _opslag_levering / _afwijkingsdrempel
+input_boolean.prijs_saldering_energiebelasting_teruggave
+automation.prijzen_*  (2 meld-automatiseringen)
+```
+
+## Grafiek (optioneel)
+
+Plak deze kaart in een dashboard (vereist `custom:apexcharts-card` via HACS):
+
+```yaml
+type: custom:apexcharts-card
+graph_span: 24h
+span:
+  start: day
+title: Stroomprijs bruto (EUR/kWh)
+now:
+  show: true
+  label: nu
+series:
+  - entity: sensor.stroomprijs_daglijst
+    type: column
+    data_generator: >
+      return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime(), e.p]);
+    float_precision: 3
+    color_threshold:
+      - value: 0
+        color: "#0a8f3c"
+      - value: 0.1
+        color: "#2fbf5f"
+      - value: 0.25
+        color: "#e6b800"
+      - value: 0.4
+        color: "#d94040"
+yaxis:
+  decimales: 3
+```
+
+## Werking & ontwerp
+
+- **Rekenen nooit met onverse data:** elke bron heeft een beschikbaarheidsvlag; de basisprijs vereist ≥2 verse bronnen, anders unavailable + notificatie.
+- **Bruto is de basis** (kale markt excl. belasting/btw) — geschikt voor arbitrage en grafiek; all-in zit in aparte sensoren.
+- **Helpers in UI aanpasbaar** — contractwijziging volgend jaar? Alleen input-velden verzetten, geen YAML-edits.
+
+## Verwijderen
+
+Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/config/packages/` halen + herstart. De installer liet verder niets achter in configuration.yaml behalve de (optioneel te laten staan) packages-include.
+
+## Versiehistorie
+
+| Versie | Wijziging |
+|---|---|
+| 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
+| 1.0.0 | Eerste versie: installer + package |
