@@ -39,9 +39,9 @@ template:
         unique_id: prijzen_bron_nordpool
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
+        availability: "{{ has_value('sensor.nord_pool_nl_current_price') }}"
         state: >
-          {% if is_state('sensor.nord_pool_nl_current_price', 'unavailable') %}unavailable
-          {% else %}{{ states('sensor.nord_pool_nl_current_price') }}{% endif %}
+          {{ states('sensor.nord_pool_nl_current_price') }}
         attributes:
           beschikbaar: "{{ has_value('sensor.nord_pool_nl_current_price') }}"
 
@@ -52,12 +52,11 @@ template:
         unique_id: prijzen_bron_enerprice
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
+        availability: >
+          {{ is_state('binary_sensor.enerprice_nl_day_ahead_prices_api_data_available', 'on')
+             and has_value('sensor.enerprice_nl_day_ahead_prices_current_market_price') }}
         state: >
-          {% set ep = 'sensor.enerprice_nl_day_ahead_prices_current_market_price' %}
-          {# cache-waarde weigeren: alleen als de API zelf OK gemeld wordt #}
-          {% if not is_state('binary_sensor.enerprice_nl_day_ahead_prices_api_data_available', 'on') %}unavailable
-          {% elif not has_value(ep) %}unavailable
-          {% else %}{{ states(ep) }}{% endif %}
+          {{ states('sensor.enerprice_nl_day_ahead_prices_current_market_price') }}
         attributes:
           prices_today: >
             {{ state_attr('sensor.enerprice_nl_day_ahead_prices_current_market_price', 'prices_today')
@@ -78,13 +77,13 @@ template:
         unique_id: prijzen_bron_energyzero
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
+        availability: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
         state: >
-          {% set ez = 'sensor.energyzero_today_energy_current_hour_price' %}
-          {% if not has_value(ez) %}unavailable
-          {% else %}{{ (states(ez) | float(0) / (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}{% endif %}
+          {{ (states('sensor.energyzero_today_energy_current_hour_price') | float(0)
+              / (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}
         attributes:
           interval_min: 60   # EnergyZero-core-sensor is per uur; NordPool/EnerPrice leveren straks 15 min
-          beschikbaar: "{{ has_value(ez) }}"
+          beschikbaar: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
 
       # ── BASISPRIJS: meerderheidsmediaan van ≥2 verse bronnen, anders falen
       - name: "Stroomprijs basis"
@@ -103,7 +102,7 @@ template:
                       states('sensor.prijzen_bron_enerprice'),
                       states('sensor.prijzen_bron_energyzero')]
                       | select('match', '^-?\\d') | map('float') | list | sort %}
-          {% if n | length == 0 %}unavailable
+          {% if n | length == 0 %}none
           {% elif n | length == 1 %}{{ n[0] | round(6) }}
           {% elif n | length == 2 %}{{ ((n[0] + n[1]) / 2) | round(6) }}
           {% else %}{{ n[1] | round(6) }}{% endif %}
@@ -197,7 +196,7 @@ input_number:
     min: 0
     max: 0.5
     step: 0.001
-    value: 0.21
+    initial: 0.21
     icon: mdi:percent
   prijs_energiebelasting:
     name: "Prijs: energiebelasting excl btw"
@@ -205,7 +204,7 @@ input_number:
     min: 0
     max: 0.30
     step: 0.0001
-    value: 0.0916          # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
+    initial: 0.0916          # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
     icon: mdi:transmission-tower
   prijs_opslag_afname:
     name: "Prijs: leveranciersopslag afname"
@@ -213,7 +212,7 @@ input_number:
     min: 0
     max: 0.10
     step: 0.0001
-    value: 0.019           # placeholder Zonneplan-niveau — aanpassen op contract 2027
+    initial: 0.019           # placeholder Zonneplan-niveau — aanpassen op contract 2027
     icon: mdi:store
   prijs_opslag_levering:
     name: "Prijs: leveranciersopslag levering"
@@ -221,7 +220,7 @@ input_number:
     min: 0
     max: 0.10
     step: 0.0001
-    value: 0.002           # naar schatting; accu_berekening.md gebruikt ~€0,02 + 10% bonus
+    initial: 0.002           # naar schatting; accu_berekening.md gebruikt ~€0,02 + 10% bonus
     icon: mdi:store-check
   prijs_afwijkingsdrempel:
     name: "Prijs: afwijkingsdrempel kruiscontrole"
@@ -229,7 +228,7 @@ input_number:
     min: 0.001
     max: 0.05
     step: 0.001
-    value: 0.005
+    initial: 0.005
     icon: mdi:scale-balance
 
 input_boolean:
