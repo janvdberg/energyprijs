@@ -245,16 +245,6 @@ input_number:
     step: 0.0001
     initial: 0.002           # naar schatting; accu_berekening.md gebruikt ~€0,02 + 10% bonus
     icon: mdi:store-check
-  prijs_afwijkingsdrempel:
-    name: "Prijs: afwijkingsdrempel kruiscontrole"
-    unit_of_measurement: "EUR/kWh"
-    min: 0.001
-    max: 0.05
-    step: 0.001
-    initial: 0.005
-    icon: mdi:scale-balance
-
-input_number:
   prijs_laad_drempel:
     name: "Prijs: laad-drempel (afname all-in)"
     unit_of_measurement: "EUR/kWh"
@@ -263,6 +253,14 @@ input_number:
     step: 0.001
     initial: 0.337
     icon: mdi:ev-station
+  prijs_afwijkingsdrempel:
+    name: "Prijs: afwijkingsdrempel kruiscontrole"
+    unit_of_measurement: "EUR/kWh"
+    min: 0.001
+    max: 0.05
+    step: 0.001
+    initial: 0.005
+    icon: mdi:scale-balance
 
 input_boolean:
   prijs_saldering_energiebelasting_teruggave:

@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Energyprijs installeren",
+        "description": "Bevestig om het stroomprijs-package (3-bronnen kruiscontrole, all-in formules) in /config/packages/ te plaatsen. Na afloop Home Assistant herstarten om de YAML te activeren.",
+        "data": {}
+      }
+    },
+    "abort": {
+      "already_configured": "Energyprijs is al geïnstalleerd — gebruik service energyprijs.install om te herinstalleren."
+    },
+    "error": {}
+  },
+  "options": {}
+}
