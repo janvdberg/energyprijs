@@ -1,0 +1,6 @@
+"""Constanten voor de energyprijs-installer."""
+DOMAIN = "energyprijs"
+PACKAGE_FILENAME = "energyprijs.yaml"
+PACKAGE_SOURCE = "package.yaml"
+CONFIG_FILENAME = "configuration.yaml"
+PACKAGES_KEY = "packages"

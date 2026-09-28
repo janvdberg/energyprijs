@@ -1,0 +1,323 @@
+# ═══════════════════════════════════════════════════════════════
+#  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
+#  Versie 0.9 · 28 sep 2026 · bestemd voor /config/packages/energyprijs.yaml
+#
+#  Ontwerpregels (vastgelegd door Jan):
+#   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
+#     Geen enkele bron vers → sensor unavailable + notificatie.
+#   - Bruto (kale markt, excl. btw/belasting/opslag) is de basis voor
+#     grafiek én arbitrage; all-in zit in aparte sensoren via input-velden.
+#   - 2027-bestendig: saldering weg → alleen input_number/boolean verzetten.
+#   - Kwartier-klaar: EnerPrice/Nord Pool leveren vanzelf 15-min intervallen
+#     zodra de markt overgaat; templates werken op attributes-lijsten.
+#
+#  Benodigde integraties (staan al geïnstalleerd):
+#   1. Nord Pool      (core)       → sensor.nord_pool_nl_current_price (excl. btw)
+#   2. EnerPrice      (HACS custom)→ sensor.enerprice_nl_day_ahead_prices_*
+#        bronnen-chain + cache; attributes prices_today/prices_tomorrow = {time, price}
+#   3. EnergyZero     (core)       → sensor.energyzero_today_energy_current_hour_price (INCL btw!)
+#   4. notify.home    (Telegram)   → pas naam aan indien jouw notify-service anders heet
+#
+#  ⚠️ Na installatie controleren (Settings → Entiteiten):
+#   - template entiteiten krijgen id's als sensor.prijzen_bron_nordpool,
+#     sensor.stroomprijs_basis, sensor.stroomprijs_afname, … (HA slugify van name).
+#     Mocht HA ergens _2 van maken (botsing), pas de onderlinge verwijzingen aan.
+#   - binary_sensor.enerprice_nl_day_ahead_prices_api_data_available bestaat
+#     gegarandeerd (uit EnerPrice-broncode bevestigd).
+#   - Zet in de EnerPrice-integratieopties "extended attributes" AAN, dan pas
+#     zijn prices_today/prices_tomorrow beschikbaar voor de daglijst.
+#   - Oude rommel opruimen (optioneel, out-of-scope van dit package):
+#     sensor.zonneplan_15_01_2026 e.d. blijven staan tot je oude automatiseringen
+#     op sensor.stroomprijs_basis/afname/levering wijzen.
+# ═══════════════════════════════════════════════════════════════
+
+template:
+  - sensor:
+      # ── BRON 1: Nord Pool, ruw (excl. btw). GEEN daglijst in attributes —
+      #    core-integratie heeft alleen nu/vorige/volgende + min/max sensoren.
+      - name: "Prijzen bron Nordpool"
+        unique_id: prijzen_bron_nordpool
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        state: >
+          {% if is_state('sensor.nord_pool_nl_current_price', 'unavailable') %}unavailable
+          {% else %}{{ states('sensor.nord_pool_nl_current_price') }}{% endif %}
+        attributes:
+          beschikbaar: "{{ has_value('sensor.nord_pool_nl_current_price') }}"
+
+      # ── BRON 2: EnerPrice market (excl. btw), incl. diens provider/cache-status.
+      #    EXACTE attribute-namen conform repo-broncode (models.py as_attribute → {time, price}):
+      #    prices / prices_today / prices_tomorrow op de current_market_price-sensor.
+      - name: "Prijzen bron Enerprice"
+        unique_id: prijzen_bron_enerprice
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        state: >
+          {% set ep = 'sensor.enerprice_nl_day_ahead_prices_current_market_price' %}
+          {# cache-waarde weigeren: alleen als de API zelf OK gemeld wordt #}
+          {% if not is_state('binary_sensor.enerprice_nl_day_ahead_prices_api_data_available', 'on') %}unavailable
+          {% elif not has_value(ep) %}unavailable
+          {% else %}{{ states(ep) }}{% endif %}
+        attributes:
+          prices_today: >
+            {{ state_attr('sensor.enerprice_nl_day_ahead_prices_current_market_price', 'prices_today')
+               | default([], true) }}
+          prices_tomorrow: >
+            {{ state_attr('sensor.enerprice_nl_day_ahead_prices_current_market_price', 'prices_tomorrow')
+               | default([], true) }}
+          provider: >
+            {{ state_attr('sensor.enerprice_nl_day_ahead_prices_current_market_price', 'provider') }}
+          fallback_used: >
+            {{ state_attr('sensor.enerprice_nl_day_ahead_prices_current_market_price', 'fallback_used') }}
+          prijs_resolutie: >
+            {{ state_attr('sensor.enerprice_nl_day_ahead_prices_current_market_price', 'raw_price_resolution') }}
+          beschikbaar: "{{ is_state('binary_sensor.enerprice_nl_day_ahead_prices_api_data_available', 'on') and has_value('sensor.enerprice_nl_day_ahead_prices_current_market_price') }}"
+
+      # ── BRON 3: EnergyZero, gecorrigeerd naar excl. btw (API levert INCL btw)
+      - name: "Prijzen bron Energyzero"
+        unique_id: prijzen_bron_energyzero
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        state: >
+          {% set ez = 'sensor.energyzero_today_energy_current_hour_price' %}
+          {% if not has_value(ez) %}unavailable
+          {% else %}{{ (states(ez) | float(0) / (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}{% endif %}
+        attributes:
+          interval_min: 60   # EnergyZero-core-sensor is per uur; NordPool/EnerPrice leveren straks 15 min
+          beschikbaar: "{{ has_value(ez) }}"
+
+      # ── BASISPRIJS: meerderheidsmediaan van ≥2 verse bronnen, anders falen
+      - name: "Stroomprijs basis"
+        unique_id: stroomprijs_basis
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        icon: mdi:currency-eur
+        availability: >
+          {% set n = [states('sensor.prijzen_bron_nordpool'),
+                      states('sensor.prijzen_bron_enerprice'),
+                      states('sensor.prijzen_bron_energyzero')]
+                      | select('match', '^-?\\d') | map('float') | list %}
+          {{ n | length >= 2 }}
+        state: >
+          {% set n = [states('sensor.prijzen_bron_nordpool'),
+                      states('sensor.prijzen_bron_enerprice'),
+                      states('sensor.prijzen_bron_energyzero')]
+                      | select('match', '^-?\\d') | map('float') | list | sort %}
+          {% if n | length == 0 %}unavailable
+          {% elif n | length == 1 %}{{ n[0] | round(6) }}
+          {% elif n | length == 2 %}{{ ((n[0] + n[1]) / 2) | round(6) }}
+          {% else %}{{ n[1] | round(6) }}{% endif %}
+        attributes:
+          bronnen_actief: >
+            {{ ['nordpool','enerprice','energyzero']
+               | zip([states('sensor.prijzen_bron_nordpool'),
+                      states('sensor.prijzen_bron_enerprice'),
+                      states('sensor.prijzen_bron_energyzero')])
+               | selectattr('1', 'match', '^-?\\d') | map(attribute='0') | list }}
+          spreiding: >
+            {% set n = [states('sensor.prijzen_bron_nordpool'),
+                        states('sensor.prijzen_bron_enerprice'),
+                        states('sensor.prijzen_bron_energyzero')]
+                        | select('match', '^-?\\d') | map('float') | list %}
+            {{ (n | max - n | min) | round(6) if n | length >= 2 else none }}
+
+      # ── DAGLIJST voor ApexCharts: [{t, p}] bruto, vandaag + morgen.
+      #    Bron = EnerPrice prices_today/prices_tomorrow ({time, price});
+      #    Nord Pool core heeft géén daglijst — valt EnerPrice weg, dan blijft
+      #    de basis-prijs werken via mediaan en wordt alleen de grafiek leeg.
+      - name: "Stroomprijs daglijst"
+        unique_id: stroomprijs_daglijst
+        state: >
+          {{ now().strftime('%H:%M') }}
+        attributes:
+          vandaag: >
+            {% set ns = namespace(out=[]) %}
+            {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_today') | default([], true) %}
+              {% if i.time is defined and i.price is defined %}
+                {% set ns.out = ns.out + [{'t': i.time, 'p': i.price}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.out }}
+          morgen: >
+            {% set ns = namespace(out=[]) %}
+            {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_tomorrow') | default([], true) %}
+              {% if i.time is defined and i.price is defined %}
+                {% set ns.out = ns.out + [{'t': i.time, 'p': i.price}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.out }}
+
+      # ── AFNAME all-in = (basis + opslag + energiebelasting) × (1+btw)
+      - name: "Stroomprijs afname"
+        unique_id: stroomprijs_afname
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.stroomprijs_basis') }}"
+        state: >
+          {{ ((states('sensor.stroomprijs_basis') | float(0)
+               + states('input_number.prijs_opslag_afname') | float(0)
+               + states('input_number.prijs_energiebelasting') | float(0))
+              * (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}
+
+      # ── LEVERING all-in = (basis + leveringopslag) × (1+btw); NA 2027 géén belasting-teruggave.
+      #    Tot 1-1-2027 geldt saldering: teruggave = belasting; zet dan het salderings-veld op 1.
+      - name: "Stroomprijs levering"
+        unique_id: stroomprijs_levering
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.stroomprijs_basis') }}"
+        state: >
+          {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
+          {% set basis = states('sensor.stroomprijs_basis') | float(0) %}
+          {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
+          {{ ((basis + states('input_number.prijs_opslag_levering') | float(0)) * btw
+              + (states('input_number.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
+
+  # ── Binaire bewaking: is de minderheidscontrole nog OK?
+  - binary_sensor:
+      - name: "Prijzen kruiscontrole afwijking"
+        unique_id: prijzen_kruiscontrole_afwijking
+        delay_on: "00:05"
+        delay_off: "00:05"
+        state: >
+          {% set s = state_attr('sensor.stroomprijs_basis', 'spreiding') %}
+          {{ s is not none and s | float(0) > states('input_number.prijs_afwijkingsdrempel') | float(0.005) }}
+
+      - name: "Prijzen morgen beschikbaar"
+        unique_id: prijzen_morgen_beschikbaar
+        state: >
+          {{ state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) | count > 0 }}
+
+input_number:
+  prijs_btw:
+    name: "Prijs: BTW"
+    unit_of_measurement: "factor"
+    minimum: 0
+    maximum: 0.5
+    step: 0.001
+    value: 0.21
+    icon: mdi:percent
+  prijs_energiebelasting:
+    name: "Prijs: energiebelasting excl btw"
+    unit_of_measurement: "EUR/kWh"
+    minimum: 0
+    maximum: 0.30
+    step: 0.0001
+    value: 0.0916          # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
+    icon: mdi:transmission-tower
+  prijs_opslag_afname:
+    name: "Prijs: leveranciersopslag afname"
+    unit_of_measurement: "EUR/kWh"
+    minimum: 0
+    maximum: 0.10
+    step: 0.0001
+    value: 0.019           # placeholder Zonneplan-niveau — aanpassen op contract 2027
+    icon: mdi:store
+  prijs_opslag_levering:
+    name: "Prijs: leveranciersopslag levering"
+    unit_of_measurement: "EUR/kWh"
+    minimum: 0
+    maximum: 0.10
+    step: 0.0001
+    value: 0.002           # naar schatting; accu_berekening.md gebruikt ~€0,02 + 10% bonus
+    icon: mdi:store-check
+  prijs_afwijkingsdrempel:
+    name: "Prijs: afwijkingsdrempel kruiscontrole"
+    unit_of_measurement: "EUR/kWh"
+    minimum: 0.001
+    maximum: 0.05
+    step: 0.001
+    value: 0.005
+    icon: mdi:scale-balance
+
+input_boolean:
+  prijs_saldering_energiebelasting_teruggave:
+    name: "Prijs: saldering (belasting-teruggave bij levering)"
+    icon: mdi:solar-power
+    # NU: on (saldering nog van kracht t/m 31-12-2026).
+    # Per 1-1-2027: uitzetten → leveringformule valt automatisch terug op spot+btw.
+
+automation:
+  - alias: "Prijzen: meld bij bronuitval of basis-onbetrouwbaar"
+    id: prijzen_meld_bronuitval
+    mode: restarted
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.stroomprijs_basis
+          - sensor.prijzen_bron_nordpool
+          - sensor.prijzen_bron_enerprice
+          - sensor.prijzen_bron_energyzero
+        to: ["unavailable", "unknown"]
+        for: "00:05:00"
+      - trigger: state
+        entity_id: binary_sensor.prijzen_kruiscontrole_afwijking
+        to: "on"
+        for: "00:05:00"
+    conditions: []
+    actions:
+      - action: notify.home
+        data:
+          title: "⚡ Stroomprijs-basis verstoord"
+          message: >
+            {% if trigger.entity_id == 'sensor.stroomprijs_basis' %}
+            Geen twee verse bronnen meer — basis is unavailable. Berekeningen pauzeren.
+            {% elif trigger.entity_id == 'binary_sensor.prijzen_kruiscontrole_afwijking' %}
+            Kruiscontrole: spreiding {{ state_attr('sensor.stroomprijs_basis','spreiding') }} EUR/kWh boven drempel.
+            {% else %}
+            Bron {{ trigger.entity_id.split('.')[-1] }} valt weg. Actieve bronnen:
+            {{ state_attr('sensor.stroomprijs_basis','bronnen_actief') | join(', ') }}.
+            {% endif %}
+
+  - alias: "Prijzen: herinner om 15:15 als morgenprijzen ontbreken"
+    id: prijzen_meld_morgen_missing
+    mode: single
+    triggers:
+      - trigger: time
+        at: "15:15"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.prijzen_morgen_beschikbaar
+        state: "off"
+    actions:
+      - action: notify.home
+        data:
+          title: "⚠ Morgenprijzen nog niet binnen"
+          message: >
+            Om 15:15 zijn er geen morgen-intervallen. Actieve bronnen:
+            {{ state_attr('sensor.stroomprijs_basis','bronnen_actief') | default(['geen'], true) | join(', ') }}.
+            Planning vanmiddag niet uitvoeren tot ze binnen zijn.
+
+# ═══════════════════════════════════════════════════════════════
+#  LOVELACE CARD (apart in je dashboard plakken, NIET in packages/)
+#  Staafgrafiek bruto, 15-min-staven zodra de markt kwartier levert.
+# ═══════════════════════════════════════════════════════════════
+# type: custom:apexcharts-card
+# graph_span: 24h
+# span:
+#   start: day
+#   offset: +0d
+# title: Stroomprijs bruto (EUR/kWh) — vandaag
+# now:
+#   show: true
+#   label: nu
+# header:
+#   show: true
+#   show_states: false
+# series:
+#   - entity: sensor.stroomprijs_daglijst
+#     type: column
+#     data_generator: |
+#       return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime(), e.p]);
+#     float_precision: 3
+#     color_threshold:
+#       - value: 0
+#         color: "#0a8f3c"      # negatief: geld verdienen
+#       - value: 0.10
+#         color: "#2fbf5f"
+#       - value: 0.25
+#         color: "#e6b800"
+#       - value: 0.40
+#         color: "#d94040"
+# yaxis:
+#   decimales: 3
