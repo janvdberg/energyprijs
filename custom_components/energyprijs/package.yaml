@@ -132,21 +132,38 @@ template:
           {{ now().strftime('%H:%M') }}
         attributes:
           vandaag: >
+            {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
+            {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
+            {% set sa = states('input_number.prijs_opslag_afname') | float(0) %}
+            {% set sl = states('input_number.prijs_opslag_levering') | float(0) %}
+            {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
             {% set ns = namespace(out=[]) %}
             {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_today') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
-                {% set ns.out = ns.out + [{'t': i.time, 'p': i.price}] %}
+                {% set p = i.price | float(0) %}
+                {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
+                    'in': ((p + sa + bel) * btw) | round(4),
+                    'uit': (((p + sl) * btw + (bel * btw if saldering else 0)) | round(4))}] %}
               {% endif %}
             {% endfor %}
             {{ ns.out }}
           morgen: >
+            {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
+            {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
+            {% set sa = states('input_number.prijs_opslag_afname') | float(0) %}
+            {% set sl = states('input_number.prijs_opslag_levering') | float(0) %}
+            {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
             {% set ns = namespace(out=[]) %}
             {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_tomorrow') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
-                {% set ns.out = ns.out + [{'t': i.time, 'p': i.price}] %}
+                {% set p = i.price | float(0) %}
+                {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
+                    'in': ((p + sa + bel) * btw) | round(4),
+                    'uit': (((p + sl) * btw + (bel * btw if saldering else 0)) | round(4))}] %}
               {% endif %}
             {% endfor %}
             {{ ns.out }}
+
 
       # ── AFNAME all-in = (basis + opslag + energiebelasting) × (1+btw)
       - name: "Stroomprijs afname"

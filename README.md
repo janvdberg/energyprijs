@@ -87,12 +87,17 @@ type: custom:apexcharts-card
 graph_span: 24h
 span:
   start: day
-title: Stroomprijs bruto (EUR/kWh)
+title: Stroomprijs — bruto · in · uit (EUR/kWh)
 now:
   show: true
   label: nu
+header:
+  show: true
+  show_states: true          # ← toont NU: basis / in / uit als kopwaarden
+colorize_states: auto
 series:
-  - entity: sensor.stroomprijs_daglijst
+  - entity: sensor.stroomprijs_basis
+    name: bruto
     type: column
     data_generator: >
       return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime(), e.p]);
@@ -106,8 +111,41 @@ series:
         color: "#e6b800"
       - value: 0.4
         color: "#d94040"
+  - entity: sensor.stroomprijs_afname
+    name: in (all-in)
+    type: line
+    stroke_width: 2
+    color: "#d94040"
+    extend_to: now           # lijn stopt bij 'nu' — geen verzinsel over de toekomst
+  - entity: sensor.stroomprijs_levering
+    name: uit (all-in)
+    type: line
+    stroke_width: 2
+    color: "#0a8f3c"
+    extend_to: now
 yaxis:
   decimales: 3
+tooltip:
+  show: true
+```
+
+Bij de **nu**-lijn tonen de kopwaarden bovenin automatisch de actuele prijzen:
+bruto · **in** (afname all-in) · **uit** (levering all-in). Hover je over een staafje,
+dan geeft de tooltip bruto/in/uit voor dat kwartier — want de daglijst-sensor bevat per
+interval alle drie (`{t, p, in, uit}`). Wil je in/uit per interval in de grafiek zelf,
+vervang dan de twee lijn-series door:
+
+```yaml
+  - entity: sensor.stroomprijs_daglijst
+    name: in
+    type: line
+    data_generator: >
+      return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime(), e.in]);
+  - entity: sensor.stroomprijs_daglijst
+    name: uit
+    type: line
+    data_generator: >
+      return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime(), e.uit]);
 ```
 
 ## Werking & ontwerp
