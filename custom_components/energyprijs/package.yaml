@@ -109,11 +109,13 @@ template:
           {% else %}{{ n[1] | round(6) }}{% endif %}
         attributes:
           bronnen_actief: >
-            {{ ['nordpool','enerprice','energyzero']
-               | zip([states('sensor.prijzen_bron_nordpool'),
-                      states('sensor.prijzen_bron_enerprice'),
-                      states('sensor.prijzen_bron_energyzero')])
-               | selectattr('1', 'match', '^-?\\d') | map(attribute='0') | list }}
+            {% set ns = namespace(out=[]) %}
+            {% for naam, eid in [('nordpool','sensor.prijzen_bron_nordpool'),
+                                 ('enerprice','sensor.prijzen_bron_enerprice'),
+                                 ('energyzero','sensor.prijzen_bron_energyzero')] %}
+              {% if states(eid) is match('^-?\\d') %}{% set ns.out = ns.out + [naam] %}{% endif %}
+            {% endfor %}
+            {{ ns.out }}
           spreiding: >
             {% set n = [states('sensor.prijzen_bron_nordpool'),
                         states('sensor.prijzen_bron_enerprice'),
@@ -177,8 +179,8 @@ template:
   - binary_sensor:
       - name: "Prijzen kruiscontrole afwijking"
         unique_id: prijzen_kruiscontrole_afwijking
-        delay_on: "00:05"
-        delay_off: "00:05"
+        delay_on: "00:05:00"
+        delay_off: "00:05:00"
         state: >
           {% set s = state_attr('sensor.stroomprijs_basis', 'spreiding') %}
           {{ s is not none and s | float(0) > states('input_number.prijs_afwijkingsdrempel') | float(0.005) }}
@@ -192,40 +194,40 @@ input_number:
   prijs_btw:
     name: "Prijs: BTW"
     unit_of_measurement: "factor"
-    minimum: 0
-    maximum: 0.5
+    min: 0
+    max: 0.5
     step: 0.001
     value: 0.21
     icon: mdi:percent
   prijs_energiebelasting:
     name: "Prijs: energiebelasting excl btw"
     unit_of_measurement: "EUR/kWh"
-    minimum: 0
-    maximum: 0.30
+    min: 0
+    max: 0.30
     step: 0.0001
     value: 0.0916          # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
     icon: mdi:transmission-tower
   prijs_opslag_afname:
     name: "Prijs: leveranciersopslag afname"
     unit_of_measurement: "EUR/kWh"
-    minimum: 0
-    maximum: 0.10
+    min: 0
+    max: 0.10
     step: 0.0001
     value: 0.019           # placeholder Zonneplan-niveau — aanpassen op contract 2027
     icon: mdi:store
   prijs_opslag_levering:
     name: "Prijs: leveranciersopslag levering"
     unit_of_measurement: "EUR/kWh"
-    minimum: 0
-    maximum: 0.10
+    min: 0
+    max: 0.10
     step: 0.0001
     value: 0.002           # naar schatting; accu_berekening.md gebruikt ~€0,02 + 10% bonus
     icon: mdi:store-check
   prijs_afwijkingsdrempel:
     name: "Prijs: afwijkingsdrempel kruiscontrole"
     unit_of_measurement: "EUR/kWh"
-    minimum: 0.001
-    maximum: 0.05
+    min: 0.001
+    max: 0.05
     step: 0.001
     value: 0.005
     icon: mdi:scale-balance
@@ -240,7 +242,7 @@ input_boolean:
 automation:
   - alias: "Prijzen: meld bij bronuitval of basis-onbetrouwbaar"
     id: prijzen_meld_bronuitval
-    mode: restarted
+    mode: restart
     triggers:
       - trigger: state
         entity_id:
