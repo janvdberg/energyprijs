@@ -6,8 +6,7 @@ configuration.yaml op de packages-include. Zelf geen entiteiten.
 from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.typing import ConfigType, ServiceCall
+from homeassistant.helpers.typing import ConfigType
 
 from .installer import async_register_services
 

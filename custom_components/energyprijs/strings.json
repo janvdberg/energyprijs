@@ -8,7 +8,9 @@
       }
     },
     "abort": {
-      "already_configured": "Energyprijs is al geïnstalleerd — gebruik service energyprijs.install om te herinstalleren."
+      "already_configured": "Energyprijs is al geïnstalleerd — gebruik service energyprijs.install om te herinstalleren.",
+      "already_in_progress": "Er is al een installatie van Energyprijs bezig. Rond die eerst af of sluit het venster.",
+      "install_failed": "Installeren mislukt — /config is vermoedelijk niet schrijfbaar. Zie het HA-logboek, of gebruik de handmatige YAML-route uit de README."
     },
     "error": {}
   },

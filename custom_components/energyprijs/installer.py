@@ -12,16 +12,20 @@ integratie zelfvoorzienend is (geen netwerk nodig, werkt achter firewalls).
 from __future__ import annotations
 
 import logging
-import os
 import re
 from pathlib import Path
 
 import voluptuous as vol
 
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN, PACKAGE_FILENAME, PACKAGE_SOURCE, CONFIG_FILENAME, PACKAGES_KEY
+try:
+    from homeassistant.core import SupportsResponse
+except ImportError:  # kern < 2024.4 had 'Optional' i.p.v. 'ONLY/OPTIONAL'
+    SupportsResponse = None
+
+from .const import DOMAIN, PACKAGE_FILENAME, PACKAGE_SOURCE, CONFIG_FILENAME
 
 _LOGGER = logging.getLogger(__name__)
 
