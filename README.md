@@ -129,6 +129,53 @@ tooltip:
   show: true
 ```
 
+### Staafkleur = laadstatus
+
+Wil je elk 15-min-blok zien als *beslissing* in plaats van als prijs? De daglijst bevat
+per interval ook `s` (status), berekend tegen jouw drempel
+(`input_number.prijs_laad_drempel`, standaard €0,337 — pas 'm aan via Settings →
+Automatiseringen & Scenes → Helpers):
+
+| Status | Betekenis | Kleur |
+|---|---|---|
+| laden | afname all-in ≤ drempel | 🟢 donkergroen |
+| comfort | tot €0,08 boven drempel | 🟡 geel |
+| ontladen | ver daarboven | 🔴 rood |
+
+```yaml
+type: custom:apexcharts-card
+graph_span: 24h
+span:
+  start: day
+title: Stroomprijs — staafkleur = laadstatus
+now:
+  show: true
+  label: nu
+series:
+  - entity: sensor.stroomprijs_daglijst
+    name: laden
+    type: column
+    color: "#109650"
+    data_generator: >
+      return entity.attributes.vandaag.filter(e => e.s === 'laden').map(e => [new Date(e.t).getTime(), e.p]);
+  - entity: sensor.stroomprijs_daglijst
+    name: comfort
+    type: column
+    color: "#e6b800"
+    data_generator: >
+      return entity.attributes.vandaag.filter(e => e.s === 'comfort').map(e => [new Date(e.t).getTime(), e.p]);
+  - entity: sensor.stroomprijs_daglijst
+    name: ontladen
+    type: column
+    color: "#d94040"
+    data_generator: >
+      return entity.attributes.vandaag.filter(e => e.s === 'ontladen').map(e => [new Date(e.t).getTime(), e.p]);
+yaxis:
+  decimales: 3
+```
+
+![Statusvoorbeeld](docs/voorbeeld-status.png)
+
 Bij de **nu**-lijn tonen de kopwaarden bovenin automatisch de actuele prijzen:
 bruto · **in** (afname all-in) · **uit** (levering all-in). Hover je over een staafje,
 dan geeft de tooltip bruto/in/uit voor dat kwartier — want de daglijst-sensor bevat per
