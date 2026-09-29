@@ -43,9 +43,12 @@ class EnergyprijsConfigFlow(ConfigFlow, domain=DOMAIN):
 
             from .installer import _ensure_packages_include, _write_package
 
-            target = _write_package(self.hass)
+            # file-IO off-thread (HA verbiedt blocking calls in de event loop)
+            target = await self.hass.async_add_executor_job(_write_package, self.hass)
             cfg_file = self.hass.config.path("configuration.yaml")
-            changed, note = _ensure_packages_include(Path(cfg_file))
+            changed, note = await self.hass.async_add_executor_job(
+                _ensure_packages_include, Path(cfg_file)
+            )
             _LOGGER.info(
                 "energyprijs config-flow: package=%s | cfg gewijzigd=%s | %s",
                 target, changed, note,
