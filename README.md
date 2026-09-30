@@ -112,6 +112,15 @@ entities:
 
 ✅ **Volledig dynamisch:** de prijs-sensoren hebben state-triggers op hun contract-helpers. Verzet btw, energiebelasting, een opslag of zet saldering om — `sensor.stroomprijs_afname` / `_levering` (en de EnergyZero-bron) herberekenen **direct**, zonder herstart en zonder package-reload. De grafiek-koppen en de Entities-tegel lopen binnen een paar tellen mee.
 
+## Installeren via de UI (sinds v1.2.x)
+
+De integratie heeft een **UI-config-flow**: ga naar **Instellingen → Apparaten en
+services → Integratie toevoegen → "Energyprijs"** en bevestig met één klik — het
+package + de helpers worden dan automatisch neergezet, zonder service-aanroep.
+(Developer Tools → Actions → `energyprijs.install` werkt nog steeds, voor wie dat
+prefererent.) Na installatie is één HA-herstart nodig om de packages te laden; daarna
+zijn alle sensoren en helpers aanwezig.
+
 ## Dashboard in één keer (niet meer sleutelen aan YAML)
 
 Na installatie haal je beide kaarten met één service-aanroep op — geen handmatig
