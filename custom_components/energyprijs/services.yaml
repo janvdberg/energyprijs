@@ -23,3 +23,11 @@ cards:
     contractinvulvelden-kaart terug (response_payload). Plakken via Add card →
     Show code editor; vereist HACS-kaart apexcharts-card.
   response:
+dashboard:
+  name: "Energie-dashboard aanmaken/bijwerken"
+  description: >
+    Maakt het user-dashboard "Energie — stroomprijs" aan met de grafiek- en
+    contractkaarten, of werkt alleen de gemarkeerde energyprijs-blokken bij
+    naar de laatste versie. Andere kaarten in het dashboard blijven intact.
+    Antwoord via response_payload.
+  response:

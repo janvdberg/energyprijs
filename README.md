@@ -121,24 +121,31 @@ package + de helpers worden dan automatisch neergezet, zonder service-aanroep.
 prefererent.) Na installatie is één HA-herstart nodig om de packages te laden; daarna
 zijn alle sensoren en helpers aanwezig.
 
-## Dashboard in één keer (niet meer sleutelen aan YAML)
+## Dashboard in één keer
 
-Na installatie haal je beide kaarten met één service-aanroep op — geen handmatig
-plakwerk meer vanuit de repo:
+### Weg 1: automatisch — eigen dashboard, compleet gevuld
 
-1. Ga naar **Instellingen → Systeem → Herstart** is niet nodig; roep de service aan via
-   **Instellingen → Apparaten en services → Services → `energyprijs.cards`** (Developer
-   Tools → Actions werkt ook). Zet *Response data* aan.
-2. Je krijgt twee blokken terug:
-   - **`grafiek`** — de dynamische 24-uur-prijskaart met bruto-staafjes en live
-     kopwaarden (bruto · inkoopprijs · verkoopprijs);
-   - **`contract`** — de invulvelden-tegel (btw, energiebelasting, leveranciersopslag,
-     saldering).
-3. Plak ze op je dashboard: **Add card → Show code editor (⋮)** → plak het blok → Save.
-   (Vereist alleen de HACS-kaart `apexcharts-card`; de contract-tegel is pure core.)
+Na de installatie roep je één service aan:
 
-De inhoud van beide kaarten is identiek aan wat hieronder staat — maar dan gegenereerd
-en gegarandeerd consistent met jouw geïnstalleerde package-versie.
+- **Instellingen → Services** (of Developer Tools → Actions) → **`energyprijs.dashboard`**
+
+Dan:
+- **bestaat het dashboard niet** → er wordt een nieuw **user dashboard "Energie — stroomprijs"**
+  aangemaakt, direct met de 24-uur-prijsgrafiek én de contractinvulvelden-tegel. Het
+  verschijnt in je dashboardmenu;
+- **bestaat het dashboard al** → alleen de energyprijs-kaarten worden bijgewerkt naar de
+  huidige versie. **Andere kaarten in het dashboard blijven 100% intact** (er wordt alleen
+  tussen de eigen gemarkeerde blokken geschreven).
+
+Bij een HACS-upgrade roep je `energyprijs.dashboard` opnieuw aan — de kaarten springen
+mee naar de nieuwste versie, zonder dat iets anders raakt.
+
+### Weg 2: handmatig — kaarten in je bestaande dashboard
+
+Liever zelf bepalen waar de kaarten komen? Roep **`energyprijs.cards`** aan
+(Developer Tools → Actions, Response data aan) en plak de twee YAML-blokken
+(`grafiek` + `contract`) via **Add card → Show code editor** in je eigen dashboard.
+De grafiek vereist HACS-kaart `apexcharts-card`; de contract-tegel is pure core.
 
 ## Zo ziet je dashboard er daarna uit
 
@@ -313,6 +320,6 @@ Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/conf
 
 | Versie | Wijziging |
 |---|---|
-| 1.2.8 | Nieuwe service `energyprijs.cards`: haalt de kant-en-klare grafiek- én contractkaart-YAML in één keer op — geen handmatig plakwerk meer vanuit de repo || 1.2.7 | Dashboardkaart: kopwaarden via `data_template` (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
+| 1.2.9 | Nieuwe service `energyprijs.dashboard` (eigen user-dashboard aanmaken of bijwerken; upgrade-proof, andere kaarten intact) + `energyprijs.cards`: haalt de kant-en-klare grafiek- én contractkaart-YAML in één keer op — geen handmatig plakwerk meer vanuit de repo || 1.2.7 | Dashboardkaart: kopwaarden via `data_template` (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
 | 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
 | 1.0.0 | Eerste versie: installer + package |

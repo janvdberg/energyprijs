@@ -96,6 +96,28 @@ CONTRACT_CARD = {
 }
 
 
+def _yaml_item(obj, item_pad: str = "") -> str:
+    """Render een dict als één blok-YAML-lijstitem op top-niveau.
+
+    Eerste regel: "<item_pad>- key: value"; overige sleutels op kolom
+    "<item_pad>  " (2 spaties binnen het item) — exact de nested-mapping-notatie
+    die een "cards:"-lijst in een dashboard vereist.
+    """
+    assert isinstance(obj, dict)
+    key_pad = item_pad + "  "
+    out = []
+    first = True
+    for k, v in obj.items():
+        prefix = (item_pad + "- ") if first else key_pad
+        first = False
+        if isinstance(v, (dict, list)):
+            out.append(f"{prefix}{k}:")
+            out.append(_yaml_dump(v, len(item_pad) // 2 + 2))
+        else:
+            out.append(f"{prefix}{k}: {_scalar(v)}")
+    return "\n".join(out)
+
+
 def _yaml_dump(obj, indent: int = 0) -> str:
     """Mini-YAML dumper voor dicts/lists/scalars (geen PyYAML-randgeval nodig).
 
@@ -136,7 +158,9 @@ def _scalar(v) -> str:
     if isinstance(v, (int, float)):
         return repr(v)
     s = str(v)
-    if any(c in s for c in ":{}[]&*?|>!%@`,") or s != s.strip() or not s:
+    if (any(c in s for c in ":{}[]&*?|>!%@`,#")
+            or s != s.strip() or not s
+            or s.startswith("- ")):
         return json.dumps(s, ensure_ascii=False)
     return s
 
