@@ -90,14 +90,14 @@ span:
 update_interval: 5min
 show:
   last_updated: true
-title: Stroomprijs — bruto · in · uit (EUR/kWh)
 now:
   show: true
   label: nu
 header:
+  title: Stroomprijs — bruto · in · uit (EUR/kWh)
   show: true
   show_states: true
-  colorize_states: auto
+  colorize_states: true
 series:
   # ── kopwaarden 'NU' bovenin (alleen header, niet getekend) ──
   - entity: sensor.stroomprijs_basis
@@ -148,7 +148,7 @@ series:
     show:
       in_header: before_now
 yaxis:
-  decimales: 3
+  - decimals: 3
 tooltip:
   show: true
 ```
@@ -171,7 +171,6 @@ type: custom:apexcharts-card
 graph_span: 24h
 span:
   start: day
-title: Stroomprijs — staafkleur = laadstatus
 now:
   show: true
   label: nu
@@ -195,7 +194,7 @@ series:
     data_generator: >
       return entity.attributes.vandaag.filter(e => e.s === 'ontladen').map(e => [new Date(e.t).getTime(), e.p]);
 yaxis:
-  decimales: 3
+  - decimals: 3
 ```
 
 ![Statusvoorbeeld](docs/voorbeeld-status.png)
