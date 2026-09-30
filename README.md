@@ -88,6 +88,35 @@ Formules: **inkoop** = (bruto + opslag_afname + energiebelasting) × (1+btw) · 
 
 Vul na installatie de waarden in die op **jouw contract** slaan (te vinden in je leveringsvoorwaarden of op je factuur); de sensoren `sensor.stroomprijs_afname` / `_levering` rekenen dan direct mee. De startwaarden in het package zijn indicatief — pas ze aan, anders kloppen inkoop/verkoop niet voor jouw situatie.
 
+### Instellingen-tegel op je dashboard
+
+Plak deze kaart om de velden direct bij te stellen (met een actuele-kopregel):
+
+```yaml
+type: entities
+title: Stroomprijs — contractinstellingen
+show_header_toggle: false
+state_color: true
+header:
+  type: custom:mushroom-template-card
+  primary: "In {{ states('sensor.stroomprijs_afname') | round(3) }} · Uit {{ states('sensor.stroomprijs_levering') | round(3) }} €/kWh"
+  secondary: >-
+    Bronnen actief: {{ state_attr('sensor.stroomprijs_basis', 'bronnen_actief') | join(', ') }}
+entities:
+  - entity: input_number.prijs_btw
+    name: Btw (factor, NL = 0,21)
+  - entity: input_number.prijs_energiebelasting
+    name: Energiebelasting excl. btw (€/kWh)
+  - entity: input_number.prijs_opslag_afname
+    name: Leveranciersopslag afname (€/kWh)
+  - entity: input_number.prijs_opslag_levering
+    name: Leveranciersopslag levering (€/kWh)
+  - entity: input_boolean.prijs_saldering_energiebelasting_teruggave
+    name: Saldering (teruggave belasting)
+```
+
+⚠️ Na het verzetten van een helper **herstart HA** (of reload de template entiteiten via Instellingen → Apparaten en services → Entiteiten). De formules lezen de helpers via `states(...)`; HA herberekent de prijs-sensoren niet automatisch wanneer alleen een helper verandert.
+
 ## Zo ziet je dashboard er daarna uit
 
 ![Voorbeeldgrafiek](docs/voorbeeld-grafiek.png)
