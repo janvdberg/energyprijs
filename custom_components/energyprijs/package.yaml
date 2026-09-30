@@ -235,7 +235,7 @@ input_number:
     min: 0
     max: 0.10
     step: 0.0001
-    initial: 0.019           # placeholder Zonneplan-niveau — aanpassen op contract 2027
+    initial: 0.019           # NEUTRALE STARTWAARDE — iedereen moet dit vullen met eigen contract (was: Zonneplan-niveau)
     icon: mdi:store
   prijs_opslag_levering:
     name: "Prijs: leveranciersopslag levering"
@@ -243,7 +243,7 @@ input_number:
     min: 0
     max: 0.10
     step: 0.0001
-    initial: 0.002           # naar schatting; accu_berekening.md gebruikt ~€0,02 + 10% bonus
+    initial: 0.002           # NEUTRALE STARTWAARDE — eigen contractwaarde invullen
     icon: mdi:store-check
   prijs_laad_drempel:
     name: "Prijs: laad-drempel (afname all-in)"
