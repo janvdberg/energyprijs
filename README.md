@@ -84,6 +84,7 @@ Plak deze kaart in een dashboard (vereist `custom:apexcharts-card` via HACS):
 
 ```yaml
 type: custom:apexcharts-card
+section_mode: true
 experimental:
   color_threshold: true
 graph_span: 24h
@@ -96,22 +97,25 @@ now:
   show: true
   label: nu
 header:
-  title: Stroomprijs — bruto · in · uit (EUR/kWh)
   show: true
+  title: Stroomprijs — bruto · in · uit (EUR/kWh)
   show_states: true
   colorize_states: true
 series:
-  # ── kopwaarden 'NU' bovenin (alleen header, niet getekend) ──
+  # ── kopwaarden 'NU' bovenin = actuele prijs (alleen header, niet getekend) ──
   - entity: sensor.stroomprijs_basis
     name: bruto nu
+    float_precision: 3
     show:
       in_chart: false
   - entity: sensor.stroomprijs_afname
     name: in all-in
+    float_precision: 3
     show:
       in_chart: false
   - entity: sensor.stroomprijs_levering
     name: uit all-in
+    float_precision: 3
     show:
       in_chart: false
   # ── staafjes = bruto spot per kwartier, gekleurd op prijsniveau ──
@@ -131,24 +135,7 @@ series:
       - value: 0.4
         color: "#d94040"
     show:
-      in_header: before_now
-  # ── verloop van in/uit all-in vandaag (lijn stopt bij 'nu') ──
-  - entity: sensor.stroomprijs_daglijst
-    name: in (all-in)
-    type: line
-    stroke_width: 2
-    data_generator: >
-      return entity.attributes.vandaag.filter((e) => new Date(e.t) <= new Date()).map((e) => [new Date(e.t).getTime(), e.in]);
-    show:
-      in_header: before_now
-  - entity: sensor.stroomprijs_daglijst
-    name: uit (all-in)
-    type: line
-    stroke_width: 2
-    data_generator: >
-      return entity.attributes.vandaag.filter((e) => new Date(e.t) <= new Date()).map((e) => [new Date(e.t).getTime(), e.uit]);
-    show:
-      in_header: before_now
+      in_header: false
 yaxis:
   - decimals: 3
 ```
@@ -205,7 +192,7 @@ Bij de **nu**-lijn tonen de kopwaarden bovenin automatisch de actuele prijzen:
 bruto · **in** (afname all-in) · **uit** (levering all-in). Hover je over een staafje,
 dan geeft de tooltip bruto/in/uit voor dat kwartier — want de daglijst-sensor bevat per
 interval alle drie (`{t, p, in, uit}`). Wil je in/uit per interval in de grafiek zelf,
-vervang dan de twee lijn-series door:
+voeg dan deze twee lijn-series toe aan `series:` (met `show: {in_header: false}`):
 
 ```yaml
   - entity: sensor.stroomprijs_daglijst
