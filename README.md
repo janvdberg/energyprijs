@@ -125,9 +125,17 @@ zijn alle sensoren en helpers aanwezig.
 
 ### Weg 1: automatisch — eigen dashboard, compleet gevuld
 
-Na de installatie roep je één service aan:
+Roep de service `energyprijs.dashboard` aan. Makkelijkste vindplaats:
 
-- **Instellingen → Services** (of Developer Tools → Actions) → **`energyprijs.dashboard`**
+- **Instellingen → Apparaten en services → Integraties → tegel "Energyprijs"** → onderaan
+  staat bij *Services* een directe link **`energyprijs.dashboard`** (en `.cards`, `.install`,
+  `.status`) → klik → velden leeg laten → **Action**.
+- Of Developer Tools → Actions (linkerbovenhoek ☰ → Developer Tools → tab Actions) → typ
+  `energyprijs.dashboard`.
+
+Beide routes werken; de integratietegel is het duidelijkst omdat hij de services letterlijk
+toont. (Zet na een HACS-upgrade eerst de integratie opnieuw uit/in of herstart HA — dan
+verschijnen nieuwe services ook in die lijst.)
 
 Dan:
 - **bestaat het dashboard niet** → er wordt een nieuw **user dashboard "Energie — stroomprijs"**
@@ -320,6 +328,6 @@ Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/conf
 
 | Versie | Wijziging |
 |---|---|
-| 1.2.9 | Nieuwe service `energyprijs.dashboard` (eigen user-dashboard aanmaken of bijwerken; upgrade-proof, andere kaarten intact) + `energyprijs.cards`: haalt de kant-en-klare grafiek- én contractkaart-YAML in één keer op — geen handmatig plakwerk meer vanuit de repo || 1.2.7 | Dashboardkaart: kopwaarden via `data_template` (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
+| 1.2.10 | Integratietegel toont de services (dynamische sw_version uit manifest + entry-titel); README legt de service-vindroute uit via de integratiepagina || 1.2.9 | Nieuwe service `energyprijs.dashboard` (eigen user-dashboard aanmaken of bijwerken; upgrade-proof, andere kaarten intact) + `energyprijs.cards`: haalt de kant-en-klare grafiek- én contractkaart-YAML in één keer op — geen handmatig plakwerk meer vanuit de repo || 1.2.7 | Dashboardkaart: kopwaarden via `data_template` (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
 | 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
 | 1.0.0 | Eerste versie: installer + package |

@@ -17,7 +17,13 @@ from homeassistant.helpers.typing import ConfigType
 
 from datetime import timedelta
 
+import json as _json
+from pathlib import Path as _Path
+
 from .const import DOMAIN
+
+_MANIFEST = _json.loads((_Path(__file__).parent / "manifest.json").read_text(encoding="utf-8"))
+_VERSION = str(_MANIFEST.get("version", "0"))
 from .installer import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,7 +100,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         name="Energyprijs package",
         manufacturer="Energyprijs",
         model="3-bronnen stroomprijs-package",
-        sw_version="1.2.4",
+        sw_version=_VERSION,
     )
 
     # Het package wordt pas bij een herstart geladen; direct na installeren
@@ -109,6 +115,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("energyprijs: %d package-entiteiten gekoppeld", n)
 
     _try_link()
+
+    # Zet een herkenbare titel op de entry → de integratie-tegel linkt naar de services
+    try:
+        if entry.title != "Energyprijs":
+            hass.config_entries.async_update_entry(entry, title="Energyprijs")
+    except Exception:  # noqa: BLE001
+        pass
 
     async def _watcher(_now) -> None:
         _try_link()
