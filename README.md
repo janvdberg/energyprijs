@@ -90,7 +90,7 @@ Vul na installatie de waarden in die op **jouw contract** slaan (te vinden in je
 
 ### Instellingen-tegel op je dashboard
 
-Plak deze kaart om de velden direct bij te stellen (met een actuele-kopregel):
+Plak deze kaart om de velden direct bij te stellen
 
 ```yaml
 type: entities
