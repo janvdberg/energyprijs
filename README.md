@@ -136,6 +136,11 @@ series:
         color: "#d94040"
     show:
       in_header: false
+apex_config:
+  xaxis:
+    # as loopt een halve kolom verder dan de dag → eerste/laatste staafje volledig zichtbaar
+    min: EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000
+    max: EVAL:new Date(new Date().setHours(23,59,59,999)).getTime() + 450000
 yaxis:
   - decimals: 3
 ```
