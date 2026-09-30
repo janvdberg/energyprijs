@@ -110,7 +110,7 @@ entities:
     name: Saldering (teruggave belasting)
 ```
 
-⚠️ Na het verzetten van een helper **herstart HA** (of reload de template entiteiten via Instellingen → Apparaten en services → Entiteiten). De formules lezen de helpers via `states(...)`; HA herberekent de prijs-sensoren niet automatisch wanneer alleen een helper verandert.
+✅ **Volledig dynamisch:** de prijs-sensoren hebben state-triggers op hun contract-helpers. Verzet btw, energiebelasting, een opslag of zet saldering om — `sensor.stroomprijs_afname` / `_levering` (en de EnergyZero-bron) herberekenen **direct**, zonder herstart en zonder package-reload. De grafiek-koppen en de Entities-tegel lopen binnen een paar tellen mee.
 
 ## Zo ziet je dashboard er daarna uit
 
@@ -269,5 +269,6 @@ Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/conf
 
 | Versie | Wijziging |
 |---|---|
+| 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
 | 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
 | 1.0.0 | Eerste versie: installer + package |

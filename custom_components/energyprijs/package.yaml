@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 0.9 · 28 sep 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.2.6 · 30 sep 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
@@ -78,6 +78,11 @@ template:
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
         availability: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
+        # state-trigger op de btw-helper: herbereken direct zodra die waarde verandert,
+        # zonder HA-herstart (template-sensoren luisteren normaal NIET naar input_*).
+        triggers:
+          - trigger: state
+            entity_id: input_number.prijs_btw
         state: >
           {{ (states('sensor.energyzero_today_energy_current_hour_price') | float(0)
               / (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}
@@ -177,6 +182,12 @@ template:
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
         availability: "{{ has_value('sensor.stroomprijs_basis') }}"
+        triggers:
+          - trigger: state
+            entity_id:
+              - input_number.prijs_btw
+              - input_number.prijs_energiebelasting
+              - input_number.prijs_opslag_afname
         state: >
           {{ ((states('sensor.stroomprijs_basis') | float(0)
                + states('input_number.prijs_opslag_afname') | float(0)
@@ -190,6 +201,13 @@ template:
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
         availability: "{{ has_value('sensor.stroomprijs_basis') }}"
+        triggers:
+          - trigger: state
+            entity_id:
+              - input_number.prijs_btw
+              - input_number.prijs_energiebelasting
+              - input_number.prijs_opslag_levering
+              - input_boolean.prijs_saldering_energiebelasting_teruggave
         state: >
           {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
           {% set basis = states('sensor.stroomprijs_basis') | float(0) %}
