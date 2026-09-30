@@ -84,6 +84,8 @@ Plak deze kaart in een dashboard (vereist `custom:apexcharts-card` via HACS):
 
 ```yaml
 type: custom:apexcharts-card
+experimental:
+  color_threshold: true
 graph_span: 24h
 span:
   start: day
@@ -149,8 +151,6 @@ series:
       in_header: before_now
 yaxis:
   - decimals: 3
-tooltip:
-  show: true
 ```
 
 ### Staafkleur = laadstatus
@@ -168,6 +168,8 @@ Automatiseringen & Scenes → Helpers):
 
 ```yaml
 type: custom:apexcharts-card
+experimental:
+  color_threshold: true
 graph_span: 24h
 span:
   start: day
