@@ -123,7 +123,7 @@ series:
     name: bruto
     type: column
     data_generator: >
-      return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime(), e.p]);
+      return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime() + 450000, e.p]);
     float_precision: 3
     color_threshold:
       - value: 0
