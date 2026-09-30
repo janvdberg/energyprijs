@@ -143,6 +143,9 @@ apex_config:
     max: EVAL:new Date(new Date().setHours(23,59,59,999)).getTime() + 450000
 yaxis:
   - decimals: 3
+    # ~2 cent lucht boven de duurste en onder de goedkoopste prijs van vandaag
+    min: '|+0.02|'
+    max: '|+0.02|'
 ```
 
 ### Staafkleur = laadstatus
