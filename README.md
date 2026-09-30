@@ -109,12 +109,12 @@ series:
     show:
       in_chart: false
   - entity: sensor.stroomprijs_afname
-    name: in all-in
+    name: inkoopprijs
     float_precision: 3
     show:
       in_chart: false
   - entity: sensor.stroomprijs_levering
-    name: uit all-in
+    name: verkoopprijs
     float_precision: 3
     show:
       in_chart: false
@@ -143,8 +143,8 @@ apex_config:
     max: EVAL:new Date(new Date().setHours(23,59,59,999)).getTime() + 450000
 yaxis:
   - decimals: 3
-    # zachte y-as: 2 cent onder minimum, 4 cent boven maximum (kop van hoogste staaf erin)
-    min: '|-0.02|'
+    # zachte y-as: 4 cent lucht boven én onder de dag-uitersten
+    min: '|-0.04|'
     max: '|+0.04|'
 ```
 
