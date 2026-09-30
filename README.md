@@ -97,11 +97,6 @@ type: entities
 title: Stroomprijs — contractinstellingen
 show_header_toggle: false
 state_color: true
-header:
-  type: custom:mushroom-template-card
-  primary: "In {{ states('sensor.stroomprijs_afname') | round(3) }} · Uit {{ states('sensor.stroomprijs_levering') | round(3) }} €/kWh"
-  secondary: >-
-    Bronnen actief: {{ state_attr('sensor.stroomprijs_basis', 'bronnen_actief') | join(', ') }}
 entities:
   - entity: input_number.prijs_btw
     name: Btw (factor, NL = 0,21)
