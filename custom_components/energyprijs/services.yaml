@@ -1,2 +1,25 @@
-service: energyprijs.install
-data: {}
+install:
+  name: "Package installeren"
+  description: >
+    Schrijft het energyprijs-package naar /config/packages en zorgt voor de
+    packages-include in configuration.yaml. Herstart daarna HA (tenzij
+    force_restart: true).
+  fields:
+    force_restart:
+      name: "Herstart forceren"
+      description: "Start HA direct opnieuw na wijzigingen (meestal niet nodig)."
+      selector:
+        boolean:
+
+status:
+  name: "Installatiestatus"
+  description: >
+    Controleert of het package en de include aanwezig zijn. Antwoord via response_payload.
+
+cards:
+  name: "Dashboardkaarten ophalen"
+  description: >
+    Geeft de kant-en-klare YAML voor de dynamische energie-grafiek en de
+    contractinvulvelden-kaart terug (response_payload). Plakken via Add card →
+    Show code editor; vereist HACS-kaart apexcharts-card.
+  response:

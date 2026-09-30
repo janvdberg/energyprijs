@@ -138,6 +138,20 @@ async def async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("energyprijs.install → %s", result)
         return result
 
+    async def handle_cards(call: ServiceCall) -> dict:
+        """Geef de kant-en-klare dashboardkaarten (grafiek + contractinvulvelden)."""
+        from .cards import build_cards_yaml
+        grafiek, contract = build_cards_yaml()
+        return {
+            "grafiek": grafiek,
+            "contract": contract,
+            "uitleg": (
+                "Plak 'grafiek' via Add card → Show code editor (vereist HACS-kaart "
+                "apexcharts-card), en 'contract' als losse entities-tegel. Beide kaarten "
+                "zijn volledig dynamisch: sensoren herberekenen direct bij helper-wijziging."
+            ),
+        }
+
     async def handle_status(call: ServiceCall) -> dict:
         cfg_file = _config_dir(hass) / CONFIG_FILENAME
         pkg_file = _config_dir(hass) / "packages" / PACKAGE_FILENAME
@@ -153,6 +167,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
         DOMAIN, "install", handle_install, schema=INSTALL_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+
+    hass.services.async_register(
+        DOMAIN, "cards", handle_cards,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
     hass.services.async_register(
         DOMAIN, "status", handle_status, supports_response=SupportsResponse.ONLY,
     )

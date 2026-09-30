@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 1.2.6 · 30 sep 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.2.8 · 30 sep 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.

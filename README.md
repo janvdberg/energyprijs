@@ -112,6 +112,25 @@ entities:
 
 ✅ **Volledig dynamisch:** de prijs-sensoren hebben state-triggers op hun contract-helpers. Verzet btw, energiebelasting, een opslag of zet saldering om — `sensor.stroomprijs_afname` / `_levering` (en de EnergyZero-bron) herberekenen **direct**, zonder herstart en zonder package-reload. De grafiek-koppen en de Entities-tegel lopen binnen een paar tellen mee.
 
+## Dashboard in één keer (niet meer sleutelen aan YAML)
+
+Na installatie haal je beide kaarten met één service-aanroep op — geen handmatig
+plakwerk meer vanuit de repo:
+
+1. Ga naar **Instellingen → Systeem → Herstart** is niet nodig; roep de service aan via
+   **Instellingen → Apparaten en services → Services → `energyprijs.cards`** (Developer
+   Tools → Actions werkt ook). Zet *Response data* aan.
+2. Je krijgt twee blokken terug:
+   - **`grafiek`** — de dynamische 24-uur-prijskaart met bruto-staafjes en live
+     kopwaarden (bruto · inkoopprijs · verkoopprijs);
+   - **`contract`** — de invulvelden-tegel (btw, energiebelasting, leveranciersopslag,
+     saldering).
+3. Plak ze op je dashboard: **Add card → Show code editor (⋮)** → plak het blok → Save.
+   (Vereist alleen de HACS-kaart `apexcharts-card`; de contract-tegel is pure core.)
+
+De inhoud van beide kaarten is identiek aan wat hieronder staat — maar dan gegenereerd
+en gegarandeerd consistent met jouw geïnstalleerde package-versie.
+
 ## Zo ziet je dashboard er daarna uit
 
 ![Voorbeeldgrafiek](docs/voorbeeld-grafiek.png)
@@ -285,6 +304,6 @@ Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/conf
 
 | Versie | Wijziging |
 |---|---|
-| 1.2.7 | Dashboardkaart: kopwaarden via `data_template` (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
+| 1.2.8 | Nieuwe service `energyprijs.cards`: haalt de kant-en-klare grafiek- én contractkaart-YAML in één keer op — geen handmatig plakwerk meer vanuit de repo || 1.2.7 | Dashboardkaart: kopwaarden via `data_template` (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
 | 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
 | 1.0.0 | Eerste versie: installer + package |
