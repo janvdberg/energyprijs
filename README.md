@@ -87,16 +87,33 @@ type: custom:apexcharts-card
 graph_span: 24h
 span:
   start: day
+update_interval: 5min
+show:
+  last_updated: true
 title: Stroomprijs — bruto · in · uit (EUR/kWh)
 now:
   show: true
   label: nu
 header:
   show: true
-  show_states: true          # ← toont NU: basis / in / uit als kopwaarden
-colorize_states: auto
+  show_states: true
+  colorize_states: auto
 series:
+  # ── kopwaarden 'NU' bovenin (alleen header, niet getekend) ──
   - entity: sensor.stroomprijs_basis
+    name: bruto nu
+    show:
+      in_chart: false
+  - entity: sensor.stroomprijs_afname
+    name: in all-in
+    show:
+      in_chart: false
+  - entity: sensor.stroomprijs_levering
+    name: uit all-in
+    show:
+      in_chart: false
+  # ── staafjes = bruto spot per kwartier, gekleurd op prijsniveau ──
+  - entity: sensor.stroomprijs_daglijst
     name: bruto
     type: column
     data_generator: >
@@ -111,18 +128,25 @@ series:
         color: "#e6b800"
       - value: 0.4
         color: "#d94040"
-  - entity: sensor.stroomprijs_afname
+    show:
+      in_header: before_now
+  # ── verloop van in/uit all-in vandaag (lijn stopt bij 'nu') ──
+  - entity: sensor.stroomprijs_daglijst
     name: in (all-in)
     type: line
     stroke_width: 2
-    color: "#d94040"
-    extend_to: now           # lijn stopt bij 'nu' — geen verzinsel over de toekomst
-  - entity: sensor.stroomprijs_levering
+    data_generator: >
+      return entity.attributes.vandaag.filter((e) => new Date(e.t) <= new Date()).map((e) => [new Date(e.t).getTime(), e.in]);
+    show:
+      in_header: before_now
+  - entity: sensor.stroomprijs_daglijst
     name: uit (all-in)
     type: line
     stroke_width: 2
-    color: "#0a8f3c"
-    extend_to: now
+    data_generator: >
+      return entity.attributes.vandaag.filter((e) => new Date(e.t) <= new Date()).map((e) => [new Date(e.t).getTime(), e.uit]);
+    show:
+      in_header: before_now
 yaxis:
   decimales: 3
 tooltip:
