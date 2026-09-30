@@ -142,20 +142,36 @@ header:
   show_states: true
   colorize_states: true
 series:
-  # ── kopwaarden 'NU' bovenin = actuele prijs (alleen header, niet getekend) ──
+  # ── kopwaarden 'NU' bovenin via data_template → de KOP ververst direct mee zodra een
+  #    helper of sensor wijzigt (alleen header, niet getekend) ──
   - entity: sensor.stroomprijs_basis
     name: bruto nu
     float_precision: 3
+    data_template:
+      columns:
+        - x: now_ts()
+          y: |
+            {{ states('sensor.stroomprijs_basis') | float(0) }}
     show:
       in_chart: false
   - entity: sensor.stroomprijs_afname
     name: inkoopprijs
     float_precision: 3
+    data_template:
+      columns:
+        - x: now_ts()
+          y: |
+            {{ states('sensor.stroomprijs_afname') | float(0) }}
     show:
       in_chart: false
   - entity: sensor.stroomprijs_levering
     name: verkoopprijs
     float_precision: 3
+    data_template:
+      columns:
+        - x: now_ts()
+          y: |
+            {{ states('sensor.stroomprijs_levering') | float(0) }}
     show:
       in_chart: false
   # ── staafjes = bruto spot per kwartier, gekleurd op prijsniveau ──
@@ -183,8 +199,8 @@ apex_config:
     max: EVAL:new Date(new Date().setHours(23,59,59,999)).getTime() + 450000
 yaxis:
   - decimals: 3
-    # zachte y-as: 4 cent lucht boven én onder de dag-uitersten
-    min: '|-0.04|'
+    min: 0
+    # zachte bovengrens: 4 cent boven de hoogste waarde die in beeld is
     max: '|+0.04|'
 ```
 
@@ -236,8 +252,8 @@ yaxis:
 
 ![Statusvoorbeeld](docs/voorbeeld-status.png)
 
-Bij de **nu**-lijn tonen de kopwaarden bovenin automatisch de actuele prijzen:
-bruto · **in** (afname all-in) · **uit** (levering all-in). Hover je over een staafje,
+Bij de **nu**-lijn tonen de kopwaarden bovenin de actuele prijzen — via `data_template`, dus ze knipperen mee zodra je een contract-helper verzet:
+bruto · **inkoopprijs** · **verkoopprijs**. Hover je over een staafje,
 dan geeft de tooltip bruto/in/uit voor dat kwartier — want de daglijst-sensor bevat per
 interval alle drie (`{t, p, in, uit}`). Wil je in/uit per interval in de grafiek zelf,
 voeg dan deze twee lijn-series toe aan `series:` (met `show: {in_header: false}`):
@@ -269,6 +285,6 @@ Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/conf
 
 | Versie | Wijziging |
 |---|---|
-| 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
+| 1.2.7 | Dashboardkaart: kopwaarden via `data_template` (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
 | 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
 | 1.0.0 | Eerste versie: installer + package |
