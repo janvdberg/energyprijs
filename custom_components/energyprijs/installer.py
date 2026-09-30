@@ -11,6 +11,7 @@ integratie zelfvoorzienend is (geen netwerk nodig, werkt achter firewalls).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -125,95 +126,150 @@ DASH_TITEL = "Energie — stroomprijs"
 DASH_ICOON = "mdi:flash"
 
 async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
-    """Maak het user dashboard aan, of werk de twee energyprijs-kaarten bij.
+    """Maak het user-dashboard aan of werk het bij — via HA's eigen collecties.
 
-    Eerbiedig: andere kaarten in het dashboard blijven intact; alleen de
-    blokken tussen de energyprijs-markers worden herschreven.
+    User dashboards leven in HA-storage (geen los YAML-bestand):
+      - .storage/lovelace_dashboards        → dashboard-metadata (DashboardsCollection)
+      - .storage/lovelace.<dashboard-id>    → de kaartconfig (LovelaceStorage.async_save)
+
+    We gebruiken daarvoor exact HA's publieke helpers, zodat panel + cache +
+    lovelace_updated-event netjes meeliften en het dashboard direct zichtbaar is.
     """
-    from .cards import GRAFIEK_CARD, CONTRACT_CARD
+    from .cards import CONTRACT_CARD, GRAFIEK_CARD
 
-    versie = _manifest_version(hass)
-    # Beide kaarten als LOSSE YAML-documenten, gemarkeerd met YAML-commentaar
-    # (HTML-commentaar faalt als het direct vóór "---" staat — dat is geen
-    #  documentgrens meer; YAML-commentaar is parser-proof).
-    body = (
-        f"# energyprijs:start {versie}\n"
-        f"---\n"
-        f"{_cards._yaml_dump(GRAFIEK_CARD)}\n"
-        f"---\n"
-        f"{_cards._yaml_dump(CONTRACT_CARD)}\n"
-        f"# energyprijs:einde {versie}\n"
-    )
+    # ── 1) dashboard-metadata: via HA's eigen lovelace-storage (met de live
+    #    panel-registratie erbij). De draaiende DashboardsCollection is niet
+    #    publiek te bereiken, dus bouwen we een tweede instance op exact dezelfde
+    #    storage-key (.storage/lovelace_dashboards): itemids sluiten op elkaar aan
+    #    (generate_id) en het add-change wordt zo netjes afgehandeld als via de UI
+    #    (panel laten verlopen + storingen opschonen). Panel en kaartconfig voegen
+    #    we daarna zelf toe via de publieke frontend/lovelace-helpers. ──
+    from homeassistant.components import frontend
+    from homeassistant.components.lovelace import dashboard as lb_dash
+    from homeassistant.components.lovelace.const import LOVELACE_DATA
 
-    dash_path = "local/energyprijs-dashboard.yaml"
-    # bestaand dashboard ontdekken door .storage/dashboards te scannen
-    # (publieke locatie; bevat per dashboard: id, filename, name, require_admin…)
-    existing = None
-    try:
-        store = hass.config.path(".storage/dashboards")
-        data = json.loads(Path(store).read_text(encoding="utf-8"))
-        for entry in (data.get("data") or {}).get("entries", []):
-            if entry.get("id") == DASH_ID:
-                existing = entry
-                break
-    except FileNotFoundError:
-        pass
-    except Exception:  # noqa: BLE001
-        _LOGGER.exception("energyprijs: .storage/dashboards niet te lezen")
+    lov_data = hass.data.get(LOVELACE_DATA)
+    if lov_data is None:
+        raise RuntimeError(
+            "Lovelace-integratie is niet actief — kan geen user-dashboard beheren."
+        )
+
+    # Maak een foute panel-registratie onschadelijk (bv. overgebleven van een eerdere
+    # versie van deze integratie): het re-registeren mag dan opnieuw slagen.
+    frontend.async_remove_panel(hass, DASH_ID, warn_if_unknown=False)
+
+    coll = lb_dash.DashboardsCollection(hass)
+    await coll.async_load()
+
+    existing = next((it for it in coll.data.values() if it.get("url_path") == DASH_ID), None)
+
+    async def _flush_collection_save() -> None:
+        """De collectie-save van HA zit op een timer van 10 s.
+
+        Onmiddellijk flushen (delay=0) voorkomt dat de dashboard-metadata pas
+        later — of helemaal niet, bij een tussentijdse herstart — op disk staat.
+        """
+        try:
+            coll.store.async_delay_save(coll._data_to_save, 0)  # noqa: SLF001
+            await hass.async_block_till_done()
+        except Exception:  # noqa: BLE001
+            pass
 
     if existing is None:
-        # nieuw user dashboard aanmaken via de publieke dashboard.create-service
-        # (filename mag niet bestaan; HA maakt het in local/…)
-        resp = await hass.services.async_call(
-            "dashboard", "create",
-            {
-                "id": DASH_ID,
-                "name": DASH_TITEL,
+        try:
+            entry = await coll.async_create_item({
+                "url_path": DASH_ID,
+                "mode": "storage",
+                "title": DASH_TITEL,
                 "icon": DASH_ICOON,
-                "filename": "local/energyprijs-dashboard.yaml",
+                "show_in_sidebar": True,
                 "require_admin": False,
-                "show_in_menu": True,
-            },
-            blocking=True, return_response=True,
-        ) or {}
-        filename = resp.get("filename") or dash_path
-        target = Path(hass.config.path()) / filename
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # Losse YAML-documenten (HA leest multi-document dashboard-bestanden):
-        # doc 1 = dashboard-metadata, doc 2 = grafiek-kaart, doc 3 = contract-kaart.
-        # Gemarkeerd blok = beide kaart-documenten, inclusief "---" (upgrade-proof).
-        content = (
-            "title: " + DASH_TITEL + "\n"
-            "icon: " + DASH_ICOON + "\n"
-            "require_admin: false\n"
-            "show_in_menu: true\n"
-            "max_width: 900px\n"
-            "\n"
-            f"# energyprijs:start {versie}\n"
-            f"---\n"
-            f"{_cards._yaml_dump(GRAFIEK_CARD)}\n"
-            f"---\n"
-            f"{_cards._yaml_dump(CONTRACT_CARD)}\n"
-            f"# energyprijs:einde {versie}\n"
-        )
-        target.write_text(content, encoding="utf-8")
-        return {"act": "aangemaakt", "pad": str(target), "kaart_ervbij": True}
-
-    # bestaand → alleen het gemarkeerde blok vervangen
-    target = Path(hass.config.path()) / existing.get("filename", dash_path)
-    orig = target.read_text(encoding="utf-8") if target.exists() else ""
-    pattern = re.compile(
-        r"# energyprijs:start [\w.\-]+\n.*?# energyprijs:einde [\w.\-]+\n",
-        re.S)
-    if pattern.search(orig):
-        new = pattern.sub(body, orig, count=1)
-        act = "bijgewerkt"
+                "allow_single_word": True,
+            })
+        except Exception as err:  # noqa: BLE001
+            raise RuntimeError(f"dashboard aanmaken mislukt: {err}") from err
+        act = "aangemaakt"
+        await _flush_collection_save()
+        # panel zo snel mogelijk tonen; dit heeft geen effect op de luchtige
+        # dashboard-view (mode "storage" haalt de content uit storage)
+        try:
+            frontend.async_register_built_in_panel(
+                hass, "lovelace",
+                frontend_url_path=DASH_ID,
+                sidebar_title=DASH_TITEL,
+                sidebar_icon=DASH_ICOON,
+                require_admin=False,
+                config={"mode": "storage"},
+                update=True,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     else:
-        # geen marker → beide kaarten toevoegen als losse sectie (rest van dashboard intact)
-        new = orig.rstrip() + "\n" + body
-        act = "kaarten toegevoegd (geen marker gevonden)"
-    target.write_text(new, encoding="utf-8")
-    return {"act": act, "pad": str(target), "kaart_ervbij": False}
+        entry = existing
+        act = "bijgewerkt"
+        try:
+            frontend.async_register_built_in_panel(
+                hass, "lovelace",
+                frontend_url_path=DASH_ID,
+                sidebar_title=DASH_TITEL,
+                sidebar_icon=DASH_ICOON,
+                require_admin=False,
+                config={"mode": "storage"},
+                update=True,
+            )
+        except ValueError:
+            pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    dash_id = entry["id"]
+
+    # ── 2) kaartconfig: .storage/lovelace.<id> via LovelaceStorage (public API) ──
+    from homeassistant.components.lovelace.const import ConfigNotFound
+
+    store = lb_dash.LovelaceStorage(hass, entry)
+    try:
+        cfg = await store.async_load(force=False)
+    except ConfigNotFound:
+        cfg = None
+    # async_save vereist een gevulde cache (_data) — async_load vulde 'm al wanneer
+    # de storage bestond; bij ConfigNotFound (nog nooit opgeslagen) blijft ie None,
+    # waarna async_save zelf _load() aanroept.
+
+    views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
+    first = views[0]
+    cards_list = first.get("cards") or []
+
+    # onze kaarten herkennen op hun unieke entiteiten; rest blijft intact
+    def _is_ours(card) -> bool:
+        if not isinstance(card, dict):
+            return False
+        t = card.get("type")
+        if t == "custom:apexcharts-card":
+            ents = {x.get("entity") for x in card.get("series", []) if isinstance(x, dict)}
+            return "sensor.stroomprijs_daglijst" in ents
+        if t == "entities":
+            ents = {c.get("entity") if isinstance(c, dict) else c for c in card.get("entities", [])}
+            return "input_number.prijs_btw" in ents
+        return False
+
+    kept = [c for c in cards_list if not _is_ours(c)]
+    removed = len(cards_list) - len(kept)
+    first["cards"] = kept + [GRAFIEK_CARD, CONTRACT_CARD]
+
+    new_cfg = {"views": views}
+    if (cfg or {}).get("jinja"):
+        new_cfg["jinja"] = cfg["jinja"]
+    await store.async_save(new_cfg)   # vuurt lovelace_updated af → frontend ververst
+
+    return {
+        "act": act,
+        "dashboard_id": dash_id,
+        "verwijderde_eigen_oude_kaarten": removed,
+        "totaal_cards_eerste_view": len(first["cards"]),
+        "url_path": DASH_ID,
+    }
+
 
 async def async_register_services(hass: HomeAssistant) -> None:
     """Registreer energyprijs.install en energyprijs.status."""
