@@ -250,6 +250,20 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
 
     views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
     first = views[0]
+    # user dashboards worden in de UI als SECTIE-view aangemaakt ("New section");
+    # secties hebben een nested structuur en kunnen niet direct losse kaarten dragen.
+    # Onze kaarten zijn gewone cards → normaliseer naar een klassieke card-view.
+    if first.get("type") == "sections" or any(
+            isinstance(c, dict) and c.get("type") in ("section", "grid")
+            for c in (first.get("cards") or [])):
+        flat_cards = []
+        for c in first.get("cards") or []:
+            if isinstance(c, dict) and c.get("type") in ("section", "grid"):
+                flat_cards.extend(c.get("cards") or [])
+            else:
+                flat_cards.append(c)
+        first.pop("type", None)
+        first["cards"] = flat_cards
     cards_list = first.get("cards") or []
 
     # onze kaarten herkennen op hun unieke entiteiten; rest blijft intact
