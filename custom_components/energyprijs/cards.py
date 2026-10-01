@@ -65,7 +65,6 @@ def _counter(naam: str, kleur: str) -> dict:
 
 GRAFIEK_CARD = {
     "type": "custom:apexcharts-card",
-    "section_mode": True,
     "experimental": {"color_threshold": True},
     "graph_span": "24h",
     "span": {"start": "day"},
@@ -109,8 +108,8 @@ GRAFIEK_CARD = {
         },
     },
     "yaxis": [
-        {"decimals": 3, "min": 0, "max": "|+0.04|"},
-        {"id": "prijzen", "decimals": 3, "min": 0, "max": "|+0.04|", "opposite": True},
+        {"decimals": 3, "min": 0},
+        {"id": "prijzen", "decimals": 3, "min": 0, "opposite": True},
     ],
 }
 
