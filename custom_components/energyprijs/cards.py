@@ -16,16 +16,16 @@ import json
 # ── De twee kaarten, als Python-dicts → deterministisch dumpbaar naar YAML/JSON ──
 
 def _kopreeks(eid: str, naam: str) -> dict:
-    """Header-only reeks wier KOP direct meeloopt met helper/sensor-wijzigingen."""
+    """Header-only reeks: toont de actuele sensorwaarde in de kop.
+
+    Let op: apexcharts-card v2.x kent GEEN `data_template` meer (bestond alleen
+    in v1.x); een extraneous key geeft "Configuration error". De entiteit zelf
+    is al live — `show.in_chart: false` tekent hem alleen niet in de grafiek.
+    """
     return {
         "entity": eid,
         "name": naam,
         "float_precision": 3,
-        "data_template": {
-            "columns": [
-                {"x": "now_ts()", "y": "{{ states('%s') | float(0) }}" % eid},
-            ],
-        },
         "show": {"in_chart": False},
     }
 
