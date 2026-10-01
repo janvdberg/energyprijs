@@ -175,35 +175,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         reg = er.async_get(hass)
         return reg.async_get("input_text.prijs_btw") is not None
 
+    def _dashboard_klaar() -> bool:
+        """True als het dashboard op de huidige manifest-versie staat."""
+        return entry.data.get("dashboard_versie") == _manifest_version(hass)
+
     async def _startup_dashboard(_event=None) -> None:
         _LOGGER.debug("energyprijs: dashboard-check bij startup")
+        if _dashboard_klaar():
+            _LOGGER.debug("energyprijs: dashboard al op versie %s — skip", _manifest_version(hass))
+            return
         if not _package_klaar():
             _LOGGER.info("energyprijs: package nog niet geladen; dashboard later")
             return
         try:
             res = await _dashboard_opslaan(hass)
-            _LOGGER.info("energyprijs: dashboard bij startup → %s", res.get("act"))
-            if res.get("act") in ("aangemaakt", "bijgewerkt", "huidig"):
-                try:
-                    hass.config_entries.async_update_entry(
-                        entry, data={**entry.data, "dashboard_versie": _manifest_version(hass)}
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
+            act = res.get("act")
+            _LOGGER.info("energyprijs: dashboard bij startup → %s", act)
+            if act in ("aangemaakt", "bijgewerkt", "huidig"):
+                hass.config_entries.async_update_entry(
+                    entry, data={**entry.data, "dashboard_versie": _manifest_version(hass)}
+                )
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("energyprijs: dashboard nog niet gereed — 5-min timer overneemt",
-                          exc_info=True)
+            _LOGGER.exception("energyprijs: dashboard-aanmaak bij startup mislukt — 5-min timer overneemt")
 
     if hass.is_running:
         # Entry-reload tijdens draaiende HA: dashboard direct checken
         hass.async_create_task(_startup_dashboard())
     else:
+        # Cold start: wacht tot HA volledig is opgestart (alle integraties geladen,
+        # resource-collection stabiel — les uit WrtManager #156).
         hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STARTED, _startup_dashboard
+            EVENT_HOMEASSISTANT_STARTED,
+            lambda _ev: hass.async_create_task(_startup_dashboard()),
         )
 
     # 5-min back-up: alleen actief zolang het dashboard niet op de huidige
-    # manifest-versie staat. Biedt vangnet als het package te laat laadt.
+    # manifest-versie staat. Biedt vangnet als het package te laat laadt of
+    # de startup-check te vroeg draaide.
     unsub2 = async_track_time_interval(hass, _auto_dashboard, timedelta(minutes=5))
     entry.async_on_unload(unsub2)
     return True
