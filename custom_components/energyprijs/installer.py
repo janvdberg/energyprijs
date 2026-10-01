@@ -135,7 +135,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     We gebruiken daarvoor exact HA's publieke helpers, zodat panel + cache +
     lovelace_updated-event netjes meeliften en het dashboard direct zichtbaar is.
     """
-    from .cards import CONTRACT_CARD, GRAFIEK_CARD
+    from .cards import CONTRACT_CARD, GRAFIEK_CARD, NU_CARD
 
     # ── 0) DIAGNOSE: draait deze instantie de LATEST code (versie-koppeling)?
     #    Als HACS/HA een verouderde module in RAM houden, zie je dat hier direct.
@@ -332,12 +332,12 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             return "sensor.stroomprijs_daglijst" in ents
         if t == "entities":
             ents = {c.get("entity") if isinstance(c, dict) else c for c in card.get("entities", [])}
-            return "input_number.prijs_btw" in ents
+            return "input_number.prijs_btw" in ents or "sensor.stroomprijs_afname" in ents
         return False
 
     kept = [c for c in cards_list if not _is_ours(c)]
     removed = len(cards_list) - len(kept)
-    first["cards"] = kept + [GRAFIEK_CARD, CONTRACT_CARD]
+    first["cards"] = kept + [NU_CARD, GRAFIEK_CARD, CONTRACT_CARD]
 
     new_cfg = {"views": views}
     if (cfg or {}).get("jinja"):
@@ -435,14 +435,16 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_cards(call: ServiceCall) -> dict:
         """Geef de kant-en-klare dashboardkaarten (grafiek + contractinvulvelden)."""
         from .cards import build_cards_yaml
-        grafiek, contract = build_cards_yaml()
+        nu, grafiek, contract = build_cards_yaml()
         return {
+            "nu": nu,
             "grafiek": grafiek,
             "contract": contract,
             "uitleg": (
-                "Plak 'grafiek' via Add card → Show code editor (vereist HACS-kaart "
-                "apexcharts-card), en 'contract' als losse entities-tegel. Beide kaarten "
-                "zijn volledig dynamisch: sensoren herberekenen direct bij helper-wijziging."
+                "Plak de kaarten in deze volgorde in je view: 'nu' (entities-tegel met "
+                "inkoop/verkoopprijs), 'grafiek' (apexcharts, vereist HACS), 'contract' "
+                "(entities-tegel). Alles is dynamisch: sensoren herberekenen direct bij "
+                "helper-wijziging."
             ),
         }
 

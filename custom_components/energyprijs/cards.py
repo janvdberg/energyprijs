@@ -15,26 +15,6 @@ import json
 
 # ── De twee kaarten, als Python-dicts → deterministisch dumpbaar naar YAML/JSON ──
 
-def _kopreeks(eid: str, naam: str, kleur: str) -> dict:
-    """Live horizontale prijslijn over de dag (state van de sensor zelf).
-
-    Getekend op een eigen secundaire y-as: zo blijven bruto/inkoop/verkoop-
-    lijnen leesbaar bovenop de staafjes. De sensor-state is per definitie NU,
-    dus deze lijnen zijn de levende bewijs-last voor saldering/helper-wijzigingen.
-    """
-    return {
-        "entity": eid,
-        "name": naam,
-        "type": "line",
-        "color": kleur,
-        "stroke_width": 2,
-        "extend_to": "end",
-        "float_precision": 3,
-        "yaxis_id": "prijzen",
-        "show": {"legend_value": True},
-    }
-
-
 def _counter(naam: str, kleur: str) -> dict:
     """Verkoop-tegenpool over de dag: bruto-kolommen uit de daglijst × factor.
 
@@ -49,7 +29,6 @@ def _counter(naam: str, kleur: str) -> dict:
         "type": "line",
         "color": kleur,
         "float_precision": 3,
-        "yaxis_id": "prijzen",
         "data_generator": (
             "const btw = 1 + parseFloat(states('input_number.prijs_btw') || '0.21');"
             " const bel = parseFloat(states('input_number.prijs_energiebelasting') || '0');"
@@ -65,6 +44,7 @@ def _counter(naam: str, kleur: str) -> dict:
 
 GRAFIEK_CARD = {
     "type": "custom:apexcharts-card",
+    "section_mode": True,
     "experimental": {"color_threshold": True, "disable_config_validation": True},
     "graph_span": "24h",
     "span": {"start": "day"},
@@ -74,13 +54,10 @@ GRAFIEK_CARD = {
     "header": {
         "show": True,
         "title": "Stroomprijs — bruto · inkoop · verkoop (EUR/kWh)",
-        "show_states": True,
-        "colorize_states": True,
+        "show_states": False,
+        "colorize_states": False,
     },
     "series": [
-        _kopreeks("sensor.stroomprijs_basis", "bruto nu", "#0a8f3c"),
-        _kopreeks("sensor.stroomprijs_afname", "inkoopprijs", "#2b6cb0"),
-        _kopreeks("sensor.stroomprijs_levering", "verkoopprijs", "#d94040"),
         {
             "entity": "sensor.stroomprijs_daglijst",
             "name": "bruto",
@@ -108,10 +85,23 @@ GRAFIEK_CARD = {
         },
     },
     "yaxis": [
-        {"decimals": 3, "min": 0},
-        {"id": "prijzen", "decimals": 3, "min": 0, "opposite": True},
+        {"decimals": 3, "min": "|-0.04|", "max": "|+0.04|"},
     ],
 }
+
+NU_CARD = {
+    "type": "entities",
+    "title": "Stroomprijs nu",
+    "entities": [
+        {"entity": "sensor.stroomprijs_afname",
+         "name": "Inkoopprijs",
+         "icon": "mdi:arrow-bottom-right"},
+        {"entity": "sensor.stroomprijs_levering",
+         "name": "Verkoopprijs",
+         "icon": "mdi:arrow-top-right"},
+    ],
+}
+
 
 CONTRACT_CARD = {
     "type": "entities",
@@ -201,8 +191,9 @@ def _scalar(v) -> str:
     return s
 
 
-def build_cards_yaml() -> tuple[str, str]:
-    """Geef (grafiek_yaml, contract_yaml)."""
+def build_cards_yaml() -> tuple[str, str, str]:
+    """Geef (nu_yaml, grafiek_yaml, contract_yaml)."""
+    nu = _yaml_dump(NU_CARD)
     grafiek = _yaml_dump(GRAFIEK_CARD)
     contract = _yaml_dump(CONTRACT_CARD)
-    return grafiek, contract
+    return nu, grafiek, contract
