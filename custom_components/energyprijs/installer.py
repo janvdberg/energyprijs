@@ -255,25 +255,28 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             "voordat je dit dashboard vult."
         )
 
-    # ── 0b) prijsbronnen: zonder werkende bron blijft het dashboard N/A ──
-    BRONNEN = {
-        "sensor.nord_pool_nl_current_price": "Nord Pool (core-integratie)",
-        "sensor.enerprice_nl_day_ahead_prices_current_market_price":
-            "EnerPrice (HACS: LenFaki/home-assistant-nl-day-ahead-prices; extended attributes AAN)",
-        "sensor.energyzero_today_energy_current_hour_price": "EnergyZero (core-integratie)",
+    # ── 0b) prijsbronnen: package-sensoren bestaan altijd na install; hun STATE
+    #    verraadt of er een werkende integration achter zit ──
+    PAKKET_BRONNEN = {
+        "sensor.prijzen_bron_nordpool": "Nord Pool (core-integratie)",
+        "sensor.prijzen_bron_enerprice": "EnerPrice (HACS: LenFaki; extended attributes AAN)",
+        "sensor.prijzen_bron_energyzero": "EnergyZero (core-integratie)",
     }
-    werkend = [naam for eid, naam in BRONNEN.items()
-               if eid in alle_eids and hass.states.get(eid) is not None
-               and hass.states.get(eid).state not in ("unavailable", "unknown")]
-    ontbrekend = [naam for eid, naam in BRONNEN.items() if eid not in alle_eids]
+    werkend, dood = [], []
+    for eid, naam in PAKKET_BRONNEN.items():
+        st = hass.states.get(eid)
+        if st is not None and st.state not in ("unavailable", "unknown"):
+            werkend.append(naam)
+        else:
+            dood.append(naam)
     diag["prijsbronnen_werkend"] = werkend
-    diag["prijsbronnen_ontbrekend"] = ontbrekend
+    diag["prijsbronnen_onbeschikbaar"] = dood
     if not werkend:
         raise RuntimeError(
-            "Geen enkele prijsbron werkt. Het package leest uit: "
-            + " · ".join(BRONNEN.values())
-            + ". Installeer/zet minstens één van deze integraties aan, "
-            "of pas de bron-sensoren in het package aan jouw leverancier aan."
+            "Geen enkele prijsbron levert waarden — het dashboard zou N/A tonen. "
+            "Er is minstens één van nodig: " + " · ".join(PAKKET_BRONNEN.values())
+            + ". (Instellingen → Integraties: voeg Nord Pool en/of EnergyZero toe, "
+            "of laat zien welke prijs-integratie jij al draait dan pas ik de bronnamen aan.)"
         )
 
     views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
