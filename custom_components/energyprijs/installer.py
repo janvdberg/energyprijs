@@ -137,6 +137,16 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     """
     from .cards import CONTRACT_CARD, GRAFIEK_CARD
 
+    # ── 0) DIAGNOSE: draait deze instantie de LATEST code (versie-koppeling)?
+    #    Als HACS/HA een verouderde module in RAM houden, zie je dat hier direct.
+    manifest_version = "onbekend"
+    try:
+        mf = Path(__file__).parent / "manifest.json"
+        manifest_version = str(json.loads(mf.read_text(encoding="utf-8")).get("version", "?"))
+    except Exception:  # noqa: BLE001
+        pass
+    diag = {"geinstalleerde_versie": manifest_version}
+
     # ── 1) dashboard-metadata: via HA's eigen lovelace-storage (met de live
     #    panel-registratie erbij). De draaiende DashboardsCollection is niet
     #    publiek te bereiken, dus bouwen we een tweede instance op exact dezelfde
@@ -241,7 +251,9 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     from homeassistant.helpers import entity_registry as er
 
     ent_reg = er.async_get(hass)
-    if "input_number.prijs_btw" not in {e.entity_id for e in ent_reg.entities.values()}:
+    alle_eids = {e.entity_id for e in ent_reg.entities.values()}
+    diag["helpers_aanwezig"] = "input_number.prijs_btw" in alle_eids
+    if not diag["helpers_aanwezig"]:
         raise RuntimeError(
             "De energie-helpers (input_number.prijs_btw …) ontbreken nog. "
             "Draai eerst de service energyprijs.install en herstart Home Assistant, "
@@ -250,6 +262,8 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
 
     views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
     first = views[0]
+    diag["view_type_voor"] = first.get("type", "(klassiek)")
+    diag["cards_voor"] = len(first.get("cards") or [])
     # user dashboards worden in de UI als SECTIE-view aangemaakt ("New section");
     # secties hebben een nested structuur en kunnen niet direct losse kaarten dragen.
     # Onze kaarten zijn gewone cards → normaliseer naar een klassieke card-view.
@@ -288,7 +302,30 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         new_cfg["jinja"] = cfg["jinja"]
     await store.async_save(new_cfg)   # vuurt lovelace_updated af → frontend ververst
 
+    # Kaarten in de LIVE LovelaceCache zetten: dezelfde instantie die de UI via
+    # websocket bedient. async_save vult ._data, herbouwt de json-cache en vuurt
+    # lovelace_updated af — de browser tekent de kaarten dan direct, zonder reload.
+    try:
+        live = lov_data.dashboards.get(DASH_ID)
+        if live is not None and hasattr(live, "async_save"):
+            await live.async_save(new_cfg)
+            diag["cache_bijgewerkt"] = True
+        else:
+            diag["cache_bijgewerkt"] = False
+    except Exception as e3:  # noqa: BLE001
+        diag["cache_fout"] = str(e3)
+
+    # ── NAVRAAG: lees terug wat er echt op disk staat (catcht silent failures)
+    try:
+        back = await store.async_load(force=True)
+        b_cards = (back or {}).get("views", [{}])[0].get("cards") or []
+        diag["cards_na"] = len(b_cards)
+        diag["types_na"] = sorted({str(c.get("type")) for c in b_cards if isinstance(c, dict)})
+    except Exception as e2:  # noqa: BLE001
+        diag["teruglees_fout"] = str(e2)
+
     return {
+        "diag": diag,
         "act": act,
         "dashboard_id": dash_id,
         "verwijderde_eigen_oude_kaarten": removed,
