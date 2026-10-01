@@ -288,9 +288,20 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         types = {str(c.get("type")) for c in cards if isinstance(c, dict)}
         return "custom:apexcharts-card" in types and "entities" in types
 
+    def _opbouw_klopt(cards) -> bool:
+        """Kaarten moeten de ACTUELE serie-opbouw hebben (niet alleen maar twee kaarten)."""
+        graf = next((c for c in cards if isinstance(c, dict)
+                     and c.get("type") == "custom:apexcharts-card"), None)
+        if graf is None:
+            return False
+        # tekenprijslijnen met eigen as => kenmerk voor ≥1.2.20
+        return any(s.get("yaxis_id") == "prijzen" for s in graf.get("series", [])
+                   if isinstance(s, dict))
+
     if (cfg is not None and act == "bijgewerkt"
             and first.get("energyprijs_versie") == manifest_version
             and _heeft_onze_kaarten(first.get("cards") or [])
+            and _opbouw_klopt(first.get("cards") or [])
             and first.get("type") != "sections"):
         return {"act": "huidig", "reeds_actueel_versie": manifest_version}
     diag["view_type_voor"] = first.get("type", "(klassiek)")
@@ -327,7 +338,6 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     kept = [c for c in cards_list if not _is_ours(c)]
     removed = len(cards_list) - len(kept)
     first["cards"] = kept + [GRAFIEK_CARD, CONTRACT_CARD]
-    first["energyprijs_versie"] = manifest_version
 
     new_cfg = {"views": views}
     if (cfg or {}).get("jinja"):
@@ -355,6 +365,11 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         diag["types_na"] = sorted({str(c.get("type")) for c in b_cards if isinstance(c, dict)})
     except Exception as e2:  # noqa: BLE001
         diag["teruglees_fout"] = str(e2)
+
+    # versie-TAG pas bijhouden als de opslag aantoonbaar werkte — anders blijft
+    # een verkeerde tag de volgende ronde doen overslaan (de 1.2.20-stuck-bug).
+    if diag.get("cache_bijgewerkt") or diag.get("cards_na"):
+        first["energyprijs_versie"] = manifest_version
 
     return {
         "diag": diag,
