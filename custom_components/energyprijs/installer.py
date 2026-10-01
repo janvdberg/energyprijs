@@ -236,6 +236,18 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     # de storage bestond; bij ConfigNotFound (nog nooit opgeslagen) blijft ie None,
     # waarna async_save zelf _load() aanroept.
 
+    # ── 0) voorkans: het package (helpers + templates) moet geïnstalleerd zijn,
+    #    anders tonen de kaarten alleen onbeschikbare entiteiten ──
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    if "input_number.prijs_btw" not in {e.entity_id for e in ent_reg.entities.values()}:
+        raise RuntimeError(
+            "De energie-helpers (input_number.prijs_btw …) ontbreken nog. "
+            "Draai eerst de service energyprijs.install en herstart Home Assistant, "
+            "voordat je dit dashboard vult."
+        )
+
     views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
     first = views[0]
     cards_list = first.get("cards") or []
