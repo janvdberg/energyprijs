@@ -139,12 +139,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
 
     # ── 0) DIAGNOSE: draait deze instantie de LATEST code (versie-koppeling)?
     #    Als HACS/HA een verouderde module in RAM houden, zie je dat hier direct.
-    manifest_version = "onbekend"
-    try:
-        mf = Path(__file__).parent / "manifest.json"
-        manifest_version = str(json.loads(mf.read_text(encoding="utf-8")).get("version", "?"))
-    except Exception:  # noqa: BLE001
-        pass
+    manifest_version = _manifest_version(hass)
     diag = {"geinstalleerde_versie": manifest_version}
 
     # ── 1) dashboard-metadata: via HA's eigen lovelace-storage (met de live
@@ -262,6 +257,18 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
 
     views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
     first = views[0]
+
+    # ── idempotente check: is ons dashboard al gevuld met DEZE versie? Dan hoeft
+    #    er niets te gebeuren — zo mag de service elke 5 min rustig langskomen. ──
+    def _heeft_onze_kaarten(cards) -> bool:
+        types = {str(c.get("type")) for c in cards if isinstance(c, dict)}
+        return "custom:apexcharts-card" in types and "entities" in types
+
+    if (cfg is not None and act == "bijgewerkt"
+            and first.get("energyprijs_versie") == manifest_version
+            and _heeft_onze_kaarten(first.get("cards") or [])
+            and first.get("type") != "sections"):
+        return {"act": "huidig", "reeds_actueel_versie": manifest_version}
     diag["view_type_voor"] = first.get("type", "(klassiek)")
     diag["cards_voor"] = len(first.get("cards") or [])
     # user dashboards worden in de UI als SECTIE-view aangemaakt ("New section");
@@ -296,6 +303,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     kept = [c for c in cards_list if not _is_ours(c)]
     removed = len(cards_list) - len(kept)
     first["cards"] = kept + [GRAFIEK_CARD, CONTRACT_CARD]
+    first["energyprijs_versie"] = manifest_version
 
     new_cfg = {"views": views}
     if (cfg or {}).get("jinja"):

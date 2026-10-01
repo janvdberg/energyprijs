@@ -24,7 +24,7 @@ from .const import DOMAIN
 
 _MANIFEST = _json.loads((_Path(__file__).parent / "manifest.json").read_text(encoding="utf-8"))
 _VERSION = str(_MANIFEST.get("version", "0"))
-from .installer import async_register_services
+from .installer import async_register_services, _dashboard_opslaan
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,6 +123,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:  # noqa: BLE001
         pass
 
+    async def _auto_dashboard(_now=None) -> None:
+        """Zorg dat het energie-dashboard bestaat en op de laatste kaartversie staat.
+
+        Draait bij elke setup (dus ook na een HACS-update + herstart/reload) en
+        zolang hier nog niet alles goed is elke 5 min opnieuw. Is het dashboard
+        al gevuld met de huidige manifest-versie, dan doet _dashboard_opslaan
+        alleen de nodige ingreep; ontbreekt het, dan wordt het aangemaakt.
+        """
+        from homeassistant.components.lovelace.const import LOVELACE_DATA
+
+        if hass.data.get(LOVELACE_DATA) is None:
+            return  # lovelace nog niet actief — volgende ronde probeert opnieuw
+        try:
+            res = await _dashboard_opslaan(hass)
+            _LOGGER.info("energyprijs: dashboard automatisch onderhouden → %s", res.get("act"))
+        except Exception:  # noqa: BLE001
+            # helpers/package nog niet geladen (bijv. eerste run vóór herstart):
+            # zwijgend overnemen; de interval-poging hieronder komt terug langs.
+            _LOGGER.debug("energyprijs: dashboard nog niet gereed — later opnieuw",
+                          exc_info=True)
+
     async def _watcher(_now) -> None:
         _try_link()
         reg = er.async_get(hass)
@@ -134,6 +155,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     unsub = async_track_time_interval(hass, _watcher, timedelta(minutes=30))
     entry.async_on_unload(unsub)
+
+    # dashboard-onderhoud: één keer rustig na startup (lovelace + template-
+    # entiteiten moeten geregistreerd zijn) en daarna als back-up elke 5 min
+    hass.async_create_task(_auto_dashboard())
+    unsub2 = async_track_time_interval(hass, _auto_dashboard, timedelta(minutes=5))
+    entry.async_on_unload(unsub2)
     return True
 
 
