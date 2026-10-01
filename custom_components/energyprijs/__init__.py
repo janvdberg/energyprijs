@@ -49,12 +49,12 @@ TEMPLATE_UNIQUE_IDS: list[tuple[str, str]] = [
 ]
 
 HELPER_ENTITY_IDS: list[str] = [
-    "input_number.prijs_btw",
-    "input_number.prijs_energiebelasting",
-    "input_number.prijs_opslag_afname",
-    "input_number.prijs_opslag_levering",
-    "input_number.prijs_afwijkingsdrempel",
-    "input_number.prijs_laad_drempel",
+    "input_text.prijs_btw",
+    "input_text.prijs_energiebelasting",
+    "input_text.prijs_opslag_afname",
+    "input_text.prijs_opslag_levering",
+    "input_text.prijs_afwijkingsdrempel",
+    "input_text.prijs_laad_drempel",
     "input_boolean.prijs_saldering_energiebelasting_teruggave",
 ]
 
