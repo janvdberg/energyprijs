@@ -24,7 +24,12 @@ from .const import DOMAIN
 
 _MANIFEST = _json.loads((_Path(__file__).parent / "manifest.json").read_text(encoding="utf-8"))
 _VERSION = str(_MANIFEST.get("version", "0"))
-from .installer import async_register_services, _dashboard_opslaan
+from .installer import (
+    async_register_services,
+    _dashboard_opslaan,
+    _manifest_version,
+    dashboard_bestaat_hier,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,23 +129,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         pass
 
     async def _auto_dashboard(_now=None) -> None:
-        """Zorg dat het energie-dashboard bestaat en op de laatste kaartversie staat.
+        """Zorg dat het energie-dashboard klopt na een UPDATE van deze integratie.
 
-        Draait bij elke setup (dus ook na een HACS-update + herstart/reload) en
-        zolang hier nog niet alles goed is elke 5 min opnieuw. Is het dashboard
-        al gevuld met de huidige manifest-versie, dan doet _dashboard_opslaan
-        alleen de nodige ingreep; ontbreekt het, dan wordt het aangemaakt.
+        Policy (na overleg met de gebruiker, sep '26):
+          - Nooit elke 5 min aanmaken/bijwerken.
+          - Wél: bij setup (dus na een HACS-update + herstart/reload) én zolang
+            het dashboard ONTBREEKT om de 5 min proberen aan te maken. Bestaat
+            het eenmaal op de huidige manifest-versie, dan doet de timer niets
+            meer — alleen kaarten-updates via de service blijven mogelijk.
         """
         from homeassistant.components.lovelace.const import LOVELACE_DATA
 
         if hass.data.get(LOVELACE_DATA) is None:
             return  # lovelace nog niet actief — volgende ronde probeert opnieuw
+
+        manifest_version = _manifest_version(hass)
+        bestaand = entry.data.get("dashboard_versie")
+
+        # Dashboard bestaat al in HA en de versie-tag op de view klopt → klaar.
+        if await dashboard_bestaat_hier(hass):
+            try:
+                res = await _dashboard_opslaan(hass)
+                if res.get("act") == "huidig":
+                    if bestaand != manifest_version:
+                        try:
+                            hass.config_entries.async_update_entry(
+                                entry, data={**entry.data, "dashboard_versie": manifest_version}
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                    unsub2()  # timer stop: er is niets meer automatisch te doen
+                    return
+            except Exception:  # noqa: BLE001
+                pass  # helpers/package nog niet geladen; timer komt terug
+
+        # Dashboard ontbreekt of is verouderd → (her)bouwen.
         try:
             res = await _dashboard_opslaan(hass)
-            _LOGGER.info("energyprijs: dashboard automatisch onderhouden → %s", res.get("act"))
+            _LOGGER.info("energyprijs: dashboard onderhouden → %s", res.get("act"))
+            if res.get("act") in ("aangemaakt", "bijgewerkt"):
+                try:
+                    hass.config_entries.async_update_entry(
+                        entry, data={**entry.data, "dashboard_versie": manifest_version}
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                unsub2()  # geslaagd → timer uit; bij falen blijft hij elke 5 min proberen
         except Exception:  # noqa: BLE001
-            # helpers/package nog niet geladen (bijv. eerste run vóór herstart):
-            # zwijgend overnemen; de interval-poging hieronder komt terug langs.
             _LOGGER.debug("energyprijs: dashboard nog niet gereed — later opnieuw",
                           exc_info=True)
 

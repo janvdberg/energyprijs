@@ -474,3 +474,23 @@ async def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, "status", handle_status, supports_response=SupportsResponse.ONLY,
     )
+
+
+async def dashboard_bestaat_hier(hass: HomeAssistant) -> bool:
+    """Is ons dashboard op dit moment geregistreerd in HA's dashboardlijst?
+
+    Gebruikt de LIVE DashboardsCollection uit hass.data (die van de UI), geen
+    tweede instance — een weggegooid dashboard verdwijnt daar direct uit.
+    """
+    from homeassistant.components.lovelace import dashboard as lb_dash
+    from homeassistant.components.lovelace.const import LOVELACE_DATA
+
+    lov_data = hass.data.get(LOVELACE_DATA)
+    if lov_data is None:
+        return False
+    try:
+        coll = lb_dash.DashboardsCollection(hass)
+        await coll.async_load()
+        return any(it.get("url_path") == DASH_ID for it in coll.data.values())
+    except Exception:  # noqa: BLE001
+        return False
