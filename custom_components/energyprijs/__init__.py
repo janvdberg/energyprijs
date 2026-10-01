@@ -164,6 +164,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 pass  # helpers/package nog niet geladen; timer komt terug
 
         # Dashboard ontbreekt of is verouderd → (her)bouwen.
+        # Alleen als het package al geladen is (input_text.prijs_btw bestaat).
+        reg = er.async_get(hass)
+        pkg_ok = reg.async_get("input_text.prijs_btw") is not None
+        if not pkg_ok:
+            _LOGGER.debug("energyprijs: package nog niet geladen; dashboard later")
+            return  # timer komt terug
+
         try:
             res = await _dashboard_opslaan(hass)
             _LOGGER.info("energyprijs: dashboard onderhouden → %s", res.get("act"))

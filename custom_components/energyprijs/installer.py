@@ -46,15 +46,37 @@ def _config_dir(hass: HomeAssistant) -> Path:
 
 
 def _write_package(hass: HomeAssistant) -> Path:
-    """Schrijf het ingebedde package-bestand weg (idempotent)."""
+    """Schrijf het ingebedde package-bestand weg (idempotent).
+
+    Onttrekt oude helpers (input_number.prijs_*) uit het bestaande package
+    zodat ze na herstart verdwijnen — de nieuwe input_text-varianten nemen
+    hun plaats in zonder dat de gebruiker handmatig hoeft op te ruimen.
+    """
     packages_dir = _config_dir(hass) / "packages"
     packages_dir.mkdir(parents=True, exist_ok=True)
     target = packages_dir / PACKAGE_FILENAME
     source = Path(__file__).parent / PACKAGE_SOURCE
+
+    # Onttreken oude input_number-helpers uit het bestaande package
+    if target.exists():
+        old_cfg = target.read_text(encoding="utf-8")
+        if "input_number:" in old_cfg:
+            lines = old_cfg.splitlines(keepends=True)
+            out: list[str] = []
+            skip = False
+            for line in lines:
+                if re.match(r"^input_number\s*:", line):
+                    skip = True
+                    out.append("# (oude input_number-helpers verwijderd door energyprijs v1.2.26+; zie package.yaml)\n")
+                    continue
+                if skip and re.match(r"^\S", line) and not line.startswith("#"):
+                    skip = False
+                if not skip:
+                    out.append(line)
+            target.write_text("".join(out), encoding="utf-8")
+
     target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     return target
-
-
 def _ensure_packages_include(config_path: Path) -> tuple[bool, str]:
     """Zorg dat configuration.yaml de packages-include heeft.
 
@@ -403,6 +425,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
             "herstart_nodig": restart_needed,
         }
 
+        # 4) dashboard automatisch aanmaken (of bijwerken) — één handeling
+        try:
+            dash = await _dashboard_opslaan(hass)
+            result["dashboard"] = dash.get("act", "onbekend")
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("energyprijs.install: dashboard-aanmaak mislukt: %s", e)
+            result["dashboard_fout"] = str(e)
+
         if restart_needed and call.data.get(CONF_FORCE_RESTART, False):
             _LOGGER.warning("energyprijs: herstart wordt forcerend geactiveerd")
             await hass.services.async_call("homeassistant", "restart", blocking=False)
@@ -410,7 +440,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         elif restart_needed:
             result["actie"] = (
                 "Herstart Home Assistant (Instellingen → Systeem → Herstarten) "
-                "om de packages-include te activeren."
+                "om de packages-include te activeren. Het dashboard is al aangemaakt."
             )
         else:
             result["actie"] = "Alles stond al goed; herstart niet nodig."
