@@ -30,6 +30,33 @@ def _kopreeks(eid: str, naam: str) -> dict:
     }
 
 
+def _counter(naam: str, kleur: str) -> dict:
+    """Verkoop-tegenpool over de dag: bruto-kolommen uit de daglijst × factor.
+
+    De factor (leveringopslag + belasting ± saldering) × (1+btw) wordt per punt
+    LIVE uit de states gelezen — verzet je een helper of de saldering-switch,
+    dan herberekent de browser de hele rode reeks direct, zonder af te wachten
+    op de sensor-trigger van de daglijst.
+    """
+    return {
+        "entity": "sensor.stroomprijs_daglijst",
+        "name": naam,
+        "type": "line",
+        "color": kleur,
+        "float_precision": 3,
+        "data_generator": (
+            "const btw = 1 + parseFloat(states('input_number.prijs_btw') || '0.21');"
+            " const bel = parseFloat(states('input_number.prijs_energiebelasting') || '0');"
+            " const sl = parseFloat(states('input_number.prijs_opslag_levering') || '0');"
+            " const sal = states('input_boolean.prijs_saldering_energiebelasting_teruggave') === 'on';"
+            " return entity.attributes.vandaag.map((e) =>"
+            " [new Date(e.t).getTime() + 450000,"
+            " ((e.p + sl) * btw + (sal ? bel * btw : 0))]);"
+        ),
+        "show": {"in_header": False},
+    }
+
+
 GRAFIEK_CARD = {
     "type": "custom:apexcharts-card",
     "section_mode": True,
@@ -66,6 +93,7 @@ GRAFIEK_CARD = {
             ],
             "show": {"in_header": False},
         },
+        _counter("verkoopprijs", "#d94040"),
     ],
     "apex_config": {
         "xaxis": {

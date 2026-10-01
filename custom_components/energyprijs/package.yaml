@@ -133,6 +133,17 @@ template:
       #    de basis-prijs werken via mediaan en wordt alleen de grafiek leeg.
       - name: "Stroomprijs daglijst"
         unique_id: stroomprijs_daglijst
+        # herbereken de dag- én morgenlijst direct zodra een contracthelper of de
+        # saldering-switch verzet wordt (template-sensoren luisteren normaal niet
+        # naar input_*), zodat de rode verkoopreeks in de grafiek live meeloopt.
+        triggers:
+          - trigger: state
+            entity_id:
+              - input_number.prijs_btw
+              - input_number.prijs_energiebelasting
+              - input_number.prijs_opslag_afname
+              - input_number.prijs_opslag_levering
+              - input_boolean.prijs_saldering_energiebelasting_teruggave
         state: >
           {{ now().strftime('%H:%M') }}
         attributes:
