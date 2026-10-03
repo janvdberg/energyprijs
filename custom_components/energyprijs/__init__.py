@@ -28,6 +28,7 @@ from .installer import (
     async_register_services,
     _dashboard_opslaan,
     _manifest_version,
+    _ensure_helper_defaults,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -166,10 +167,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     #    Volgorde:
     #      1. EVENT_HOMEASSISTANT_STARTED (of direct als HA al draait bij reload)
     #      2. Package-control: input_number.prijs_btw MOET in de registry staan
-    #      3. Pas dan _dashboard_opslaan (DashboardsCollection + LovelaceStorage)
-    #      4. 5-min back-up timer alleen zolang het nog niet is geslaagd
+    #      3. Eénmalig contract-defaults (na eerste install, helpers op 0)
+    #      4. Pas dan _dashboard_opslaan (DashboardsCollection + LovelaceStorage)
+    #      5. 5-min back-up timer alleen zolang het nog niet is geslaagd
     #
-    from homeassistant.core import EVENT_HOMEASSISTANT_STARTED
+
 
     def _package_klaar() -> bool:
         reg = er.async_get(hass)
@@ -187,6 +189,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not _package_klaar():
             _LOGGER.info("energyprijs: package nog niet geladen; dashboard later")
             return
+        # Eénmalige contract-defaults (na eerste install zonder 'initial')
+        try:
+            await _ensure_helper_defaults(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: defaults-setten mislukt", exc_info=True)
         from homeassistant.components.lovelace.const import LOVELACE_DATA
 
         if hass.data.get(LOVELACE_DATA) is None:
@@ -205,26 +212,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:  # noqa: BLE001
             _LOGGER.exception("energyprijs: dashboard-aanmaak bij startup mislukt — 5-min timer overneemt")
 
-    if hass.is_running:
-        # Entry-reload tijdens draaiende HA: dashboard direct checken
-        hass.async_create_task(_startup_dashboard())
-    else:
-        # Cold start: wacht tot HA volledig is opgestart (alle integraties geladen,
-        # resource-collection stabiel — les uit WrtManager #156).
-        #
-        # Let op (live-log 3 okt): het STARTED-event wordt door HA vanuit een
-        # executor-thread afgevuurd. hass.async_create_task mag NOOIT uit een
-        # thread worden aangeroepen → RuntimeError + 'coroutine never awaited'.
-        # De job dus eerst threadsafe de event-loop in tillen.
-        from homeassistant.core import HassJob
+    # Startup-check: async_at_started handelt koude start ÉN entry-reload af,
+    # en is per definitie thread-safe (HA's eigen helper voor precies dit).
+    # Eerdere versies deden dit met een lambda + hass.async_create_task, maar
+    # het STARTED-event wordt vanuit een executor-thread afgevuurd → RuntimeError
+    # + 'coroutine never awaited' (live-log 3 okt). Niet opnieuw.
+    from homeassistant.helpers.start import async_at_started
 
-        _job = HassJob(_startup_dashboard, eager_start=True)
-
-        @callback
-        def _on_started(_ev=None) -> None:
-            hass.async_run_hass_job(_job)
-
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
+    entry.async_on_unload(async_at_started(hass, _startup_dashboard))
 
     # 5-min back-up: alleen actief zolang het dashboard niet op de huidige
     # manifest-versie staat. Biedt vangnet als het package te laat laadt of

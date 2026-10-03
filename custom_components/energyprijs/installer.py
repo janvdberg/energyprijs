@@ -40,44 +40,55 @@ INSTALL_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+# Eénmalige startwaarden (NL-standaarden). Zonder 'initial' in het package
+# herstelt HA bij herstart de LAATSTE waarde van de gebruiker — die mag niet
+# overgeschreven worden. Bij allereerste installatie bestaan de helpers nog
+# niet, dus zet we deze hier één keer via input_number.set_value; daarna
+# bepaalt alleen Jan wat ze zijn. (Zie _defaults_gezet in entry.data.)
+HELPERS_DEFAULTS: dict[str, float] = {
+    "prijs_btw": 0.21,
+    "prijs_energiebelasting": 0.0916,      # 2026-peil excl. btw
+    "prijs_opslag_afname": 0.019,          # neutraal — eigen contract invullen
+    "prijs_opslag_levering": 0.002,        # neutraal — eigen contract invullen
+    "prijs_laad_drempel": 0.337,
+    "prijs_afwijkingsdrempel": 0.005,
+}
+
 
 def _config_dir(hass: HomeAssistant) -> Path:
     return Path(hass.config.path())
 
 
-def _write_package(hass: HomeAssistant) -> Path:
-    """Schrijf het ingebedde package-bestand weg (idempotent).
+# ── Versie-constanten uit manifest (één bron, geen I/O in de event-loop) ───
+_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
+try:
+    _MANIFEST = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+except Exception:  # noqa: BLE001 — alleen tijdens extreem early import
+    _MANIFEST = {}
 
-    Onttrekt oude helpers (input_number.prijs_*) uit het bestaande package
-    zodat ze na herstart verdwijnen — de nieuwe input_text-varianten nemen
-    hun plaats in zonder dat de gebruiker handmatig hoeft op te ruimen.
+
+def _write_package_sync(hass: HomeAssistant) -> Path:
+    """Het ingebedde package naar /config/packages schrijven (blok-I/O, executor-only).
+
+    Idempotent: het bronbestand uit de integratiemap is leidend en overschrijft
+    het doel volledig. (De oude regel-voor-regel 'onttrekking' van input_number
+    uit het bestaande bestand deed niets — het bestand werd daarna toch geheel
+    herschreven — en is daarom geschrapt.)
     """
     packages_dir = _config_dir(hass) / "packages"
     packages_dir.mkdir(parents=True, exist_ok=True)
     target = packages_dir / PACKAGE_FILENAME
     source = Path(__file__).parent / PACKAGE_SOURCE
-
-    # Onttreken oude input_number-helpers uit het bestaande package
-    if target.exists():
-        old_cfg = target.read_text(encoding="utf-8")
-        if "input_number:" in old_cfg:
-            lines = old_cfg.splitlines(keepends=True)
-            out: list[str] = []
-            skip = False
-            for line in lines:
-                if re.match(r"^input_number\s*:", line):
-                    skip = True
-                    out.append("# (oude input_number-helpers verwijderd door energyprijs v1.2.26+; zie package.yaml)\n")
-                    continue
-                if skip and re.match(r"^\S", line) and not line.startswith("#"):
-                    skip = False
-                if not skip:
-                    out.append(line)
-            target.write_text("".join(out), encoding="utf-8")
-
     target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     return target
-def _ensure_packages_include(config_path: Path) -> tuple[bool, str]:
+
+
+async def _write_package(hass: HomeAssistant) -> Path:
+    """Async wrapper: wegschrijven buiten de event-loop (HA 2026 blocking-call-eis)."""
+    return await hass.async_add_executor_job(_write_package_sync, hass)
+
+
+def _ensure_packages_include_sync(config_path: Path) -> tuple[bool, str]:
     """Zorg dat configuration.yaml de packages-include heeft.
 
     Geeft terug (gewijzigd, uitleg).
@@ -169,16 +180,12 @@ def _ensure_packages_include(config_path: Path) -> tuple[bool, str]:
 # ── Energie-dashboard (user dashboard) aanmaken/bijwerken ─────────────────
 
 def _manifest_version(hass: HomeAssistant) -> str:
-    """Lees de versie uit de eigen manifest.json (single source of truth)."""
-    try:
-        from importlib.metadata import version
-        return version("energyprijs")
-    except Exception:  # noqa: BLE001
-        mf = Path(__file__).parent / "manifest.json"
-        try:
-            return str(json.loads(mf.read_text(encoding="utf-8")).get("version", "0"))
-        except Exception:  # noqa: BLE001
-            return "0"
+    """Versie uit het bij import gelezen manifest (geen I/O in de event-loop).
+
+    importlib.metadata.version("energyprijs") doet bij elke call een listdir
+    van de site-packages-root — een geblokkeerd I/O-pad dat HA 2026 flagt.
+    """
+    return str(_MANIFEST.get("version", "0"))
 
 DASH_ID = "energyprijs"
 DASH_TITEL = "Energie — stroomprijs"
@@ -197,12 +204,23 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     Eerst: het ingebedde package wegschrijven. Een HACS-upgrade vervangt alléén
     custom_components/, dus /config/packages/energyprijs.yaml blijft anders op
     een oude (mogelijk ongeladbare) revisie staan tot iemand install aanroept.
+
+    KNIEPUNT (bewust gekozen, 3 okt '26): er is GEEN publieke API voor
+    "user-dashboard met panels toevoegen" — alleen `frontend.async_register_panel`
+    (panel zonder storage-registratie) en de DashboardsCollection zelf, die HA
+    intern houdt. We bouwen daarom een tweede instance op dezelfde storage-key:
+    de itemids sluiten naadloos aan op de live-collectie (generate_id). Risico:
+    `_flush_collection_save` gebruikt private attributen (`coll.store`,
+    `coll._data_to_save`) om de metadata direct naar disk te duwen; bij een
+    HA-update waarin die internals veranderen kan deze flush stil falen — dan
+    staat het dashboard na ~10 s alsnog (HA's eigen delay-save), maar niet direct.
+    De flush zit daarom in een try/except dat dat niet neerhaalt.
     """
     from .cards import CONTRACT_CARD, GRAFIEK_CARD, NU_CARD
 
     # ── 0a) package always in sync met de geïnstalleerde code ──────────────
     try:
-        _write_package(hass)
+        await _write_package(hass)
     except Exception:  # noqa: BLE001
         _LOGGER.warning("energyprijs: package wegschrijven mislukt", exc_info=True)
 
@@ -450,6 +468,53 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     }
 
 
+def _defaults_state(hass: HomeAssistant) -> dict:
+    """In-memory boeholder: welk set-value-jaar is al verwerkt?"""
+    data = hass.data.setdefault(DOMAIN, {})
+    return data.setdefault("_defaults", {})
+
+
+async def _ensure_helper_defaults(hass: HomeAssistant) -> bool:
+    """Zet eenmalig de contract-defaults waar ze nog ontbreken.
+
+    Werkwijze (bewust simpel, 3 okt '26): na elke herstart zijn de helpers
+    pas weer aanwezig; als we daarna NOOIT eerder defaults zetten hebben
+    (geen marker in het in-memory state-dict) én de helper staat op 0, dan
+    is dit de eerste run → set_value met de NL-standaard. Een gebruiker die
+    zelf 0 instelt, merkt dat aan de melding hierin; de waarschijnlijke
+    situatie is "nog niet ingevuld". Markering per versie voorkomt dubbele
+    invulling binnen dezelfde session.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    reg = er.async_get(hass)
+    for key, value in HELPERS_DEFAULTS.items():
+        if reg.async_get(f"input_number.{key}") is None:
+            return False  # package nog niet geladen — startup probeert opnieuw
+
+    st = _defaults_state(hass)
+    done_key = f"v{_MANIFEST.get('version', '0')}"
+    if st.get(done_key):
+        return True
+
+    gezet = []
+    for key, value in HELPERS_DEFAULTS.items():
+        eid = f"input_number.{key}"
+        try:
+            resp = await hass.services.async_call(
+                "input_number", "set_value", {"entity_id": eid, "value": value},
+                blocking=True, return_response=False,
+            )
+            del resp
+            gezet.append(key)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: set_value %s mislukt: %s", eid, e)
+    if gezet:
+        st[done_key] = True
+        _LOGGER.info("energyprijs: contract-defaults gezet: %s", ", ".join(gezet))
+    return True
+
+
 async def async_register_services(hass: HomeAssistant) -> None:
     """Registreer energyprijs.install en energyprijs.status."""
 
@@ -457,11 +522,13 @@ async def async_register_services(hass: HomeAssistant) -> None:
         hass_config = _config_dir(hass)
         cfg_file = hass_config / CONFIG_FILENAME
 
-        # 1) package wegschrijven
-        target = _write_package(hass)
+        # 1) package wegschrijven (executor — geen blok-I/O in de loop)
+        target = await _write_package(hass)
 
-        # 2) configuration.yaml bewaken/aanvullen
-        changed, note = _ensure_packages_include(cfg_file)
+        # 2) configuration.yaml bewaken/aanvullen (executor)
+        changed, note = await hass.async_add_executor_job(
+            _ensure_packages_include_sync, cfg_file
+        )
 
         # 3) status bepalen
         restart_needed = changed
@@ -491,6 +558,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
             )
         else:
             result["actie"] = "Alles stond al goed; herstart niet nodig."
+
+        # 5) Eénmalig defaults voor de contracthelpers (na restart pas bruikbaar)
+        if not await _ensure_helper_defaults(hass):
+            pass  # helpers bestaan pas na herstart; startup haalt het dan op
 
         _LOGGER.info("energyprijs.install → %s", result)
         return result
@@ -528,7 +599,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_status(call: ServiceCall) -> dict:
         cfg_file = _config_dir(hass) / CONFIG_FILENAME
         pkg_file = _config_dir(hass) / "packages" / PACKAGE_FILENAME
-        cfg = cfg_file.read_text(encoding="utf-8") if cfg_file.exists() else ""
+
+        def _read() -> str:
+            return cfg_file.read_text(encoding="utf-8") if cfg_file.exists() else ""
+
+        cfg = await hass.async_add_executor_job(_read)
         return {
             "configuration_yaml_bestaat": cfg_file.exists(),
             "packages_include_aanwezig": bool(re.search(r"(?m)^\s*packages\s*:", cfg)),

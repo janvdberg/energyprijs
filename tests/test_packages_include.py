@@ -6,7 +6,7 @@ toplevel default_config:-blok → installer sloop zijn homeassistant:-blok erach
 """
 from pathlib import Path
 
-from custom_components.energyprijs.installer import _ensure_packages_include
+from custom_components.energyprijs.installer import _ensure_packages_include_sync as _ensure_packages_include
 
 JANS_CFG = """# Configure a default setup of Home Assistant
 default_config:

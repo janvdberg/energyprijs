@@ -135,6 +135,8 @@ template:
 
   # ── GECOÖRDINEERD: EnergyZero corrigeert naar excl-btw zodra de btw-helper wijzigt ──
   - triggers:
+      - trigger: homeassistant
+        event: start
       - trigger: state
         entity_id: input_number.prijs_btw
     sensor:
@@ -154,6 +156,8 @@ template:
   #    (state-based template-sensoren luisteren normaal NIET naar input_*;
   #     dit blok doet dat wél, zodat de rode verkoopreeks direct meeloopt.)
   - triggers:
+      - trigger: homeassistant
+        event: start
       - trigger: state
         entity_id:
           - input_number.prijs_btw
@@ -211,6 +215,8 @@ template:
 
   # ── GECOÖRDINEERD: afname/levering all-in, herbereken bij contractwijziging ──
   - triggers:
+      - trigger: homeassistant
+        event: start
       - trigger: state
         entity_id:
           - input_number.prijs_btw
@@ -247,13 +253,17 @@ template:
               + (states('input_number.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
 
 input_number:
+  # OPLET: geen 'initial' hier. initial zet de waarde bij ELKE herstart terug
+  # en wist daarmee de door Jan ingestelde contractwaarden. Zonder initial
+  # herstelt HA de laatst opgeslagen waarde; bij de aller-EERSTE start (geen
+  # opgeslagen waarde) is de helper even 0 → de installer zet de defaults
+  # éénmalig via _defaults_gezet in entry.data (zie __init__.py).
   prijs_btw:
     name: "Prijs: BTW"
     min: 0
     max: 1
     step: 0.001
     mode: box
-    initial: 0.21
     icon: mdi:percent
   prijs_energiebelasting:
     name: "Prijs: energiebelasting excl btw"
@@ -261,7 +271,6 @@ input_number:
     max: 1
     step: 0.0001
     mode: box
-    initial: 0.0916          # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
     icon: mdi:transmission-tower
   prijs_opslag_afname:
     name: "Prijs: leveranciersopslag afname"
@@ -269,7 +278,6 @@ input_number:
     max: 1
     step: 0.0001
     mode: box
-    initial: 0.019           # NEUTRALE STARTWAARDE — eigen contract invullen
     icon: mdi:store
   prijs_opslag_levering:
     name: "Prijs: leveranciersopslag levering"
@@ -277,7 +285,6 @@ input_number:
     max: 1
     step: 0.0001
     mode: box
-    initial: 0.002           # NEUTRALE STARTWAARDE — eigen contract invullen
     icon: mdi:store-check
   prijs_laad_drempel:
     name: "Prijs: laad-drempel (afname all-in)"
@@ -286,7 +293,6 @@ input_number:
     max: 1
     step: 0.001
     mode: box
-    initial: 0.337
     icon: mdi:ev-station
   prijs_afwijkingsdrempel:
     name: "Prijs: afwijkingsdrempel kruiscontrole"
@@ -294,7 +300,6 @@ input_number:
     max: 1
     step: 0.001
     mode: box
-    initial: 0.005
     icon: mdi:scale-balance
 
 input_boolean:
@@ -354,3 +359,12 @@ automation:
             Om 15:15 zijn er geen morgen-intervallen. Actieve bronnen:
             {{ state_attr('sensor.stroomprijs_basis','bronnen_actief') | default(['geen'], true) | join(', ') }}.
             Planning vanmiddag niet uitvoeren tot ze binnen zijn.
+# ── RECORDER: sensor.stroomprijs_daglijst draagt ±2×96 kwartieren in attributes ──
+#    (±10 KB per state). Dat overschrijdt de 16 KB-limiet van recorder/state_change.
+#    Dus uitgesloten van de history-opslag; de grafiek leest de LIVE-attributes,
+#    die door de recorder niet beïnvloed worden. Anders krijgt Jan een "Failed to
+#    commit database changes"-waarschuwing bij elke herberekening.
+recorder:
+  exclude:
+    - entity_id:
+        - sensor.stroomprijs_daglijst
