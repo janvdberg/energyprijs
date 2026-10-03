@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# virtuele envs lokaal, nooit meenemen
+pytest_venv/
+.venv*/
