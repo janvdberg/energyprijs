@@ -244,39 +244,33 @@ template:
 input_text:
   prijs_btw:
     name: "Prijs: BTW"
-    max: 0.5
-    mode: decimal
+    pattern: '[0-9]*\.?[0-9]{0,4}'
     initial: "0.21"
     icon: mdi:percent
   prijs_energiebelasting:
     name: "Prijs: energiebelasting excl btw"
-    max: 0.30
-    mode: decimal
+    pattern: '[0-9]*\.?[0-9]{0,4}'
     initial: "0.0916"        # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
     icon: mdi:transmission-tower
   prijs_opslag_afname:
     name: "Prijs: leveranciersopslag afname"
-    max: 0.10
-    mode: decimal
+    pattern: '[0-9]*\.?[0-9]{0,4}'
     initial: "0.019"         # NEUTRALE STARTWAARDE — eigen contract invullen
     icon: mdi:store
   prijs_opslag_levering:
     name: "Prijs: leveranciersopslag levering"
-    max: 0.10
-    mode: decimal
+    pattern: '[0-9]*\.?[0-9]{0,4}'
     initial: "0.002"         # NEUTRALE STARTWAARDE — eigen contract invullen
     icon: mdi:store-check
   prijs_laad_drempel:
     name: "Prijs: laad-drempel (afname all-in)"
     unit_of_measurement: "EUR/kWh"
-    max: 1
-    mode: decimal
+    pattern: '[0-9]*\.?[0-9]{0,4}'
     initial: "0.337"
     icon: mdi:ev-station
   prijs_afwijkingsdrempel:
     name: "Prijs: afwijkingsdrempel kruiscontrole"
-    max: 0.05
-    mode: decimal
+    pattern: '[0-9]*\.?[0-9]{0,4}'
     initial: "0.005"
     icon: mdi:scale-balance
 
