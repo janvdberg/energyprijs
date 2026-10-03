@@ -2,7 +2,7 @@
   "domain": "energyprijs",
   "name": "Energyprijs",
   "codeowners": [
-    "@jan"
+    "@janvdberg"
   ],
   "config_flow": true,
   "documentation": "https://github.com/janvdberg/energyprijs",
