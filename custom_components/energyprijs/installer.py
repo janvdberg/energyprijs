@@ -81,50 +81,87 @@ def _ensure_packages_include(config_path: Path) -> tuple[bool, str]:
     """Zorg dat configuration.yaml de packages-include heeft.
 
     Geeft terug (gewijzigd, uitleg).
+
+    Valkuil (oct 2026, live tegengekomen): als de gebruiker zijn includes onder
+    een TOPLEVEL `default_config:` inspringt, plaatste de vorige versie het
+    homeassistant:-blok achter die ingesprongen regels — waardoor YAML het
+    interpreteert als extra default_config-options en HA de packages-include
+    NEGEERT zonder foutmelding. Daarom: blok ALTIJD op kolom 0, vóór elke
+    inspringing, en bestaande misplaced blokken eerst opruimen.
     """
     original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
 
-    # Al aanwezig? Zoek naar 'packages:' onder een homeassistant:-blok of los.
-    if re.search(r"(?m)^\s*packages\s*:", original):
-        return False, "packages-include stond al in configuration.yaml"
+    # ── 1) Bestaand energyprijs-blok opspeuren (marker → marker) ──────────
+    start_m = re.search(r"(?m)^# --- energyprijs installer.*$", original)
+    end_m = re.search(r"(?m)^# --- einde energyprijs installer.*$", original)
+    existing = None
+    if start_m and end_m and end_m.end() > start_m.start():
+        existing = original[start_m.start():end_m.end()]
+
+    def _correct_in_block(block_text: str) -> bool:
+        """homeassistant: op kolom 0 mét packages eronder op 2 spaties."""
+        m = re.search(r"(?m)^homeassistant\s*:\s*$", block_text)
+        return bool(m and re.search(
+            r"(?m)^ {1,4}packages\s*:\s*!include_dir_named\s+packages\s*$",
+            block_text[m.end():],
+        ))
+
+    if existing is not None and _correct_in_block(existing):
+        return False, "packages-include stond al correct in configuration.yaml"
 
     block = (
-        "\n# --- energyprijs installer: packages ondersteuning toegevoegd ---\n"
+        "# --- energyprijs installer: packages ondersteuning ---\n"
         "homeassistant:\n"
         "  packages: !include_dir_named packages\n"
-        "# --- einde energyprijs installer ---\n"
+        "# --- einde energyprijs installer ---"
     )
 
-    if not config_path.exists():
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(block.lstrip("\n"), encoding="utf-8")
-        return True, "configuration.yaml aangemaakt met packages-include"
+    lines = original.splitlines(keepends=True)
 
-    if re.search(r"(?m)^homeassistant\s*:", original):
-        # homeassistant:-blok bestaat al → packages regel toevoegen onder dat blok
+    # ── 2) Een misplaced/verouderd blok verwijderen; merk op waar het stond ──
+    removed_at: int | None = None
+    if existing is not None:
+        s = original.index(existing)
+        removed_at = len(original[:s].splitlines())
+        original = original.replace(existing, "", 1)
         lines = original.splitlines(keepends=True)
-        out: list[str] = []
-        inserted = False
-        in_block = False
-        for line in lines:
-            if re.match(r"^homeassistant\s*:", line):
-                in_block = True
-                out.append(line)
-                out.append("  packages: !include_dir_named packages\n")
-                inserted = True
-                continue
-            if in_block and re.match(r"^\S", line) and not line.startswith("#"):
-                in_block = False
-            out.append(line)
-        if not inserted:
-            out.append(block)
-        config_path.write_text("".join(out), encoding="utf-8")
-        return True, "packages-include toegevoegd aan bestaand homeassistant:-blok"
 
-    # geen homeassistant:-blok → aan het eind toevoegen
-    with config_path.open("a", encoding="utf-8") as f:
-        f.write(block)
-    return True, "homeassistant:-blok met packages-include toegevoegd"
+    # ── 2b) Losse (markerloze) homeassistant:-resten opruimen die binnen een
+    #        ingesprongen blok stonden — precies dit maakten wij kapot. ────────
+    cleaned: list[str] = []
+    for ln in lines:
+        if re.match(r"^\s+homeassistant\s*:\s*$", ln):
+            continue  # slecht-geplaatst top-level-key-fragment: dumpen
+        if re.match(r"^\s+packages\s*:\s*!include_dir_named\s+packages\s*$", ln):
+            continue  # wezenloos zonder parent-homeassistant; komt terug in ons blok
+        cleaned.append(ln)
+    lines = cleaned
+
+    # ── 3) Staat er al een top-level homeassistant:-blok met packages? ────
+    if re.search(r"(?m)^homeassistant\s*:", original) and re.search(
+        r"(?m)^\s+packages\s*:\s*!include_dir_named\s+packages\s*$", original
+    ):
+        # iemand heeft packages handmatig elders onder homeassistant: gezet
+        return False, "packages-include gevonden onder homeassistant:-blok; niets gewijzigd"
+
+    # ── 4) Blok invoegen op kolom 0 — liefst bovenaan (na comments), anders
+    #       op de plek van het verwijderde blok, anders aan het eind. ────────
+    insert_idx = 0
+    if removed_at is not None:
+        insert_idx = min(removed_at, len(lines))
+    else:
+        for i, ln in enumerate(lines):
+            if ln.strip() and not ln.lstrip().startswith("#"):
+                insert_idx = i
+                break
+
+    out = lines[:insert_idx] + [block + "\n"] + lines[insert_idx:]
+    config_path.write_text("".join(out), encoding="utf-8")
+    note = ("packages-include toegevoegd op kolom 0 (top-level homeassistant:-blok)"
+            if removed_at is None else
+            "misplaced energyprijs-blok verplaatst naar kolom 0 — binnen een "
+            "ingesprongen default_config:-blok negeert HA de include stil")
+    return True, note
 
 
 
