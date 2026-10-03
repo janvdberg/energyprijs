@@ -306,10 +306,10 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
 
     ent_reg = er.async_get(hass)
     alle_eids = {e.entity_id for e in ent_reg.entities.values()}
-    diag["helpers_aanwezig"] = "input_text.prijs_btw" in alle_eids
+    diag["helpers_aanwezig"] = "input_number.prijs_btw" in alle_eids
     if not diag["helpers_aanwezig"]:
         raise RuntimeError(
-            "De energie-helpers (input_text.prijs_btw …) ontbreken nog. "
+            "De energie-helpers (input_number.prijs_btw …) ontbreken nog. "
             "Draai eerst de service energyprijs.install en herstart Home Assistant, "
             "voordat je dit dashboard vult."
         )
@@ -391,7 +391,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             return "sensor.stroomprijs_daglijst" in ents
         if t == "entities":
             ents = {c.get("entity") if isinstance(c, dict) else c for c in card.get("entities", [])}
-            return "input_text.prijs_btw" in ents or "sensor.stroomprijs_afname" in ents
+            return "input_number.prijs_btw" in ents or "sensor.stroomprijs_afname" in ents
         return False
 
     kept = [c for c in cards_list if not _is_ours(c)]

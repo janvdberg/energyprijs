@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 1.2.31 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.2.33 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
@@ -10,6 +10,14 @@
 #   - 2027-bestendig: saldering weg → alleen input_number/boolean verzetten.
 #   - Kwartier-klaar: EnerPrice/Nord Pool leveren vanzelf 15-min intervallen
 #     zodra de markt overgaat; templates werken op attributes-lijsten.
+#
+#  v1.2.33 — twee structurele correcties (live-log 3 okt, HA 2026.9.4):
+#   1. Helpers zijn input_NUMBER met mode: box (invulvelden, geen sliders).
+#      eerdere poging 'input_text met max/mode' faalde: die opties bestaan
+#      daar niet → setup crashte en het hele package laadde niet.
+#   2. Template-entiteiten met eigen triggers staan in GECOÖRDINEERDE blokken
+#      ('triggers:' naast 'sensor:'). 'triggers' ín een sensor-item is volgens
+#      HA's validator ongeldig (ensure_domains_do_not_have_trigger_or_action).
 #
 #  Benodigde integraties (staan al geïnstalleerd):
 #   1. Nord Pool      (core)       → sensor.nord_pool_nl_current_price (excl. btw)
@@ -32,6 +40,7 @@
 # ═══════════════════════════════════════════════════════════════
 
 template:
+  # ── STATE-BASED: bron-nabootsing + basis; luisteren automatisch naar hun inputs ──
   - sensor:
       # ── BRON 1: Nord Pool, ruw (excl. btw). GEEN daglijst in attributes —
       #    core-integratie heeft alleen nu/vorige/volgende + min/max sensoren.
@@ -72,24 +81,6 @@ template:
             {{ state_attr('sensor.enerprice_nl_day_ahead_prices_current_market_price', 'raw_price_resolution') }}
           beschikbaar: "{{ is_state('binary_sensor.enerprice_nl_day_ahead_prices_api_data_available', 'on') and has_value('sensor.enerprice_nl_day_ahead_prices_current_market_price') }}"
 
-      # ── BRON 3: EnergyZero, gecorrigeerd naar excl. btw (API levert INCL btw)
-      - name: "Prijzen bron Energyzero"
-        unique_id: prijzen_bron_energyzero
-        unit_of_measurement: "EUR/kWh"
-        state_class: measurement
-        availability: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
-        # state-trigger op de btw-helper: herbereken direct zodra die waarde verandert,
-        # zonder HA-herstart (template-sensoren luisteren normaal NIET naar input_*).
-        triggers:
-          - trigger: state
-            entity_id: input_text.prijs_btw
-        state: >
-          {{ (states('sensor.energyzero_today_energy_current_hour_price') | float(0)
-              / (1 + states('input_text.prijs_btw') | float(0.21))) | round(6) }}
-        attributes:
-          interval_min: 60   # EnergyZero-core-sensor is per uur; NordPool/EnerPrice leveren straks 15 min
-          beschikbaar: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
-
       # ── BASISPRIJS: meerderheidsmediaan van ≥2 verse bronnen, anders falen
       - name: "Stroomprijs basis"
         unique_id: stroomprijs_basis
@@ -127,38 +118,70 @@ template:
                         | select('match', '^-?\\d') | map('float') | list %}
             {{ (n | max - n | min) | round(6) if n | length >= 2 else none }}
 
+  # ── Binaire bewaking: is de minderheidscontrole nog OK? ──
+  - binary_sensor:
+      - name: "Prijzen kruiscontrole afwijking"
+        unique_id: prijzen_kruiscontrole_afwijking
+        delay_on: "00:05:00"
+        delay_off: "00:05:00"
+        state: >
+          {% set s = state_attr('sensor.stroomprijs_basis', 'spreiding') %}
+          {{ s is not none and s | float(0) > states('input_number.prijs_afwijkingsdrempel') | float(0.005) }}
+
+      - name: "Prijzen morgen beschikbaar"
+        unique_id: prijzen_morgen_beschikbaar
+        state: >
+          {{ state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) | count > 0 }}
+
+  # ── GECOÖRDINEERD: EnergyZero corrigeert naar excl-btw zodra de btw-helper wijzigt ──
+  - triggers:
+      - trigger: state
+        entity_id: input_number.prijs_btw
+    sensor:
+      - name: "Prijzen bron Energyzero"
+        unique_id: prijzen_bron_energyzero
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
+        state: >
+          {{ (states('sensor.energyzero_today_energy_current_hour_price') | float(0)
+              / (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}
+        attributes:
+          interval_min: 60   # EnergyZero-core-sensor is per uur; NordPool/EnerPrice leveren straks 15 min
+          beschikbaar: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
+
+  # ── GECOÖRDINEERD: daglijst herberekent live bij elke contractwijziging ──
+  #    (state-based template-sensoren luisteren normaal NIET naar input_*;
+  #     dit blok doet dat wél, zodat de rode verkoopreeks direct meeloopt.)
+  - triggers:
+      - trigger: state
+        entity_id:
+          - input_number.prijs_btw
+          - input_number.prijs_energiebelasting
+          - input_number.prijs_opslag_afname
+          - input_number.prijs_opslag_levering
+          - input_number.prijs_laad_drempel
+          - input_boolean.prijs_saldering_energiebelasting_teruggave
+          - sensor.prijzen_bron_enerprice
+    sensor:
       # ── DAGLIJST voor ApexCharts: [{t, p}] bruto, vandaag + morgen.
-      #    Bron = EnerPrice prices_today/prices_tomorrow ({time, price});
-      #    Nord Pool core heeft géén daglijst — valt EnerPrice weg, dan blijft
-      #    de basis-prijs werken via mediaan en wordt alleen de grafiek leeg.
       - name: "Stroomprijs daglijst"
         unique_id: stroomprijs_daglijst
-        # herbereken de dag- én morgenlijst direct zodra een contracthelper of de
-        # saldering-switch verzet wordt (template-sensoren luisteren normaal niet
-        # naar input_*), zodat de rode verkoopreeks in de grafiek live meeloopt.
-        triggers:
-          - trigger: state
-            entity_id:
-              - input_text.prijs_btw
-              - input_text.prijs_energiebelasting
-              - input_text.prijs_opslag_afname
-              - input_text.prijs_opslag_levering
-              - input_boolean.prijs_saldering_energiebelasting_teruggave
         state: >
           {{ now().strftime('%H:%M') }}
         attributes:
           vandaag: >
-            {% set btw = 1 + states('input_text.prijs_btw') | float(0.21) %}
-            {% set bel = states('input_text.prijs_energiebelasting') | float(0) %}
-            {% set sa = states('input_text.prijs_opslag_afname') | float(0) %}
-            {% set sl = states('input_text.prijs_opslag_levering') | float(0) %}
+            {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
+            {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
+            {% set sa = states('input_number.prijs_opslag_afname') | float(0) %}
+            {% set sl = states('input_number.prijs_opslag_levering') | float(0) %}
             {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
             {% set ns = namespace(out=[]) %}
             {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_today') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
                 {% set allin = ((p + sa + bel) * btw) | round(4) %}
-                {% set drem = states('input_text.prijs_laad_drempel') | float(9) %}
+                {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
@@ -167,17 +190,17 @@ template:
             {% endfor %}
             {{ ns.out }}
           morgen: >
-            {% set btw = 1 + states('input_text.prijs_btw') | float(0.21) %}
-            {% set bel = states('input_text.prijs_energiebelasting') | float(0) %}
-            {% set sa = states('input_text.prijs_opslag_afname') | float(0) %}
-            {% set sl = states('input_text.prijs_opslag_levering') | float(0) %}
+            {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
+            {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
+            {% set sa = states('input_number.prijs_opslag_afname') | float(0) %}
+            {% set sl = states('input_number.prijs_opslag_levering') | float(0) %}
             {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
             {% set ns = namespace(out=[]) %}
             {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_tomorrow') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
                 {% set allin = ((p + sa + bel) * btw) | round(4) %}
-                {% set drem = states('input_text.prijs_laad_drempel') | float(9) %}
+                {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
@@ -186,24 +209,28 @@ template:
             {% endfor %}
             {{ ns.out }}
 
-
+  # ── GECOÖRDINEERD: afname/levering all-in, herbereken bij contractwijziging ──
+  - triggers:
+      - trigger: state
+        entity_id:
+          - input_number.prijs_btw
+          - input_number.prijs_energiebelasting
+          - input_number.prijs_opslag_afname
+          - input_number.prijs_opslag_levering
+          - input_boolean.prijs_saldering_energiebelasting_teruggave
+          - sensor.stroomprijs_basis
+    sensor:
       # ── AFNAME all-in = (basis + opslag + energiebelasting) × (1+btw)
       - name: "Stroomprijs afname"
         unique_id: stroomprijs_afname
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
         availability: "{{ has_value('sensor.stroomprijs_basis') }}"
-        triggers:
-          - trigger: state
-            entity_id:
-              - input_text.prijs_btw
-              - input_text.prijs_energiebelasting
-              - input_text.prijs_opslag_afname
         state: >
           {{ ((states('sensor.stroomprijs_basis') | float(0)
-               + states('input_text.prijs_opslag_afname') | float(0)
-               + states('input_text.prijs_energiebelasting') | float(0))
-              * (1 + states('input_text.prijs_btw') | float(0.21))) | round(6) }}
+               + states('input_number.prijs_opslag_afname') | float(0)
+               + states('input_number.prijs_energiebelasting') | float(0))
+              * (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}
 
       # ── LEVERING all-in = (basis + leveringopslag) × (1+btw); NA 2027 géén belasting-teruggave.
       #    Tot 1-1-2027 geldt saldering: teruggave = belasting; zet dan het salderings-veld op 1.
@@ -212,66 +239,62 @@ template:
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
         availability: "{{ has_value('sensor.stroomprijs_basis') }}"
-        triggers:
-          - trigger: state
-            entity_id:
-              - input_text.prijs_btw
-              - input_text.prijs_energiebelasting
-              - input_text.prijs_opslag_levering
-              - input_boolean.prijs_saldering_energiebelasting_teruggave
         state: >
           {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
           {% set basis = states('sensor.stroomprijs_basis') | float(0) %}
-          {% set btw = 1 + states('input_text.prijs_btw') | float(0.21) %}
-          {{ ((basis + states('input_text.prijs_opslag_levering') | float(0)) * btw
-              + (states('input_text.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
+          {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
+          {{ ((basis + states('input_number.prijs_opslag_levering') | float(0)) * btw
+              + (states('input_number.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
 
-  # ── Binaire bewaking: is de minderheidscontrole nog OK?
-  - binary_sensor:
-      - name: "Prijzen kruiscontrole afwijking"
-        unique_id: prijzen_kruiscontrole_afwijking
-        delay_on: "00:05:00"
-        delay_off: "00:05:00"
-        state: >
-          {% set s = state_attr('sensor.stroomprijs_basis', 'spreiding') %}
-          {{ s is not none and s | float(0) > states('input_text.prijs_afwijkingsdrempel') | float(0.005) }}
-
-      - name: "Prijzen morgen beschikbaar"
-        unique_id: prijzen_morgen_beschikbaar
-        state: >
-          {{ state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) | count > 0 }}
-
-input_text:
+input_number:
   prijs_btw:
     name: "Prijs: BTW"
-    pattern: '[0-9]*\.?[0-9]{0,4}'
-    initial: "0.21"
+    min: 0
+    max: 1
+    step: 0.001
+    mode: box
+    initial: 0.21
     icon: mdi:percent
   prijs_energiebelasting:
     name: "Prijs: energiebelasting excl btw"
-    pattern: '[0-9]*\.?[0-9]{0,4}'
-    initial: "0.0916"        # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
+    min: 0
+    max: 1
+    step: 0.0001
+    mode: box
+    initial: 0.0916          # 2026-peil, excl. btw — verlagen zodra tarief wijzigt
     icon: mdi:transmission-tower
   prijs_opslag_afname:
     name: "Prijs: leveranciersopslag afname"
-    pattern: '[0-9]*\.?[0-9]{0,4}'
-    initial: "0.019"         # NEUTRALE STARTWAARDE — eigen contract invullen
+    min: 0
+    max: 1
+    step: 0.0001
+    mode: box
+    initial: 0.019           # NEUTRALE STARTWAARDE — eigen contract invullen
     icon: mdi:store
   prijs_opslag_levering:
     name: "Prijs: leveranciersopslag levering"
-    pattern: '[0-9]*\.?[0-9]{0,4}'
-    initial: "0.002"         # NEUTRALE STARTWAARDE — eigen contract invullen
+    min: 0
+    max: 1
+    step: 0.0001
+    mode: box
+    initial: 0.002           # NEUTRALE STARTWAARDE — eigen contract invullen
     icon: mdi:store-check
   prijs_laad_drempel:
     name: "Prijs: laad-drempel (afname all-in)"
     unit_of_measurement: "EUR/kWh"
-    pattern: '[0-9]*\.?[0-9]{0,4}'
-    initial: "0.337"
+    min: 0
+    max: 1
+    step: 0.001
+    mode: box
+    initial: 0.337
     icon: mdi:ev-station
   prijs_afwijkingsdrempel:
     name: "Prijs: afwijkingsdrempel kruiscontrole"
-    pattern: '[0-9]*\.?[0-9]{0,4}'
-    initial: "0.005"
+    min: 0
+    max: 1
+    step: 0.001
+    mode: box
+    initial: 0.005
     icon: mdi:scale-balance
 
 input_boolean:
@@ -331,37 +354,3 @@ automation:
             Om 15:15 zijn er geen morgen-intervallen. Actieve bronnen:
             {{ state_attr('sensor.stroomprijs_basis','bronnen_actief') | default(['geen'], true) | join(', ') }}.
             Planning vanmiddag niet uitvoeren tot ze binnen zijn.
-
-# ═══════════════════════════════════════════════════════════════
-#  LOVELACE CARD (apart in je dashboard plakken, NIET in packages/)
-#  Staafgrafiek bruto, 15-min-staven zodra de markt kwartier levert.
-# ═══════════════════════════════════════════════════════════════
-# type: custom:apexcharts-card
-# graph_span: 24h
-# span:
-#   start: day
-#   offset: +0d
-# title: Stroomprijs bruto (EUR/kWh) — vandaag
-# now:
-#   show: true
-#   label: nu
-# header:
-#   show: true
-#   show_states: false
-# series:
-#   - entity: sensor.stroomprijs_daglijst
-#     type: column
-#     data_generator: |
-#       return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime(), e.p]);
-#     float_precision: 3
-#     color_threshold:
-#       - value: 0
-#         color: "#0a8f3c"      # negatief: geld verdienen
-#       - value: 0.10
-#         color: "#2fbf5f"
-#       - value: 0.25
-#         color: "#e6b800"
-#       - value: 0.40
-#         color: "#d94040"
-# yaxis:
-#   decimales: 3

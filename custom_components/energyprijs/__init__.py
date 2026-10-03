@@ -48,12 +48,12 @@ TEMPLATE_UNIQUE_IDS: list[tuple[str, str]] = [
 ]
 
 HELPER_ENTITY_IDS: list[str] = [
-    "input_text.prijs_btw",
-    "input_text.prijs_energiebelasting",
-    "input_text.prijs_opslag_afname",
-    "input_text.prijs_opslag_levering",
-    "input_text.prijs_afwijkingsdrempel",
-    "input_text.prijs_laad_drempel",
+    "input_number.prijs_btw",
+    "input_number.prijs_energiebelasting",
+    "input_number.prijs_opslag_afname",
+    "input_number.prijs_opslag_levering",
+    "input_number.prijs_afwijkingsdrempel",
+    "input_number.prijs_laad_drempel",
     "input_boolean.prijs_saldering_energiebelasting_teruggave",
 ]
 
@@ -140,7 +140,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Package moet klaar zijn
         reg = er.async_get(hass)
-        if reg.async_get("input_text.prijs_btw") is None:
+        if reg.async_get("input_number.prijs_btw") is None:
             return
 
         manifest_version = _manifest_version(hass)
@@ -165,7 +165,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     #
     #    Volgorde:
     #      1. EVENT_HOMEASSISTANT_STARTED (of direct als HA al draait bij reload)
-    #      2. Package-control: input_text.prijs_btw MOET in de registry staan
+    #      2. Package-control: input_number.prijs_btw MOET in de registry staan
     #      3. Pas dan _dashboard_opslaan (DashboardsCollection + LovelaceStorage)
     #      4. 5-min back-up timer alleen zolang het nog niet is geslaagd
     #
@@ -173,7 +173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     def _package_klaar() -> bool:
         reg = er.async_get(hass)
-        return reg.async_get("input_text.prijs_btw") is not None
+        return reg.async_get("input_number.prijs_btw") is not None
 
     def _dashboard_klaar() -> bool:
         """True als het dashboard op de huidige manifest-versie staat."""

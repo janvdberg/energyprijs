@@ -30,9 +30,9 @@ def _counter(naam: str, kleur: str) -> dict:
         "color": kleur,
         "float_precision": 3,
         "data_generator": (
-            "const btw = 1 + parseFloat(states('input_text.prijs_btw') || '0.21');"
-            " const bel = parseFloat(states('input_text.prijs_energiebelasting') || '0');"
-            " const sl = parseFloat(states('input_text.prijs_opslag_levering') || '0');"
+            "const btw = 1 + parseFloat(states('input_number.prijs_btw') || '0.21');"
+            " const bel = parseFloat(states('input_number.prijs_energiebelasting') || '0');"
+            " const sl = parseFloat(states('input_number.prijs_opslag_levering') || '0');"
             " const sal = states('input_boolean.prijs_saldering_energiebelasting_teruggave') === 'on';"
             " return entity.attributes.vandaag.map((e) =>"
             " [new Date(e.t).getTime() + 450000,"
@@ -111,12 +111,12 @@ CONTRACT_CARD = {
     "show_header_toggle": False,
     "state_color": True,
     "entities": [
-        {"entity": "input_text.prijs_btw", "name": "Btw (factor, NL = 0,21)"},
-        {"entity": "input_text.prijs_energiebelasting",
+        {"entity": "input_number.prijs_btw", "name": "Btw (factor, NL = 0,21)"},
+        {"entity": "input_number.prijs_energiebelasting",
          "name": "Energiebelasting excl. btw (€/kWh)"},
-        {"entity": "input_text.prijs_opslag_afname",
+        {"entity": "input_number.prijs_opslag_afname",
          "name": "Leveranciersopslag afname (€/kWh)"},
-        {"entity": "input_text.prijs_opslag_levering",
+        {"entity": "input_number.prijs_opslag_levering",
          "name": "Leveranciersopslag levering (€/kWh)"},
         {"entity": "input_boolean.prijs_saldering_energiebelasting_teruggave",
          "name": "Saldering (teruggave belasting)"},

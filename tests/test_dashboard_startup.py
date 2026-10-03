@@ -21,7 +21,7 @@ async def test_setup_entry_never_fails(hass):
 
 
 async def test_startup_skips_without_package(hass):
-    """Zonder input_text.prijs_btw: _dashboard_opslaan mag NIET worden aangeroepen."""
+    """Zonder input_number.prijs_btw: _dashboard_opslaan mag NIET worden aangeroepen."""
     from custom_components.energyprijs import async_setup_entry
     import custom_components.energyprijs as cc_pkg
 
@@ -43,7 +43,7 @@ async def test_startup_skips_without_package(hass):
 
 
 async def test_startup_creates_with_package(hass):
-    """Met input_text.prijs_btw + Lovelace actief: _dashboard_opslaan WEL 1x.
+    """Met input_number.prijs_btw + Lovelace actief: _dashboard_opslaan WEL 1x.
 
     Cold-start-pad: de integratie luistert naar EVENT_HOMEASSISTANT_STARTED, dus
     die fire je vóór async_setup_entry (hass.is_running is in deze harness al True,
@@ -58,7 +58,7 @@ async def test_startup_creates_with_package(hass):
 
     reg = er.async_get(hass)
     reg.async_get_or_create(
-        "input_text", "test", "prijs_btw", suggested_object_id="prijs_btw"
+        "input_number", "test", "prijs_btw", suggested_object_id="prijs_btw"
     )
 
     called = []
@@ -89,7 +89,7 @@ async def test_timer_stops_on_version_match(hass):
 
     reg = er.async_get(hass)
     reg.async_get_or_create(
-        "input_text", "test", "prijs_btw", suggested_object_id="prijs_btw"
+        "input_number", "test", "prijs_btw", suggested_object_id="prijs_btw"
     )
 
     entry = MockConfigEntry(
