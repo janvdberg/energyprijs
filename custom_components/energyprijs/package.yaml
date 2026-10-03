@@ -19,7 +19,9 @@
 #      ('triggers:' naast 'sensor:'). 'triggers' ín een sensor-item is volgens
 #      HA's validator ongeldig (ensure_domains_do_not_have_trigger_or_action).
 #
-#  Benodigde integraties (staan al geïnstalleerd):
+#  Benodigde integraties: MINSTENS ÉÉN van de drie bronnen hieronder.
+#    Zonder bron blijven sensor.stroomprijs_basis e.d. unavailable — het dashboard
+#    vult wél, toont N/A en waarschuwt in het log (geen fout, geen blokkade).
 #   1. Nord Pool      (core)       → sensor.nord_pool_nl_current_price (excl. btw)
 #   2. EnerPrice      (HACS custom)→ sensor.enerprice_nl_day_ahead_prices_*
 #        bronnen-chain + cache; attributes prices_today/prices_tomorrow = {time, price}

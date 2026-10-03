@@ -88,6 +88,57 @@ async def _write_package(hass: HomeAssistant) -> Path:
     return await hass.async_add_executor_job(_write_package_sync, hass)
 
 
+async def sync_package_if_changed(hass: HomeAssistant) -> bool:
+    """Schrijf het ingebedde package ALLEEN bij inhoudelijke wijziging.
+
+    Chicken-and-egg (live-log 3 okt '26): een HACS-update vervangt alleen
+    custom_components/; het op disk staande /config/packages/energyprijs.yaml
+    wordt pas door DEZE code vernieuwd, en packages kunnen niet live herladen
+    worden. Oplossing: synchroniseer zo vroeg mogelijk (async_setup_entry),
+    vergelijk op sha256 (idempotent — geen writes die mtime's versnipperen),
+    en maak bij een wijziging een reparatie-issue zodat de gebruiker hoort
+    dat er één herstart nodig is. Zonder die melding staat hij stil op old-config.
+    """
+    from homeassistant.helpers import issue_registry as ir
+
+    source = Path(__file__).parent / PACKAGE_SOURCE
+    target = _config_dir(hass) / "packages" / PACKAGE_FILENAME
+
+    def _compare_and_write() -> bool:
+        import hashlib
+
+        new_bytes = source.read_bytes()
+        new_hash = hashlib.sha256(new_bytes).hexdigest()
+        if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == new_hash:
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(new_bytes)
+        return True
+
+    changed = await hass.async_add_executor_job(_compare_and_write)
+
+    if not changed:
+        ir.async_delete_issue(hass, DOMAIN, "package_restart_needed")
+        return False
+
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        "package_restart_needed",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="package_restart_needed",
+        translation_placeholders={
+            "pad": f"/config/packages/{PACKAGE_FILENAME}",
+            "versie": _MANIFEST.get("version", "?"),
+        },
+    )
+    _LOGGER.info(
+        "energyprijs: package bijgewerkt op disk — HERSTART vereist om het te laden"
+    )
+    return True
+
+
 def _ensure_packages_include_sync(config_path: Path) -> tuple[bool, str]:
     """Zorg dat configuration.yaml de packages-include heeft.
 
@@ -246,6 +297,24 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             "Lovelace-integratie is niet actief — kan geen user-dashboard beheren."
         )
 
+    # ── 1b) VALIDATIES — VÓÓR elke bijwerking (les live-log 3 okt '26, 17:52):
+    #    eerder stond deze check ná async_create_item + panel-registratie, dus
+    #    een gefaalde guard liet een LEEG dashboard achter. Nu: eerst toetsen,
+    #    dan pas muteren. Een leeg dashboard is erger dan tijdelijk N/A.
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    alle_eids = {e.entity_id for e in ent_reg.entities.values()}
+    diag["helpers_aanwezig"] = "input_number.prijs_btw" in alle_eids
+    if not diag["helpers_aanwezig"]:
+        raise RuntimeError(
+            "De energie-helpers (input_number.prijs_btw …) ontbreken nog. "
+            "Draai eerst de service energyprijs.install en herstart Home Assistant, "
+            "voordat je dit dashboard vult."
+        )
+
+    # ── 1d) bronnen-check staat hieronder bij de kaartopbouw (warn-only).
+
     # Maak een foute panel-registratie onschadelijk (bv. overgebleven van een eerdere
     # versie van deze integratie): het re-registeren mag dan opnieuw slagen.
     frontend.async_remove_panel(hass, DASH_ID, warn_if_unknown=False)
@@ -316,6 +385,35 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
 
     dash_id = entry["id"]
 
+    # ── 1c) prijsbronnen: WAARSCHUWING, geen blokkade. Bij EVENT_STARTED zijn
+    #    template/integratie-sensoren vaak nog unknown; dat is race, geen fout.
+    #    Structureel (= integratie níét geïnstalleerd) controleren we op domein-
+    #    niveau via config entries, niet op state.
+    PAKKET_BRONNEN = {
+        "sensor.prijzen_bron_nordpool": ("nord_pool", "Nord Pool (core-integratie)"),
+        "sensor.prijzen_bron_enerprice": ("enerprice", "EnerPrice (HACS: LenFaki; extended attributes AAN)"),
+        "sensor.prijzen_bron_energyzero": ("energyzero", "EnergyZero (core-integratie)"),
+    }
+    werkend, dood, geinstalleerd = [], [], []
+    installed_domains = {e.domain for e in hass.config_entries.async_entries()}
+    for eid, (domein, naam) in PAKKET_BRONNEN.items():
+        if domein in installed_domains or any(domein in d for d in installed_domains):
+            geinstalleerd.append(naam)
+        st = hass.states.get(eid)
+        if st is not None and st.state not in ("unavailable", "unknown"):
+            werkend.append(naam)
+        else:
+            dood.append(naam)
+    diag["prijsbronnen_werkend"] = werkend
+    diag["prijsbronnen_onbeschikbaar"] = dood
+    if not werkend:
+        _LOGGER.warning(
+            "energyprijs: geen enkele prijsbron levert nu waarden (%s). Dashboard "
+            "wordt wél gevuld; sensoren tonen N/A tot een bron vers is.",
+            " · ".join(dood),
+        )
+        diag["prijsbronnen_waarschuwing"] = True
+
     # ── 2) kaartconfig: .storage/lovelace.<id> via LovelaceStorage (public API) ──
     from homeassistant.components.lovelace.const import ConfigNotFound
 
@@ -327,44 +425,6 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     # async_save vereist een gevulde cache (_data) — async_load vulde 'm al wanneer
     # de storage bestond; bij ConfigNotFound (nog nooit opgeslagen) blijft ie None,
     # waarna async_save zelf _load() aanroept.
-
-    # ── 0) voorkans: het package (helpers + templates) moet geïnstalleerd zijn,
-    #    anders tonen de kaarten alleen onbeschikbare entiteiten ──
-    from homeassistant.helpers import entity_registry as er
-
-    ent_reg = er.async_get(hass)
-    alle_eids = {e.entity_id for e in ent_reg.entities.values()}
-    diag["helpers_aanwezig"] = "input_number.prijs_btw" in alle_eids
-    if not diag["helpers_aanwezig"]:
-        raise RuntimeError(
-            "De energie-helpers (input_number.prijs_btw …) ontbreken nog. "
-            "Draai eerst de service energyprijs.install en herstart Home Assistant, "
-            "voordat je dit dashboard vult."
-        )
-
-    # ── 0b) prijsbronnen: package-sensoren bestaan altijd na install; hun STATE
-    #    verraadt of er een werkende integration achter zit ──
-    PAKKET_BRONNEN = {
-        "sensor.prijzen_bron_nordpool": "Nord Pool (core-integratie)",
-        "sensor.prijzen_bron_enerprice": "EnerPrice (HACS: LenFaki; extended attributes AAN)",
-        "sensor.prijzen_bron_energyzero": "EnergyZero (core-integratie)",
-    }
-    werkend, dood = [], []
-    for eid, naam in PAKKET_BRONNEN.items():
-        st = hass.states.get(eid)
-        if st is not None and st.state not in ("unavailable", "unknown"):
-            werkend.append(naam)
-        else:
-            dood.append(naam)
-    diag["prijsbronnen_werkend"] = werkend
-    diag["prijsbronnen_onbeschikbaar"] = dood
-    if not werkend:
-        raise RuntimeError(
-            "Geen enkele prijsbron levert waarden — het dashboard zou N/A tonen. "
-            "Er is minstens één van nodig: " + " · ".join(PAKKET_BRONNEN.values())
-            + ". (Instellingen → Integraties: voeg Nord Pool en/of EnergyZero toe, "
-            "of laat zien welke prijs-integratie jij al draait dan pas ik de bronnamen aan.)"
-        )
 
     views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
     first = views[0]
@@ -468,51 +528,90 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     }
 
 
-def _defaults_state(hass: HomeAssistant) -> dict:
-    """In-memory boeholder: welk set-value-jaar is al verwerkt?"""
-    data = hass.data.setdefault(DOMAIN, {})
-    return data.setdefault("_defaults", {})
+_DEFAULTS_STORE_KEY = "energyprijs_defaults"
+
+
+class _DefaultsStore:
+    """Persistent markering per helper (overleeft herstarts)."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        from homeassistant.helpers.storage import Store
+
+        self._store = Store(hass, 1, _DEFAULTS_STORE_KEY, private=False)
+        self._data: dict[str, bool] = {}
+
+    async def async_load(self) -> None:
+        self._data = await self._store.async_load() or {}
+
+    def is_done(self, key: str) -> bool:
+        return bool(self._data.get(key))
+
+    async def mark(self, key: str) -> None:
+        if not self._data.get(key):
+            self._data[key] = True
+            await self._store.async_save(self._data)
 
 
 async def _ensure_helper_defaults(hass: HomeAssistant) -> bool:
-    """Zet eenmalig de contract-defaults waar ze nog ontbreken.
+    """Zet eenmalig de contract-defaults voor helpers die NOG NOOIT zijn ingevuld.
 
-    Werkwijze (bewust simpel, 3 okt '26): na elke herstart zijn de helpers
-    pas weer aanwezig; als we daarna NOOIT eerder defaults zetten hebben
-    (geen marker in het in-memory state-dict) én de helper staat op 0, dan
-    is dit de eerste run → set_value met de NL-standaard. Een gebruiker die
-    zelf 0 instelt, merkt dat aan de melding hierin; de waarschijnlijke
-    situatie is "nog niet ingevuld". Markering per versie voorkomt dubbele
-    invulling binnen dezelfde session.
+    Regels (live-log 3 okt '26, punt 4):
+      - Alleen handelen als de entiteit bestaat EN beschikbaar is in states
+        (een service-call op een ontbrekende entiteit deed stil niets en werd
+        toch als gelukt gemarkeerd).
+      - Alleen zetten als de huidige waarde exact 0 is — een gebruiker die
+        zelf een waarde koos (ook 0 later? nee: 0 betekent hier 'nog nooit
+        gezet', want input_number start op 0 zónder initial) wordt niet
+        overschreven zodra er méér dan 0 staat.
+      - Markering persistent via Store, PER HELPER; na succes pas markeren,
+        geverifieerd door de state na de call te lezen.
     """
     from homeassistant.helpers import entity_registry as er
 
     reg = er.async_get(hass)
-    for key, value in HELPERS_DEFAULTS.items():
+    for key in HELPERS_DEFAULTS:
         if reg.async_get(f"input_number.{key}") is None:
-            return False  # package nog niet geladen — startup probeert opnieuw
+            return False  # package nog niet geladen — startup/timer probeert opnieuw
 
-    st = _defaults_state(hass)
-    done_key = f"v{_MANIFEST.get('version', '0')}"
-    if st.get(done_key):
-        return True
+    store = _DefaultsStore(hass)
+    await store.async_load()
 
-    gezet = []
+    gezet: list[str] = []
     for key, value in HELPERS_DEFAULTS.items():
         eid = f"input_number.{key}"
+        if store.is_done(key):
+            continue
+        st = hass.states.get(eid)
+        if st is None or st.state in ("unavailable", "unknown"):
+            continue  # nog niet beschikbaar — volgende poging weer
         try:
-            resp = await hass.services.async_call(
+            current = float(st.state)
+        except (TypeError, ValueError):
+            continue
+        if current != 0:
+            # Gebruiker heeft al ingevuld → nooit meer aanraken, wel afvinken.
+            await store.mark(key)
+            continue
+        try:
+            await hass.services.async_call(
                 "input_number", "set_value", {"entity_id": eid, "value": value},
-                blocking=True, return_response=False,
+                blocking=True,
             )
-            del resp
-            gezet.append(key)
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("energyprijs: set_value %s mislukt: %s", eid, e)
+            continue
+        # Verifiëer vóór markeren: is de state daadwerkelijk veranderd?
+        new_st = hass.states.get(eid)
+        try:
+            if new_st is not None and abs(float(new_st.state) - value) < 1e-9:
+                await store.mark(key)
+                gezet.append(key)
+        except (TypeError, ValueError):
+            pass
+
     if gezet:
-        st[done_key] = True
         _LOGGER.info("energyprijs: contract-defaults gezet: %s", ", ".join(gezet))
-    return True
+    return all(store.is_done(k) for k in HELPERS_DEFAULTS)
 
 
 async def async_register_services(hass: HomeAssistant) -> None:

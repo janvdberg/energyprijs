@@ -14,5 +14,11 @@
     },
     "error": {}
   },
-  "options": {}
+  "options": {},
+  "issues": {
+    "package_restart_needed": {
+      "title": "Energyprijs: herstart vereist",
+      "description": "Het package-bestand op {pad} is bijgewerkt naar versie {versie}. Home Assistant laadt packages alleen bij een herstart — herstart nu (Instellingen → Systeem → Herstarten) om de nieuwe sensoren en helpers te activeren."
+    }
+  }
 }

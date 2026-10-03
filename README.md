@@ -54,6 +54,11 @@ Toont of package + include aanwezig zijn.
 De package gebruikt sensoren van integraties die al geïnstalleerd moeten zijn:
 
 - **Nord Pool** (core-integratie)
+
+> **Minstens één van deze drie bronnen is vereist.** Zonder prijsbron blijven
+de sensoren `unavailable` en toont het dashboard N/A; kruiscontrole vraagt er zelfs
+*twee* voor een betrouwbare basisprijs. Heb je alleen Zonneplan-forecast draaien?
+Voeg dan Nord Pool óf EnergyZero toe (beide core-integraties, twee klikken).
 - **EnerPrice** (HACS: `LenFaki/home-assistant-nl-day-ahead-prices`) — zet *extended attributes* aan in de opties
 - **EnergyZero** (core-integratie)
 - Een notify-service genaamd `notify.home` (anders de naam in het package aanpassen)

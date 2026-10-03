@@ -29,6 +29,7 @@ from .installer import (
     _dashboard_opslaan,
     _manifest_version,
     _ensure_helper_defaults,
+    sync_package_if_changed as installer_sync_package,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -121,6 +122,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _try_link()
 
+    # Package synchroniseren vóór alles + éénmalige contract-defaults.
+    # Beide zijn non-fataal: een fout hier mag de entry-setup nooit breken.
+    async def _sync_package_and_defaults(_now=None) -> None:
+        try:
+            await installer_sync_package(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: package-sync mislukt", exc_info=True)
+        try:
+            await _ensure_helper_defaults(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: defaults-setten mislukt", exc_info=True)
+
+    hass.async_create_task(_sync_package_and_defaults())
+
     # Zet een herkenbare titel op de entry → de integratie-tegel linkt naar de services
     try:
         if entry.title != "Energyprijs":
@@ -189,11 +204,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not _package_klaar():
             _LOGGER.info("energyprijs: package nog niet geladen; dashboard later")
             return
-        # Eénmalige contract-defaults (na eerste install zonder 'initial')
-        try:
-            await _ensure_helper_defaults(hass)
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("energyprijs: defaults-setten mislukt", exc_info=True)
         from homeassistant.components.lovelace.const import LOVELACE_DATA
 
         if hass.data.get(LOVELACE_DATA) is None:
