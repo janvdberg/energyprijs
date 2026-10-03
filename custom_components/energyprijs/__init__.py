@@ -211,10 +211,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     else:
         # Cold start: wacht tot HA volledig is opgestart (alle integraties geladen,
         # resource-collection stabiel — les uit WrtManager #156).
-        hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STARTED,
-            lambda _ev: hass.async_create_task(_startup_dashboard()),
-        )
+        #
+        # Let op (live-log 3 okt): het STARTED-event wordt door HA vanuit een
+        # executor-thread afgevuurd. hass.async_create_task mag NOOIT uit een
+        # thread worden aangeroepen → RuntimeError + 'coroutine never awaited'.
+        # De job dus eerst threadsafe de event-loop in tillen.
+        from homeassistant.core import HassJob
+
+        _job = HassJob(_startup_dashboard, eager_start=True)
+
+        @callback
+        def _on_started(_ev=None) -> None:
+            hass.async_run_hass_job(_job)
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
 
     # 5-min back-up: alleen actief zolang het dashboard niet op de huidige
     # manifest-versie staat. Biedt vangnet als het package te laat laadt of

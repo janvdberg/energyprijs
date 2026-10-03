@@ -193,8 +193,18 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
 
     We gebruiken daarvoor exact HA's publieke helpers, zodat panel + cache +
     lovelace_updated-event netjes meeliften en het dashboard direct zichtbaar is.
+
+    Eerst: het ingebedde package wegschrijven. Een HACS-upgrade vervangt alléén
+    custom_components/, dus /config/packages/energyprijs.yaml blijft anders op
+    een oude (mogelijk ongeladbare) revisie staan tot iemand install aanroept.
     """
     from .cards import CONTRACT_CARD, GRAFIEK_CARD, NU_CARD
+
+    # ── 0a) package always in sync met de geïnstalleerde code ──────────────
+    try:
+        _write_package(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("energyprijs: package wegschrijven mislukt", exc_info=True)
 
     # ── 0) DIAGNOSE: draait deze instantie de LATEST code (versie-koppeling)?
     #    Als HACS/HA een verouderde module in RAM houden, zie je dat hier direct.
