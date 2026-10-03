@@ -187,6 +187,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not _package_klaar():
             _LOGGER.info("energyprijs: package nog niet geladen; dashboard later")
             return
+        from homeassistant.components.lovelace.const import LOVELACE_DATA
+
+        if hass.data.get(LOVELACE_DATA) is None:
+            # Lovelace nog niet actief (bv. test-harness zonder http/lovelace):
+            # de 5-min back-up timer neemt over zodra het wél kan.
+            _LOGGER.debug("energyprijs: lovelace nog niet actief — timer neemt over")
+            return
         try:
             res = await _dashboard_opslaan(hass)
             act = res.get("act")
