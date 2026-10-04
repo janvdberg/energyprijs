@@ -313,8 +313,6 @@ weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
 
 | Versie | Wijziging |
 |---|---|
-| Versie | Wijziging |
-|---|---|
 | 1.2.41 | Dashboard genereert exact de door Jan handmatig aangepaste opbouw: alleen bruto-staafjes (verkoopprijslijn verwijderd), legenda verborgen, titel "Stroomprijs", prijs-tegels als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) verankert: code en gebruikersdashboard lopen niet uit elkaar ||
 | 1.2.40 | Legenda verborgen (`apex_config.legend.show: false`) + fix lege verkoopprijsserie (data_generator riep de Jinja-only `states()` aan in browser-JS → ReferenceError; nu via `hass.states`) ||
 | 1.2.39 | Review-ronde: config-flow gerepareerd (ImportError → altijd install_failed); configuration.yaml wordt nooit meer herschreven (read-only status-check + plakinstructie); defaults krijgen vervolgpogingen (STARTED + 5-min timer) ||
