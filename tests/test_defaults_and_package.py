@@ -167,13 +167,11 @@ async def test_opbouwcheck_vervangt_oude_koppen(hass):
                for s in new_graf["series"] if isinstance(s, dict))
 
 
-async def test_grafiekkaart_legenda_weg_en_geen_states_call(hass):
-    """Task-test 4 okt '26: (1) legenda volledig verborgen in apex_config;
-    (2) de data_generator van de verkoopserie mag géén globale states()
-    aanroepen — die bestaat in de browser niet (ReferenceError → lege rode
-    lijn). Helpers moeten via het meegegeven `hass`-object gelezen worden.
+async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
+    """Task-test 4 okt '26: legenda volledig verborgen in apex_config en de
+    grafiekseries zijn teruggebracht tot precies één bruto-kolom (verkoop-
+    prijslijn bewust verwijderd, v1.2.41).
     """
-    import re
     from custom_components.energyprijs.cards import GRAFIEK_CARD
 
     assert GRAFIEK_CARD["apex_config"]["legend"]["show"] is False
@@ -181,13 +179,10 @@ async def test_grafiekkaart_legenda_weg_en_geen_states_call(hass):
     assert "min" in GRAFIEK_CARD["apex_config"]["xaxis"]
     assert "max" in GRAFIEK_CARD["apex_config"]["xaxis"]
 
-    verkoop = next(s for s in GRAFIEK_CARD["series"]
-                   if isinstance(s, dict) and s.get("name") == "verkoopprijs")
-    gen = verkoop["data_generator"]
-    # geen bare calls van de Jinja-only states()-helper
-    assert not re.search(r"(?<![\w.$])states\s*\(", gen), \
-        "data_generator bevat een globale states()-aanroep"
-    assert "hass.states[" in gen
+    assert len(GRAFIEK_CARD["series"]) == 1
+    serie = GRAFIEK_CARD["series"][0]
+    assert serie["name"] == "bruto" and serie["type"] == "column"
+    assert serie["entity"] == "sensor.stroomprijs_daglijst"
 
 
 async def test_opbouwcheck_forceert_herbouw_bij_nieuwe_legenda_key(hass):

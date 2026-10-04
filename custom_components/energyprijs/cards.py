@@ -1,8 +1,14 @@
 """Energie-dashboard-kaart builder.
 
-Genereert een complete, kant-en-klare Lovace-kaartconfig (grafiek + contract-
-invulvelden) die de gebruiker met één service-aanroep in zijn dashboard kan
-plakken — geen handwerk meer via "Add card → Manual YAML".
+Genereert een complete, kant-en-klare Lovace-kaartconfig (prijs-tegels +
+grafiek + contract-invulvelden) die de integratie zelf in het dashboard zet —
+geen handwerk meer via "Add card → Manual YAML".
+
+Sinds v1.2.41 exact de door Jan handmatig aangepaste opbouw (golden file in
+tests/test_golden_dashboard.py): de grafiek toont ALLÉÉN de bruto-kolommen
+(verkoopprijslijn bewust verwijderd), legenda weg, titel "Stroomprijs".
+Wijzig hier alleen als je akkoord bent dat elk geïnstalleerd dashboard bij de
+volgende update naar die opbouw wordt herbouwd (opbouw-check, installer.py).
 
 De kaart is bewust puur core: alleen `custom:apexcharts-card` (via HACS te
 installeren) als externe afhankelijkheid; de invulvelden zijn standaard
@@ -15,42 +21,6 @@ import json
 
 # ── De twee kaarten, als Python-dicts → deterministisch dumpbaar naar YAML/JSON ──
 
-def _counter(naam: str, kleur: str) -> dict:
-    """Verkoop-tegenpool over de dag: bruto-kolommen uit de daglijst × factor.
-
-    De factor (leveringopslag + belasting ± saldering) × (1+btw) wordt per punt
-    LIVE uit de states gelezen — verzet je een helper of de saldering-switch,
-    dan herberekent de browser de hele rode reeks direct, zonder af te wachten
-    op de sensor-trigger van de daglijst.
-    """
-    return {
-        "entity": "sensor.stroomprijs_daglijst",
-        "name": naam,
-        "type": "line",
-        "color": kleur,
-        "float_precision": 3,
-        # data_generator draait in de BROWSER: de Jinja-only helper "states()"
-        # bestaat daar niet. Een aanroep davon gaf een
-        # ReferenceError → lege serie, 'N/A' onder de grafiek (bug tot en
-        # met v1.2.39; vastgesteld uit de kaartconfig, niet uit een live-
-        # browserconsole — zie release 1.2.40).
-        # Helpers lezen kan wél via het meegegeven `hass`-object.
-        "data_generator": (
-            "const g = (id, d) => { const s = hass.states[id];"
-            " const v = s ? parseFloat(s.state) : NaN;"
-            " return isNaN(v) ? d : v; };"
-            " const btw = 1 + g('input_number.prijs_btw', 0.21);"
-            " const bel = g('input_number.prijs_energiebelasting', 0);"
-            " const sl = g('input_number.prijs_opslag_levering', 0);"
-            " const sal = hass.states['input_boolean.prijs_saldering_energiebelasting_teruggave']?.state === 'on';"
-            " return entity.attributes.vandaag.map((e) =>"
-            " [new Date(e.t).getTime() + 450000,"
-            " ((e.p + sl) * btw + (sal ? bel * btw : 0))]);"
-        ),
-        "show": {"in_header": False},
-    }
-
-
 GRAFIEK_CARD = {
     "type": "custom:apexcharts-card",
     "section_mode": True,
@@ -62,7 +32,7 @@ GRAFIEK_CARD = {
     "now": {"show": True, "label": "nu"},
     "header": {
         "show": True,
-        "title": "Stroomprijs — bruto · inkoop · verkoop (EUR/kWh)",
+        "title": "Stroomprijs",
         "show_states": False,
         "colorize_states": False,
     },
@@ -84,7 +54,6 @@ GRAFIEK_CARD = {
             ],
             "show": {"in_header": False},
         },
-        _counter("verkoopprijs", "#d94040"),
     ],
     "apex_config": {
         # hele legenda weg: de staafkleuren zijn voldoende (verzoek 4 okt '26)
@@ -107,12 +76,14 @@ NU_CARD = {
         {"type": "entity",
          "entity": "sensor.stroomprijs_afname",
          "name": "Inkoopprijs",
-         "icon": "mdi:arrow-bottom-right"},
+         "icon": "mdi:arrow-bottom-right",
+         "state_color": True},
         {"type": "entity",
          "entity": "sensor.stroomprijs_levering",
          "name": "Verkoopprijs",
          "icon": "mdi:arrow-top-right"},
     ],
+    "columns": 2,
 }
 
 

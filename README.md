@@ -164,7 +164,7 @@ De grafiek vereist HACS-kaart `apexcharts-card`; de contract-tegel is pure core.
 
 ![Voorbeeldgrafiek](docs/voorbeeld-grafiek.png)
 
-*15-min staafjes van de bruto spotprijs; groen < €0,10 · lichtgroen < €0,25 · geel < €0,40 · rood ≥ €0,40. De gestippelde lijn is 'nu'. Dit is een nabouwing met echte data van vandaag — in HA tekent ApexCharts-card exact dit beeld, inclusief hover-waarden per kwartier.*
+*Inkoop- en verkoopprijs als tegels boven de grafiek (2-koloms grid). Daaronder 15-min staafjes van de bruto spotprijs; donkergroen < €0,10 · lichtgroen < €0,25 · geel < €0,40 · rood ≥ €0,40 — geen legenda, de kleuren zijn het onderscheid. De gestippelde lijn is 'nu'. Ten slotte de contract-tegel. Dit is een nabouwing met echte data van vandaag — in HA tekent ApexCharts-card exact dit beeld, inclusief hover-waarden per kwartier.*
 
 ## Grafiek (optioneel)
 
@@ -186,27 +186,10 @@ now:
   label: nu
 header:
   show: true
-  title: Stroomprijs — bruto · in · uit (EUR/kWh)
-  show_states: true
-  colorize_states: true
+  title: Stroomprijs
+  show_states: false
+  colorize_states: false
 series:
-  # ── kopwaarden 'NU' bovenin: de entiteit zelf is live, dus de knipt mee zodra een
-  #    helper of sensor wijzigt (alleen header, niet getekend) ──
-  - entity: sensor.stroomprijs_basis
-    name: bruto nu
-    float_precision: 3
-    show:
-      in_chart: false
-  - entity: sensor.stroomprijs_afname
-    name: inkoopprijs
-    float_precision: 3
-    show:
-      in_chart: false
-  - entity: sensor.stroomprijs_levering
-    name: verkoopprijs
-    float_precision: 3
-    show:
-      in_chart: false
   # ── staafjes = bruto spot per kwartier, gekleurd op prijsniveau ──
   - entity: sensor.stroomprijs_daglijst
     name: bruto
@@ -226,6 +209,8 @@ series:
     show:
       in_header: false
 apex_config:
+  legend:
+    show: false
   xaxis:
     # as loopt een halve kolom verder dan de dag → eerste/laatste staafje volledig zichtbaar
     min: EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000
@@ -285,8 +270,9 @@ yaxis:
 
 ![Statusvoorbeeld](docs/voorbeeld-status.png)
 
-Bij de **nu**-lijn tonen de kopwaarden bovenin de actuele prijzen — ze knipperen mee zodra je een contract-helper verzet:
-bruto · **inkoopprijs** · **verkoopprijs**. Hover je over een staafje,
+De grafiek toont bewust alléén de bruto-staafjes (geen legenda — de staafkleuren zijn het
+onderscheid; de verkoopprijslijn is sinds v1.2.41 verwijderd). Inkoopprijs en verkoopprijs
+staan als aparte tegels boven de grafiek. Hover je over een staafje,
 dan geeft de tooltip bruto/in/uit voor dat kwartier — want de daglijst-sensor bevat per
 interval alle drie (`{t, p, in, uit}`). Wil je in/uit per interval in de grafiek zelf,
 voeg dan deze twee lijn-series toe aan `series:` (met `show: {in_header: false}`):
@@ -318,6 +304,8 @@ Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/conf
 
 | Versie | Wijziging |
 |---|---|
+| 1.2.41 | Dashboard genereert exact de handmatig aangepaste opbouw van de gebruiker: verkoopprijslijn uit de grafiek verwijderd (alleen bruto-staafjes), legenda verborgen (`apex_config.legend.show: false`), titel vereenvoudigd tot "Stroomprijs", NU-tegel als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) codeert dit vast: code en gebruikersdashboard lopen niet meer uit elkaar ||
+| 1.2.40 | Legenda verborgen in de grafiekkaart + fix lege verkoopprijsserie (de data_generator gebruikte de Jinja-only `states()` in browser-JS → ReferenceError) ||
 | 1.2.13 | Grafiekkaart: `data_template`-kopreeksen verwijderd — apexcharts-card v2.x kent die optie niet meer (extraneous key → 'Configuration error'). Kopwaarden blijven live via de entiteit zelf ||
 | 1.2.12 | Dashboard-service geeft een duidelijke foutmeldt zodra het energie-package (helpers) nog ontbreekt, in plaats van een leeg dashboard achter te laten ||
 | 1.2.11 | Dashboard-service volledig op HA-native lovelace-storage + panel-registratie (dashboard verschijnt zonder herstart) ||

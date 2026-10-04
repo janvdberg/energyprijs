@@ -704,10 +704,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
             "grafiek": grafiek,
             "contract": contract,
             "uitleg": (
-                "Plak de kaarten in deze volgorde in je view: 'nu' (entities-tegel met "
-                "inkoop/verkoopprijs), 'grafiek' (apexcharts, vereist HACS), 'contract' "
-                "(entities-tegel). Alles is dynamisch: sensoren herberekenen direct bij "
-                "helper-wijziging."
+                "Plak de kaarten in deze volgorde in je view: 'nu' (grid-tegel met "
+                "inkoop- en verkoopprijs), 'grafiek' (apexcharts bruto-staafjes zonder "
+                "legenda, vereist HACS), 'contract' (entities-tegel). Alles is "
+                "dynamisch: sensoren herberekenen direct bij helper-wijziging."
             ),
         }
 
