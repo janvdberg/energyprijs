@@ -36,3 +36,8 @@ def _force_own_custom_components() -> None:
 
 
 _force_own_custom_components()
+
+
+# ── Config-flow-tests: de plugin-fixture `enable_custom_integrations` popt onze
+# repo op sys.path en ververst HA's custom-component-loader. In deze repo wonen
+# de integraties direct onder custom_components/, dus dat werkt out-of-the-box.

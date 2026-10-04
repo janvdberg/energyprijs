@@ -1,9 +1,10 @@
 install:
   name: "Package installeren"
   description: >
-    Schrijft het energyprijs-package naar /config/packages en zorgt voor de
-    packages-include in configuration.yaml. Herstart daarna HA (tenzij
-    force_restart: true).
+    Schrijft het energyprijs-package naar /config/packages en controleert de
+    packages-include in configuration.yaml — die wordt NOOIT automatisch
+    herschreven; bij een ontbrekende regel krijg je de exact te plakken regels.
+    Herstart daarna HA (tenzij force_restart: true).
   fields:
     force_restart:
       name: "Herstart forceren"

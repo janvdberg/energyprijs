@@ -17,18 +17,17 @@ from homeassistant.helpers.typing import ConfigType
 
 from datetime import timedelta
 
-import json as _json
-from pathlib import Path as _Path
+from pathlib import Path
 
-from .const import DOMAIN
+from homeassistant.helpers import issue_registry as ir
 
-_MANIFEST = _json.loads((_Path(__file__).parent / "manifest.json").read_text(encoding="utf-8"))
-_VERSION = str(_MANIFEST.get("version", "0"))
+from .const import DOMAIN, PACKAGE_FILENAME, VERSION as _VERSION
 from .installer import (
     async_register_services,
     _dashboard_opslaan,
     _manifest_version,
     _ensure_helper_defaults,
+    defaults_klaar,
     sync_package_if_changed as installer_sync_package,
 )
 
@@ -96,9 +95,11 @@ def _link_entities(hass: HomeAssistant, entry: ConfigEntry, device_id: str) -> i
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Registreer services + maak het apparaat + koppel entiteiten aan de entry."""
-    await async_register_services(hass)
+    """Maak het apparaat, koppel entiteiten en plan de achtergrondtaken.
 
+    Services registreert ALLEEN async_setup (HA roept die gegarandeerd één keer
+    per start vóór elke setup_entry aan); dubbel registreren was overbodig.
+    """
     dev_reg = dr.async_get(hass)
     device = dev_reg.async_get_or_create(
         config_entry_id=entry.entry_id,
@@ -110,16 +111,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # Het package wordt pas bij een herstart geladen; direct na installeren
-    # bestaan de entiteiten dus nog niet. Koppel wat er is en probeer het
-    # daarna elk half uur opnieuw tot alles onder het device staat.
+    # bestaan de entiteiten dus nog niet. Review 4 okt '26: het commentaar
+    # beloofde "elk half uur opnieuw" maar er was géén timer — entiteiten die
+    # later in de registry verschenen werden nooit gekoppeld. Nu wél: een
+    # halfuurtijdner die stopt zodra alles (< totaal resterend) onder het
+    # device staat.
     totaal = len(TEMPLATE_UNIQUE_IDS) + len(HELPER_ENTITY_IDS)
 
-    @callback
     def _try_link(_=None) -> None:
         n = _link_entities(hass, entry, device.id)
         if n:
             _LOGGER.info("energyprijs: %d package-entiteiten gekoppeld", n)
 
+    unsub_link = async_track_time_interval(hass, _try_link, timedelta(minutes=30))
+    entry.async_on_unload(unsub_link)
     _try_link()
 
     # Package synchroniseren vóór alles + éénmalige contract-defaults.
@@ -134,7 +139,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:  # noqa: BLE001
             _LOGGER.debug("energyprijs: defaults-setten mislukt", exc_info=True)
 
-    hass.async_create_task(_sync_package_and_defaults())
+    task = hass.async_create_task(_sync_package_and_defaults())
+    entry.async_on_unload(lambda: task.cancel() if not task.done() else None)
 
     # Zet een herkenbare titel op de entry → de integratie-tegel linkt naar de services
     try:
@@ -158,6 +164,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         reg = er.async_get(hass)
         if reg.async_get("input_number.prijs_btw") is None:
             return
+
+        # Defaults kunnen hier nog ontbreken als beide eerdere runs te vroeg
+        # vielen (helper-stats leeg). IsDone-bewaking in de store maakt dit cheap.
+        if not await defaults_klaar(hass):
+            try:
+                await _ensure_helper_defaults(hass)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("energyprijs: defaults in timer mislukt", exc_info=True)
 
         manifest_version = _manifest_version(hass)
         if entry.data.get("dashboard_versie") == manifest_version:
@@ -198,6 +212,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def _startup_dashboard(_event=None) -> None:
         _LOGGER.debug("energyprijs: dashboard-check bij startup")
+        # Eerst de taken die bij setup misschien te vroeg vielen (helpers bestonden
+        # toen nog niet in states): package-sync + contract-defaults. Review 4 okt:
+        # zonder dit punt had een vroege setup-run de defaults voor altijd gemist.
+        await _sync_package_and_defaults()
         if _dashboard_klaar():
             _LOGGER.debug("energyprijs: dashboard al op versie %s — skip", _manifest_version(hass))
             return
@@ -237,6 +255,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unsub2 = async_track_time_interval(hass, _auto_dashboard, timedelta(minutes=5))
     entry.async_on_unload(unsub2)
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Opruimen bij verwijderen: ons dashboard-item + repair-issue.
+
+    Het package op disk laten we staan? Nee — dat hoort bij deze integratie en
+    wordt door HACS toch niet aangeraakt; we verwijderen het expliciet, samen
+    met de entity-/device-koppelingen die wij hebben aangebracht. De
+    configuration.yaml hoeven we nooit terug te draaien (wij schrijven daar
+    niet meer — zie P2-fix).
+    """
+    from homeassistant.components import frontend
+    from homeassistant.components.lovelace import dashboard as lb_dash
+    from homeassistant.components.lovelace.const import LOVELACE_DATA
+    from .installer import DASH_ID
+
+    # 1) dashboard-item + storage van onszelf verwijderen
+    if hass.data.get(LOVELACE_DATA) is not None:
+        try:
+            coll = lb_dash.DashboardsCollection(hass)
+            await coll.async_load()
+            item = next((it for it in coll.data.values()
+                         if it.get("url_path") == DASH_ID), None)
+            if item is not None:
+                store = lb_dash.LovelaceStorage(hass, item)
+                await store.async_delete()
+                await coll.async_delete_item(item["id"])
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: dashboard-opruimen mislukt", exc_info=True)
+        try:
+            frontend.async_remove_panel(hass, DASH_ID, warn_if_unknown=False)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # 2) package-bestand van disk halen + repair-issue sluiten
+    def _cleanup_files() -> None:
+        pkg = Path(hass.config.path()) / "packages" / PACKAGE_FILENAME
+        try:
+            pkg.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    try:
+        await hass.async_add_executor_job(_cleanup_files)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        ir.async_delete_issue(hass, DOMAIN, "package_restart_needed")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

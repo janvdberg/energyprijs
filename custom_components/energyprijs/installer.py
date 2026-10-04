@@ -21,6 +21,7 @@ import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import issue_registry as ir
 
 from . import cards as _cards
 
@@ -60,9 +61,9 @@ def _config_dir(hass: HomeAssistant) -> Path:
 
 
 # ── Versie-constanten uit manifest (één bron, geen I/O in de event-loop) ───
-_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
 try:
-    _MANIFEST = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+    from .const import VERSION as _VERSION_STR
+    _MANIFEST = {"version": _VERSION_STR}
 except Exception:  # noqa: BLE001 — alleen tijdens extreem early import
     _MANIFEST = {}
 
@@ -93,139 +94,135 @@ async def sync_package_if_changed(hass: HomeAssistant) -> bool:
 
     Chicken-and-egg (live-log 3 okt '26): een HACS-update vervangt alleen
     custom_components/; het op disk staande /config/packages/energyprijs.yaml
-    wordt pas door DEZE code vernieuwd, en packages kunnen niet live herladen
-    worden. Oplossing: synchroniseer zo vroeg mogelijk (async_setup_entry),
-    vergelijk op sha256 (idempotent — geen writes die mtime's versnipperen),
-    en maak bij een wijziging een reparatie-issue zodat de gebruiker hoort
-    dat er één herstart nodig is. Zonder die melding staat hij stil op old-config.
+    blijft oud tot de integratie het herschrijft — en packages kunnen na het
+    laden niet worden herladen. Daarom: zo vroeg mogelijk (async_setup_entry)
+    synchroniseren op sha256, en bij een write een repair-issue zetten dat de
+    gebruiker naar de verplichte herstart wijst. Geeft True terug als disk
+    werd bijgewerkt (herstart nodig om het te laden).
     """
-    from homeassistant.helpers import issue_registry as ir
+    changed = await hass.async_add_executor_job(_sync_package_sync, hass)
+    if changed:
+        await _create_restart_issue(hass)
+    else:
+        await _resolve_restart_issue(hass)
+    return changed
 
-    source = Path(__file__).parent / PACKAGE_SOURCE
+
+def _package_gelijk_sync(hass: HomeAssistant) -> bool:
+    """Heeft het package op disk exact dezelfde inhoud als het ingebedde?"""
     target = _config_dir(hass) / "packages" / PACKAGE_FILENAME
-
-    def _compare_and_write() -> bool:
-        import hashlib
-
-        new_bytes = source.read_bytes()
-        new_hash = hashlib.sha256(new_bytes).hexdigest()
-        if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == new_hash:
-            return False
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(new_bytes)
-        return True
-
-    changed = await hass.async_add_executor_job(_compare_and_write)
-
-    if not changed:
-        ir.async_delete_issue(hass, DOMAIN, "package_restart_needed")
+    source = Path(__file__).parent / PACKAGE_SOURCE
+    if not target.exists():
         return False
+    import hashlib
 
-    ir.async_create_issue(
-        hass,
-        DOMAIN,
-        "package_restart_needed",
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
-        translation_key="package_restart_needed",
-        translation_placeholders={
-            "pad": f"/config/packages/{PACKAGE_FILENAME}",
-            "versie": _MANIFEST.get("version", "?"),
-        },
-    )
-    _LOGGER.info(
-        "energyprijs: package bijgewerkt op disk — HERSTART vereist om het te laden"
-    )
+    def h(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    return h(target) == h(source)
+
+
+def _sync_package_sync(hass: HomeAssistant) -> bool:
+    """Executor-deel van sync_package_if_changed: vergelijken + eventueel schrijven."""
+    if _package_gelijk_sync(hass):
+        return False
+    _write_package_sync(hass)
+    _LOGGER.info("energyprijs: package bijgewerkt op disk — HERSTART vereist om het te laden")
     return True
 
 
-def _ensure_packages_include_sync(config_path: Path) -> tuple[bool, str]:
-    """Zorg dat configuration.yaml de packages-include heeft.
+async def _create_restart_issue(hass: HomeAssistant) -> None:
+    try:
+        ir.async_create_issue(
+            hass, DOMAIN, "package_restart_needed",
+            is_fixable=False, severity=ir.IssueSeverity.WARNING,
+            translation_key="package_restart_needed",
+            translation_placeholders={"versie": _manifest_version(hass)},
+        )
+    except Exception:  # noqa: BLE001 — issue is behulpzaam, niet kritiek
+        _LOGGER.debug("energyprijs: repair-issue aanmaken mislukt", exc_info=True)
 
-    Geeft terug (gewijzigd, uitleg).
 
-    Valkuil (oct 2026, live tegengekomen): als de gebruiker zijn includes onder
-    een TOPLEVEL `default_config:` inspringt, plaatste de vorige versie het
-    homeassistant:-blok achter die ingesprongen regels — waardoor YAML het
-    interpreteert als extra default_config-options en HA de packages-include
-    NEGEERT zonder foutmelding. Daarom: blok ALTIJD op kolom 0, vóór elke
-    inspringing, en bestaande misplaced blokken eerst opruimen.
+async def _resolve_restart_issue(hass: HomeAssistant) -> None:
+    try:
+        ir.async_delete_issue(hass, DOMAIN, "package_restart_needed")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+PACKAGES_REGEL = "  packages: !include_dir_named packages"
+
+
+def _packages_status_sync(config_path: Path) -> tuple[str, str]:
+    """Controleer of HA onze package ZAL laden — zonder iets te schrijven.
+
+    Les review 4 okt '26 (P2): de vorige versie plakte bij een bestaand
+    homeassistant:-blok (met bv. alleen name:/unit_system:) een TWEEDE
+    top-level homeassistant:-blok in. Dubbele sleutels zijn ongeldige YAML —
+    HA startte dan niet meer goed. Een integratie hoort het hoofdbestand van
+    de gebruiker al helemaal niet stil te herschrijven; deze functie leest en
+    beoordeelt alleen. Statussen:
+
+      ok            → include aanwezig (named of merge_named, met of zonder slash)
+      geen_config   → configuration.yaml bestaat niet
+      ui_only       → storage-only install (UI-modus), niets te patchen
+      handmatig     → de regel ontbreekt; note bevat de exact te plakken regels.
+                      De package staat al op disk; na invoegen + herstart laden
+                      hem alle varianten.
     """
-    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    if not config_path.exists():
+        marker = config_path.parent / ".storage" / "auth_providers"
+        if marker.exists():
+            return "ui_only", ("configuration.yaml ontbreekt en deze install is "
+                               "UI-only — packages werken hier niet; sensoren en "
+                               "dashboard blijven beschikbaar via de services.")
+        return "geen_config", "configuration.yaml bestaat niet; niets toegevoegd"
 
-    # ── 1) Bestaand energyprijs-blok opspeuren (marker → marker) ──────────
-    start_m = re.search(r"(?m)^# --- energyprijs installer.*$", original)
-    end_m = re.search(r"(?m)^# --- einde energyprijs installer.*$", original)
-    existing = None
-    if start_m and end_m and end_m.end() > start_m.start():
-        existing = original[start_m.start():end_m.end()]
+    original = config_path.read_text(encoding="utf-8")
 
-    def _correct_in_block(block_text: str) -> bool:
-        """homeassistant: op kolom 0 mét packages eronder op 2 spaties."""
-        m = re.search(r"(?m)^homeassistant\s*:\s*$", block_text)
-        return bool(m and re.search(
-            r"(?m)^ {1,4}packages\s*:\s*!include_dir_named\s+packages\s*$",
-            block_text[m.end():],
-        ))
+    def _has(directive: str) -> bool:
+        """Top-level homeassistant:-blok met packages eronder (geïnsprongen).
 
-    if existing is not None and _correct_in_block(existing):
-        return False, "packages-include stond al correct in configuration.yaml"
+        Let op de ANCHOR: een `homeassistant:` dat zelf ingesprongen staat — bv.
+        onder default_config:, zoals het oud energyprijs-blok van Jan deed — is
+        GEEN top-level key en negeert HA stilzwijgend. Zulke blokken tellen dus
+        NIET als ok; ze leveren 'handmatig' op met plakinstructie. Review 4 okt '26.
+        """
+        for m in re.finditer(r"(?m)^homeassistant\s*:[ \t]*$", original):
+            tail = original[m.end():]
+            # regels binnen het blok: leeg, commentaar of geïnsprongen content;
+            # stop zodra een nieuwe kolom-0-sleutel begint.
+            block_lines = []
+            for ln in tail.splitlines()[1:]:
+                if not ln.strip() or ln.lstrip().startswith("#"):
+                    continue
+                if ln[0] not in (" ", "\t"):
+                    break
+                block_lines.append(ln)
+            pat = r"^\s+packages\s*:\s*!" + re.escape(directive) + r"\s+packages/?\s*$"
+            if any(re.match(pat, bl) for bl in block_lines):
+                return True
+        return False
 
-    block = (
-        "# --- energyprijs installer: packages ondersteuning ---\n"
-        "homeassistant:\n"
-        "  packages: !include_dir_named packages\n"
-        "# --- einde energyprijs installer ---"
-    )
+    for directive in ("include_dir_named", "include_dir_merge_named"):
+        if _has(directive):
+            return "ok", f"packages-include ({directive}) gevonden; niets gewijzigd"
 
-    lines = original.splitlines(keepends=True)
-
-    # ── 2) Een misplaced/verouderd blok verwijderen; merk op waar het stond ──
-    removed_at: int | None = None
-    if existing is not None:
-        s = original.index(existing)
-        removed_at = len(original[:s].splitlines())
-        original = original.replace(existing, "", 1)
-        lines = original.splitlines(keepends=True)
-
-    # ── 2b) Losse (markerloze) homeassistant:-resten opruimen die binnen een
-    #        ingesprongen blok stonden — precies dit maakten wij kapot. ────────
-    cleaned: list[str] = []
-    for ln in lines:
-        if re.match(r"^\s+homeassistant\s*:\s*$", ln):
-            continue  # slecht-geplaatst top-level-key-fragment: dumpen
-        if re.match(r"^\s+packages\s*:\s*!include_dir_named\s+packages\s*$", ln):
-            continue  # wezenloos zonder parent-homeassistant; komt terug in ons blok
-        cleaned.append(ln)
-    lines = cleaned
-
-    # ── 3) Staat er al een top-level homeassistant:-blok met packages? ────
-    if re.search(r"(?m)^homeassistant\s*:", original) and re.search(
-        r"(?m)^\s+packages\s*:\s*!include_dir_named\s+packages\s*$", original
-    ):
-        # iemand heeft packages handmatig elders onder homeassistant: gezet
-        return False, "packages-include gevonden onder homeassistant:-blok; niets gewijzigd"
-
-    # ── 4) Blok invoegen op kolom 0 — liefst bovenaan (na comments), anders
-    #       op de plek van het verwijderde blok, anders aan het eind. ────────
-    insert_idx = 0
-    if removed_at is not None:
-        insert_idx = min(removed_at, len(lines))
-    else:
-        for i, ln in enumerate(lines):
-            if ln.strip() and not ln.lstrip().startswith("#"):
-                insert_idx = i
-                break
-
-    out = lines[:insert_idx] + [block + "\n"] + lines[insert_idx:]
-    config_path.write_text("".join(out), encoding="utf-8")
-    note = ("packages-include toegevoegd op kolom 0 (top-level homeassistant:-blok)"
-            if removed_at is None else
-            "misplaced energyprijs-blok verplaatst naar kolom 0 — binnen een "
-            "ingesprongen default_config:-blok negeert HA de include stil")
-    return True, note
+    handmaat = ("In plaats van automatisch te schrijven: plak deze regels in "
+                "configuration.yaml — als nieuw top-level blok op kolom 0, of "
+                "(indien die er al is) 'packages:' INSPRINGEN onder je "
+                "bestaande homeassistant:-blok:\n"
+                "homeassistant:\n" + PACKAGES_REGEL)
+    return "handmatig", handmaat
 
 
+def _ensure_packages_include_sync(config_path: Path) -> tuple[bool, str]:
+    """Verouderde ingang; gedraagt zich nu read-only (P2-fix 4 okt '26).
+
+    Schrijft NIET meer naar configuration.yaml. Geeft (False, "[status] uitleg").
+    """
+    status, note = _packages_status_sync(config_path)
+    return False, f"[{status}] {note}"
 
 
 # ── Energie-dashboard (user dashboard) aanmaken/bijwerken ─────────────────
@@ -235,6 +232,7 @@ def _manifest_version(hass: HomeAssistant) -> str:
 
     importlib.metadata.version("energyprijs") doet bij elke call een listdir
     van de site-packages-root — een geblokkeerd I/O-pad dat HA 2026 flagt.
+    Één bron: const.VERSION (review 4 okt '26, K3).
     """
     return str(_MANIFEST.get("version", "0"))
 
@@ -269,11 +267,12 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     """
     from .cards import CONTRACT_CARD, GRAFIEK_CARD, NU_CARD
 
-    # ── 0a) package always in sync met de geïnstalleerde code ──────────────
+    # ── 0a) package in sync met de geïnstalleerde code (veilige route:
+    #        sha256-check + repair-issue bij een write, geen blinde overschrijving)
     try:
-        await _write_package(hass)
+        await sync_package_if_changed(hass)
     except Exception:  # noqa: BLE001
-        _LOGGER.warning("energyprijs: package wegschrijven mislukt", exc_info=True)
+        _LOGGER.warning("energyprijs: package-sync mislukt", exc_info=True)
 
     # ── 0) DIAGNOSE: draait deze instantie de LATEST code (versie-koppeling)?
     #    Als HACS/HA een verouderde module in RAM houden, zie je dat hier direct.
@@ -548,6 +547,9 @@ class _DefaultsStore:
     async def async_load(self) -> None:
         self._data = await self._store.async_load() or {}
 
+    def all_done(self) -> bool:
+        return all(self.is_done(k) for k in HELPERS_DEFAULTS)
+
     def is_done(self, key: str) -> bool:
         return bool(self._data.get(key))
 
@@ -557,8 +559,19 @@ class _DefaultsStore:
             await self._store.async_save(self._data)
 
 
+async def defaults_klaar(hass: HomeAssistant) -> bool:
+    """Zijn alle contract-defaults al gemarkeerd? (read-only, laadt de store)"""
+    store = _DefaultsStore(hass)
+    await store.async_load()
+    return store.all_done()
+
+
 async def _ensure_helper_defaults(hass: HomeAssistant) -> bool:
     """Zet eenmalig de contract-defaults voor helpers die NOG NOOIT zijn ingevuld.
+
+    Nuance (review 4 okt '26): "waarde exact 0" betekent "nog nooit gezet".
+    Wie bewust 0 invult vóór de allereerste run, wordt die ene keer overschreven
+    met de neutrale default — daarna beschermt het persistente vlaggetje per helper.
 
     Regels (live-log 3 okt '26, punt 4):
       - Alleen handelen als de entiteit bestaat EN beschikbaar is in states
@@ -626,21 +639,19 @@ async def async_register_services(hass: HomeAssistant) -> None:
         hass_config = _config_dir(hass)
         cfg_file = hass_config / CONFIG_FILENAME
 
-        # 1) package wegschrijven (executor — geen blok-I/O in de loop)
-        target = await _write_package(hass)
+        # 1) package synchroniseren (sha256 — alleen schrijven bij verschil,
+        #    inclusief repair-issue bij een write)
+        pkg_changed = await sync_package_if_changed(hass)
 
-        # 2) configuration.yaml bewaken/aanvullen (executor)
-        changed, note = await hass.async_add_executor_job(
-            _ensure_packages_include_sync, cfg_file
-        )
+        # 2) configuration.yaml CONTROLEREN (nooit schrijven — P2-fix 4 okt '26)
+        status, note = await hass.async_add_executor_job(_packages_status_sync, cfg_file)
 
         # 3) status bepalen
-        restart_needed = changed
         result = {
-            "package_geschreven": str(target),
-            "configuration_yaml_gewijzigd": changed,
+            "package_bijgewerkt": pkg_changed,
+            "configuration_yaml_status": status,
             "toelichting": note,
-            "herstart_nodig": restart_needed,
+            "herstart_nodig": pkg_changed or status == "handmatig",
         }
 
         # 4) dashboard automatisch aanmaken (of bijwerken) — één handeling
@@ -703,16 +714,17 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_status(call: ServiceCall) -> dict:
         cfg_file = _config_dir(hass) / CONFIG_FILENAME
         pkg_file = _config_dir(hass) / "packages" / PACKAGE_FILENAME
-
-        def _read() -> str:
-            return cfg_file.read_text(encoding="utf-8") if cfg_file.exists() else ""
-
-        cfg = await hass.async_add_executor_job(_read)
+        status, note = await hass.async_add_executor_job(_packages_status_sync, cfg_file)
+        gelijk = await hass.async_add_executor_job(_package_gelijk_sync, hass)
         return {
             "configuration_yaml_bestaat": cfg_file.exists(),
-            "packages_include_aanwezig": bool(re.search(r"(?m)^\s*packages\s*:", cfg)),
+            "packages_include_aanwezig": status == "ok",
+            "configuration_yaml_status": status,
+            "toelichting": note,
             "package_bestaat": pkg_file.exists(),
+            "package_actueel": gelijk,
             "package_pad": str(pkg_file),
+            "versie": _manifest_version(hass),
         }
 
     hass.services.async_register(

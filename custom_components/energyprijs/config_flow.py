@@ -37,21 +37,24 @@ class EnergyprijsConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(DOMAIN, raise_on_progress=False)
         self._abort_if_unique_id_configured()
 
-        # Package + configuration.yaml patchen — mag nooit onafhandelen
+        # Package synchroniseren + configuration.yaml controleren. Review
+        # 4 okt '26: deze route importeerde _ensure_packages_include — die naam
+        # bestond niet meer (ImportError, verzwolgen door de brede except →
+        # abort 'install_failed'): UI-installatie faalde ALTIJD. Nu via de
+        # veilige publieke routes: sync_package_if_changed (async, executor-correct)
+        # en _packages_status_sync (read-only, schrijft nooit naar cfg).
         try:
             from pathlib import Path
 
-            from .installer import _ensure_packages_include, _write_package
+            from .installer import _packages_status_sync, sync_package_if_changed
 
-            # file-IO off-thread (HA verbiedt blocking calls in de event loop)
-            target = await self.hass.async_add_executor_job(_write_package, self.hass)
-            cfg_file = self.hass.config.path("configuration.yaml")
-            changed, note = await self.hass.async_add_executor_job(
-                _ensure_packages_include, Path(cfg_file)
+            pkg_changed = await sync_package_if_changed(self.hass)
+            status, note = await self.hass.async_add_executor_job(
+                _packages_status_sync, Path(self.hass.config.path("configuration.yaml"))
             )
             _LOGGER.info(
-                "energyprijs config-flow: package=%s | cfg gewijzigd=%s | %s",
-                target, changed, note,
+                "energyprijs config-flow: package_bijgewerkt=%s | cfg=%s | %s",
+                pkg_changed, status, note,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.exception("energyprijs: installeren mislukt")
