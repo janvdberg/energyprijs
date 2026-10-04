@@ -1,10 +1,11 @@
-![HA](https://img.shields.io/badge/Home%20Assistant-2024.1%2B-blue?logo=homeassistant)
+![HA](https://img.shields.io/badge/Home%20Assistant-2026.x-blue?logo=homeassistant)
 ![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-orange?logo=hackthebox)
+![versie](https://img.shields.io/badge/versie-1.2.41-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 # ⚡ Energyprijs
 
-**Eén service-call plant het complete dynamische-stroomprijs-package in Home Assistant.**
+**Eén klik (of één service-call) plant het complete dynamische-stroomprijs-package in Home Assistant.**
 
 | Wat je krijgt | Details |
 |---|---|
@@ -16,9 +17,17 @@
 
 ## Installatie
 
+### Stap 0 — Integratie toevoegen (UI, één klik)
+
+Ga naar **Instellingen → Apparaten en services → Integratie toevoegen → "Energyprijs"**
+en bevestig. Het config-flow plant daarna zelf het package + de contract-helpers
+(geen service-aanroep nodig). Na één HA-herstart zijn alle sensoren en helpers aanwezig.
+
+> Wil je liever de service-route (bv. vóór herstart), dan is **Stap 2** de aanroep.
+
 ### Stap 1 — HACS
 1. **HACS → ⋮ → Custom repositories → Add repository**
-   - Repository: `jouw-naam/energyprijs` (of de URL van deze repo)
+   - Repository: `janvdberg/energyprijs` (of de URL van deze repo)
    - Category: **Integration**
 2. Zoek **Energyprijs** → **Download**
 3. **Herstart Home Assistant**
@@ -35,8 +44,8 @@ De installer doet dan automatisch:
 
 | # | Actie | Veiligheid |
 |---|---|---|
-| 1 | Package schrijven naar `/config/packages/energyprijs.yaml` | Overschrijft alleen dit bestand |
-| 2 | `packages: !include_dir_named packages` toevoegen aan configuration.yaml | Alleen als afwezig; nooit dubbel |
+| 1 | Package (re)schrijven naar `/config/packages/energyprijs.yaml` | Overschrijft alleen dit bestand |
+| 2 | Controleren of de package wordt geladen (status `ok` / `ui_only` / `handmatig`) | configuration.yaml wordt **nooit** herschreven — bij `handmatig` volgt een plakinstructie |
 | 3 | Melden dat herstart nodig is | Forceert niets — jij kiest het moment |
 
 Optioneel: `force_restart: true` meesturen als je de herstart meteen wilt.
@@ -51,17 +60,18 @@ Toont of package + include aanwezig zijn.
 
 ## Voorwaarden
 
-De package gebruikt sensoren van integraties die al geïnstalleerd moeten zijn:
+De package gebruikt sensoren van integraties die al geïnstalleerd moeten zijn —
+**minstens één** prijsbron is vereist, zonder bron blijven de sensoren `unavailable`:
 
 - **Nord Pool** (core-integratie)
-
-> **Minstens één van deze drie bronnen is vereist.** Zonder prijsbron blijven
-de sensoren `unavailable` en toont het dashboard N/A; kruiscontrole vraagt er zelfs
-*twee* voor een betrouwbare basisprijs. Heb je alleen Zonneplan-forecast draaien?
-Voeg dan Nord Pool óf EnergyZero toe (beide core-integraties, twee klikken).
-- **EnerPrice** (HACS: `LenFaki/home-assistant-nl-day-ahead-prices`) — zet *extended attributes* aan in de opties
+- **EnerPrice** (HACS: `LenFaki/home-assistant-nl-day-ahead-prices`) — zet *extended attributes* aan in de opties (aanbevolen)
 - **EnergyZero** (core-integratie)
 - Een notify-service genaamd `notify.home` (anders de naam in het package aanpassen)
+
+> De basisprijs vereist **twee** verse bronnen (kruiscontrole); met één bron
+> blijft de daglijst beschikbaar maar wordt de basis unavailable. Heb je alleen
+> Zonneplan-forecast draaien? Voeg dan Nord Pool óf EnergyZero toe
+> (beide core-integraties, twee klikken).
 
 ## Entiteiten na installatie
 
@@ -115,16 +125,7 @@ entities:
     name: Saldering (teruggave belasting)
 ```
 
-✅ **Volledig dynamisch:** de prijs-sensoren hebben state-triggers op hun contract-helpers. Verzet btw, energiebelasting, een opslag of zet saldering om — `sensor.stroomprijs_afname` / `_levering` (en de EnergyZero-bron) herberekenen **direct**, zonder herstart en zonder package-reload. De grafiek-koppen en de Entities-tegel lopen binnen een paar tellen mee.
-
-## Installeren via de UI (sinds v1.2.x)
-
-De integratie heeft een **UI-config-flow**: ga naar **Instellingen → Apparaten en
-services → Integratie toevoegen → "Energyprijs"** en bevestig met één klik — het
-package + de helpers worden dan automatisch neergezet, zonder service-aanroep.
-(Developer Tools → Actions → `energyprijs.install` werkt nog steeds, voor wie dat
-prefererent.) Na installatie is één HA-herstart nodig om de packages te laden; daarna
-zijn alle sensoren en helpers aanwezig.
+✅ **Volledig dynamisch:** de prijs-sensoren hebben state-triggers op hun contract-helpers. Verzet btw, energiebelasting, een opslag of zet saldering om — `sensor.stroomprijs_afname` / `_levering` (en de EnergyZero-bron) herberekenen **direct**, zonder herstart en zonder package-reload; de prijs-tegels en de daglijst-gaten lopen binnen een paar seconden mee.
 
 ## Dashboard in één keer
 
@@ -143,22 +144,25 @@ toont. (Zet na een HACS-upgrade eerst de integratie opnieuw uit/in of herstart H
 verschijnen nieuwe services ook in die lijst.)
 
 Dan:
-- **bestaat het dashboard niet** → er wordt een nieuw **user dashboard "Energie — stroomprijs"**
-  aangemaakt, direct met de 24-uur-prijsgrafiek én de contractinvulvelden-tegel. Het
-  verschijnt in je dashboardmenu;
-- **bestaat het dashboard al** → alleen de energyprijs-kaarten worden bijgewerkt naar de
-  huidige versie. **Andere kaarten in het dashboard blijven 100% intact** (er wordt alleen
-  tussen de eigen gemarkeerde blokken geschreven).
+- **bestaat het dashboard niet** → er wordt een nieuw user dashboard **"Energie"**
+  aangemaakt met de prijs-tegels (inkoop/verkoop), de 24-uur-brutografiek en de
+  contractinvulvelden. Het verschijnt direct in je dashboardmenu;
+- **bestaat het dashboard al** → de kaarten worden bijgewerkt naar de opbouw uit de
+  huidige versie. **Andere kaarten in het dashboard blijven 100% intact.**
 
-Bij een HACS-upgrade roep je `energyprijs.dashboard` opnieuw aan — de kaarten springen
-mee naar de nieuwste versie, zonder dat iets anders raakt.
+Na een HACS-upgrade herbouwt het dashboard zichzelf automatisch bij de volgende
+herstart (of via de 5-minutencheck) — er hoeft niets handmatig aangeroepen te worden.
+Handmatig aangepaste kaarten van de integratie zelf worden dan vervangen door de
+opbouw uit de repo (golden file, `tests/golden_dashboard.yaml`); wil je iets anders,
+pas dan `cards.py` in de repo aan.
 
 ### Weg 2: handmatig — kaarten in je bestaande dashboard
 
 Liever zelf bepalen waar de kaarten komen? Roep **`energyprijs.cards`** aan
-(Developer Tools → Actions, Response data aan) en plak de twee YAML-blokken
-(`grafiek` + `contract`) via **Add card → Show code editor** in je eigen dashboard.
-De grafiek vereist HACS-kaart `apexcharts-card`; de contract-tegel is pure core.
+(Developer Tools → Actions, Response data aan) en plak de drie YAML-blokken
+(`nu` + `grafiek` + `contract`) via **Add card → Show code editor** in je eigen
+dashboard — in die volgorde. De grafiek vereist de HACS-kaart `apexcharts-card`;
+de tegels zijn pure core.
 
 ## Zo ziet je dashboard er daarna uit
 
@@ -166,9 +170,11 @@ De grafiek vereist HACS-kaart `apexcharts-card`; de contract-tegel is pure core.
 
 *Inkoop- en verkoopprijs als tegels boven de grafiek (2-koloms grid). Daaronder 15-min staafjes van de bruto spotprijs; donkergroen < €0,10 · lichtgroen < €0,25 · geel < €0,40 · rood ≥ €0,40 — geen legenda, de kleuren zijn het onderscheid. De gestippelde lijn is 'nu'. Ten slotte de contract-tegel. Dit is een nabouwing met echte data van vandaag — in HA tekent ApexCharts-card exact dit beeld, inclusief hover-waarden per kwartier.*
 
-## Grafiek (optioneel)
+## Grafiek — handmatig plakken
 
-Plak deze kaart in een dashboard (vereist `custom:apexcharts-card` via HACS):
+Weg 2 (handmatig) plak je deze grafiekkaart zelf in een dashboard
+(vereist `custom:apexcharts-card` via HACS). Dit is exact de kaart die de
+integratie zelf genereert:
 
 ```yaml
 type: custom:apexcharts-card
@@ -217,8 +223,7 @@ apex_config:
     max: EVAL:new Date(new Date().setHours(23,59,59,999)).getTime() + 450000
 yaxis:
   - decimals: 3
-    min: 0
-    # zachte bovengrens: 4 cent boven de hoogste waarde die in beeld is
+    min: '|-0.04|'
     max: '|+0.04|'
 ```
 
@@ -298,17 +303,106 @@ voeg dan deze twee lijn-series toe aan `series:` (met `show: {in_header: false}`
 
 ## Verwijderen
 
-Map `custom_components/energyprijs` verwijderen + het package-bestand uit `/config/packages/` halen + herstart. De installer liet verder niets achter in configuration.yaml behalve de (optioneel te laten staan) packages-include.
+In **Instellingen → Apparaten en services → Energyprijs** het item verwijderen (ruimt
+config-entry, eigen dashboard en het package-bestand op), of handmatig: de map
+`custom_components/energyprijs` verwijderen + `/config/packages/energyprijs.yaml`
+weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
+(read-only-packagesstatus sinds v1.2.39).
 
 ## Versiehistorie
 
 | Versie | Wijziging |
 |---|---|
-| 1.2.41 | Dashboard genereert exact de handmatig aangepaste opbouw van de gebruiker: verkoopprijslijn uit de grafiek verwijderd (alleen bruto-staafjes), legenda verborgen (`apex_config.legend.show: false`), titel vereenvoudigd tot "Stroomprijs", NU-tegel als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) codeert dit vast: code en gebruikersdashboard lopen niet meer uit elkaar ||
-| 1.2.40 | Legenda verborgen in de grafiekkaart + fix lege verkoopprijsserie (de data_generator gebruikte de Jinja-only `states()` in browser-JS → ReferenceError) ||
-| 1.2.13 | Grafiekkaart: `data_template`-kopreeksen verwijderd — apexcharts-card v2.x kent die optie niet meer (extraneous key → 'Configuration error'). Kopwaarden blijven live via de entiteit zelf ||
-| 1.2.12 | Dashboard-service geeft een duidelijke foutmeldt zodra het energie-package (helpers) nog ontbreekt, in plaats van een leeg dashboard achter te laten ||
+| Versie | Wijziging |
+|---|---|
+| 1.2.41 | Dashboard genereert exact de door Jan handmatig aangepaste opbouw: alleen bruto-staafjes (verkoopprijslijn verwijderd), legenda verborgen, titel "Stroomprijs", prijs-tegels als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) verankert: code en gebruikersdashboard lopen niet uit elkaar ||
+| 1.2.40 | Legenda verborgen (`apex_config.legend.show: false`) + fix lege verkoopprijsserie (data_generator riep de Jinja-only `states()` aan in browser-JS → ReferenceError; nu via `hass.states`) ||
+| 1.2.39 | Review-ronde: config-flow gerepareerd (ImportError → altijd install_failed); configuration.yaml wordt nooit meer herschreven (read-only status-check + plakinstructie); defaults krijgen vervolgpogingen (STARTED + 5-min timer) ||
+| 1.2.38 | Opbouw-check vergelijkt de grafiekkaart sleutel-op-sleutel met `GRAFIEK_CARD` — stalen dashboards uit oudere versies worden automatisch vervangen, zonder eindeloze herbouw-loop ||
+| 1.2.37 | `recorder.exclude` naar de mapping-vorm (HA 2026.x weigert de legacy lijst-vorm); package gevalideerd tegen HA's eigen recorder-schema ||
+| 1.2.36 | Validatie vóór mutaties (geen leeg dashboard bij gefaalde guards); bronnen-check warn-only + op domein-niveau; package-sync met sha256 + repair-issue "herstart nodig"; defaults persistent per helper ||
+| 1.2.35 | Startup-check thread-safe; blocking I/O naar executor; eenmalige defaults via `set_value`; daglijst uitgesloten van de recorder ||
+| 1.2.34 | Startup-check in `async_at_started` (geen executor-thread crash); package altijd meegeschreven bij `_dashboard_opslaan` ||
+| 1.2.33 | Package herschreven: helpers als `input_number` (box-mode), gecoördineerde template-triggers (HA-validator faalde op per-entity triggers); code + tests meeverhuisd naar `input_number.prijs_*` ||
+| 1.2.32 | Fix `input_text`-options (HA wees template+input_text af); nu `pattern` op decimale invoer, gevalideerd tegen het HA-schema ||
+| 1.2.31 | packages-include altijd op kolom 0 (ingesprongen onder `default_config:` werd door HA stil genegeerd) ||
+| 1.2.30 | Test-suite groen: conftest wint van de plugin-testing-config; lovelace-guard in startup-check; manifest-versie gesynchroniseerd ||
+| 1.2.29 | Startup-dashboard gefixt: lambda voor het STARTED-event, exception-logging, dashboard-klaar-check ||
+| 1.2.28 | Dashboard pas ná `EVENT_HOMEASSISTANT_STARTED` (5-min timer alleen als back-up) ||
+| 1.2.27 | 1-handeling installatie: `install` ruimt oude helpers op en maakt het dashboard automatisch aan ||
+| 1.2.26 | Contractinstellingen tijdelijk als `input_text` — definitief `input_number` vanaf v1.2.33 ||
+| 1.2.25 | Nieuwe dashboard-basis: kopwaarden uit de grafiek, losse nu-tegel (inkoop/verkoop), grafiek alleen staafjes + LIVE verkooplijn; terug naar bewezen 1-as-architectuur ||
+| 1.2.24 | Dashboard-onderhoud alleen bij update: timer stopt na geslaagde setup-check, versie onthouden in de config-entry ||
+| 1.2.23 | `disable_config_validation` — HA 2026.x injecteert een `disabled`-key die apexcharts v2.2.3 als extraneous afwijst (issue #997) ||
+| 1.2.22 | `section_mode` en de `'+0.04'`-yaxis-max uit de grafiekkaart — extraneous keys veroorzaakten Configuration error in apexcharts v2.2.3 ||
+| 1.2.21 | Versie-tag pas ná aantoonbaar geslaagde opslag + herbouw-detectie op serie-opbouw — stuck-configs worden alsnog vervangen ||
+| 1.2.20 | Kopwaarden als getekende prijslijnen op een eigen y-as — header-N/A kan data niet meer verbergen ||
+| 1.2.19 | Bronnen-check kijkt naar de package-sensoren zelf i.p.v. integratie-entity-namen — geen vals alarm meer ||
+| 1.2.18 | Dashboard-service meldt expliciet wanneer geen enkele prijsbron werkt — N/A-dashboard wordt benoemd in plaats van getoond ||
+| 1.2.17 | Dashboard onderhoudt zich automatisch: bij setup en elke 5 min, idempotent via versie-marker op de view ||
+| 1.2.16 | Kaarten via de LIVE LovelaceCache (frontend ververst direct) + diagnostiek in de service-response ||
+| 1.2.15 | Rode verkooplijn herberekent LIVE bij saldering/helper-wijziging; daglijst-sensor krijgt state-triggers op alle contract-helpers ||
+| 1.2.14 | Sectie-view ("New section") wordt genormaliseerd naar klassieke card-view — kaarten landen nu altijd zichtbaar in het dashboard ||
+| 1.2.13 | `data_template`-kopreeksen verwijderd — apexcharts-card v2.x kent die key niet (extraneous → Configuration error) ||
+| 1.2.12 | Duidelijke foutmelding als het package (helpers) nog niet is geïnstalleerd, in plaats van een leeg dashboard achter te laten ||
+| 1.2.11 | Dashboard-service via HA's eigen lovelace-storage + live panel-registratie (geen herstart nodig) ||
+| 1.2.10 | `sw_version` uit manifest + entry-titel → services verschijnen op de integratietegel; README legt de service-vindroute uit ||
+| 1.2.9 | Nieuwe service `energyprijs.dashboard` (eigen user-dashboard aanmaken of bijwerken, upgrade-proof) + `energyprijs.cards`: kant-en-klare grafiek- én contractkaart-YAML opvragen ||
+| 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer ||
+| 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
+| 1.0.0 | Eerste versie: installer + package |
+## Versiehistorie
+
+| Versie | Wijziging |
+|---|---|
+| 1.2.41 | Dashboard genereert exact de door Jan handmatig aangepaste opbouw: alleen bruto-staafjes (verkoopprijslijn verwijderd), legenda verborgen, titel "Stroomprijs", prijs-tegels als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) verankert: code en gebruikersdashboard lopen niet uit elkaar ||
+| 1.2.40 | Legenda verborgen (`apex_config.legend.show: false`) + fix lege verkoopprijsserie (data_generator riep de Jinja-only `states()` aan in browser-JS → ReferenceError; nu via `hass.states`) ||
+| 1.2.39 | Review-ronde: config-flow gerepareerd (ImportError → altijd install_failed); configuration.yaml wordt nooit meer herschreven (read-only status-check + plakinstructie); defaults-krijs krijgt vervolgpogingen (STARTED + 5-min timer) ||
+| 1.2.38 | Opbouw-check vergelijkt de grafiekkaart sleutel-op-sleutel met `GRAFIEK_CARD` — stalen dashboards uit oudere versies worden automatisch vervangen, zonder eindeloze herbouw-loop ||
+| 1.2.37 | `recorder.exclude` naar de mapping-vorm (HA 2026.x weigert de legacy lijst-vorm); package gevalideerd tegen HA's eigen recorder-schema ||
+| 1.2.36 | Validatie vóór mutaties (geen leeg dashboard bij gefaalde guards); bronnen-check warn-only + op domein-niveau; package-sync met sha256 + repair-issue "herstart nodig"; defaults persistent per helper ||
+| 1.2.35 | Startup-check thread-safe; blocking I/O naar executor; eenmalige defaults via `set_value`; daglijst uitgesloten van recorder ||
+| 1.2.34 | Startup-check in `async_at_started` (geen executor-thread crash); package altijd meegeschreven bij `_dashboard_opslaan` ||
+| 1.2.33 | Package herschreven: helpers als `input_number` (box-mode), gecoördineerde template-triggers (HA-validator faalde op per-entity triggers); code + tests meeverhuisd naar `input_number.prijs_*` ||
+| 1.2.32 | Fix `input_text`-options (HA wees template+input_text af); nu `pattern` op decimale invoer, gevalideerd tegen het HA-schema ||
+| 1.2.31 | packages-include altijd op kolom 0 (ingesprongen onder `default_config:` werd door HA stil genegeerd) ||
+| 1.2.30 | Daglijst-attributes als JSON-string + `from_json` in de browser-generators (HA coërceert template-attributes tot string); helperfactoren live via `hass.states` in de grafiek ||
+| 1.2.28 | UI-config-flow: integratie toevoegen met één klik plant package + helpers; repair-issues vervangen stiklige foutmeldingen ||
+| 1.2.27 | Versie-markering één bron (manifest); HACS-releases + zipball-verificatie in de workflow ||
+| 1.2.26 | Dashboard-service normaliseert sectie-views (nieuwe UI-dashboards) naar klassieke card-views vóór injectie — leeg dashboard opgelost ||
+| 1.2.25 | Herstart-nodig-issue opgelost zodra de package opnieuw wordt geladen; `handle_status` toont package-actueel-status ||
+| 1.2.24 | Dashboard-beleid vastgelegd: de integratie houdt het dashboard niet elke 5 min bij — één check na update/herstart, daarna unsubs de timer ||
+| 1.2.23 | `experimental: disable_config_validation` op de grafiekkaart (HA-injecteert zelf UI-keys die de v2.2.3-checker afwijst) ||
+| 1.2.22 | Kopwaarden als getekende line-series op een eigen y-as (header-cash kon N/A blijven hangen na herstart) ||
+| 1.2.21 | Bron-sensoren: package leest de package-eigen sensoren, niet de integratie-entity-namen (verschillen per installatie) ||
+| 1.2.20 | Multi-as-poging (yaxis_id) — teruggezet in 1.2.25 naar de één-asopbouw ||
+| 1.2.19 | Grafiek leest de package-sensoren zelf; N/A-koppen nu herkenbaar als bron-availability, geen codebug ||
+| 1.2.18 | Herstart-nodig-issue + repair-registry voor package-sync; service-diagnosebalk met cache-status ||
+| 1.2.17 | Automatisch onderhoud: dashboard-check bij startup + 5-min interval, idempotent via versie-marker op de view ||
+| 1.2.16 | Diagnosebalk in elke dashboard-aanroep (geïnstalleerde versie, helpers, view-type, cards, cache-bijgewerkt) ||
+| 1.2.15 | Dashboard vullen via de live LovelaceCache (`LOVELACE_DATA.dashboards[...].async_save`) — frontend ververst direct, geen leeg dashboard ||
+| 1.2.30 | Test-suite groen: conftest wint van de plugin-testing-config; manifest-versie gesynchroniseerd ||
+| 1.2.29 | Startup-dashboard gefixt (lambda voor het STARTED-event, exception-logging, dashboard-klaar-check) ||
+| 1.2.28 | Dashboard pas ná `EVENT_HOMEASSISTANT_STARTED` (5-min timer alleen als back-up) ||
+| 1.2.27 | 1-handeling installatie: `install` ruimt oude helpers op, maakt automatisch het dashboard aan ||
+| 1.2.26 | Contractinstellingen tijdelijk als `input_text` — later (v1.2.33) definitief `input_number` ||
+| 1.2.25 | Nieuwe dashboard-basis: kopwaarden uit de grafiek, losse nu-tegel (inkoop/verkoop), grafiek alleen staafjes + LIVE verkooplijn — terug naar bewezen 1-as-architectuur ||
+| 1.2.24 | Dashboard-onderhoud alleen bij update: timer stopt na geslaagde setup-check, versie onthouden in de config-entry ||
+| 1.2.23 | `disable_config_validation` — HA 2026.x injecteert een `disabled`-key die apexcharts v2.2.3 als extraneous afwijst (issue #997) ||
+| 1.2.22 | `section_mode` en de `'+0.04'`-yaxis-max uit de grafiekkaart (extraneous keys → Configuration error) ||
+| 1.2.21 | Versie-tag pas ná aantoonbaar geslaagde opslag + herbouw-detectie op serie-opbouw — stuck-configs worden alsnog vervangen ||
+| 1.2.20 | Kopwaarden als getekende prijslijnen op een eigen y-as (header-N/A kan data niet meer verbergen) ||
+| 1.2.19 | Bronnen-check kijkt naar de package-sensoren zelf i.p.v. integratie-entity-namen — geen vals alarm meer ||
+| 1.2.18 | Dashboard-service meldt expliciet wanneer geen enkele prijsbron werkt — N/A-dashboard wordt benoemd in plaats van getoond ||
+| 1.2.17 | Dashboard onderhoudt zich automatisch: bij setup en elke 5 min, idempotent via versie-marker op de view ||
+| 1.2.16 | Kaarten via de LIVE LovelaceCache (frontend ververst direct) + diagnostiek in de service-response ||
+| 1.2.15 | Rode verkooplijn herberekent LIVE bij saldering/helper-wijziging; daglijst-sensor krijgt state-triggers op alle contract-helpers ||
+| 1.2.14 | Dashboard-kaarten overleven HA-updates: opbouw-check + idempotente herbouw van eigen kaarten, andere kaarten intact ||
+| 1.2.13 | Grafiekkaart: `data_template`-kopreeksen verwijderd — apexcharts-card v2.x kent die optie niet meer (extraneous key → 'Configuration error') ||
+| 1.2.12 | Dashboard-service geeft een duidelijke foutmelding zodra het energie-package (helpers) nog ontbreekt, in plaats van een leeg dashboard achter te laten ||
 | 1.2.11 | Dashboard-service volledig op HA-native lovelace-storage + panel-registratie (dashboard verschijnt zonder herstart) ||
-| 1.2.10 | Integratietegel toont de services (dynamische sw_version uit manifest + entry-titel); README legt de service-vindroute uit via de integratiepagina || 1.2.9 | Nieuwe service `energyprijs.dashboard` (eigen user-dashboard aanmaken of bijwerken; upgrade-proof, andere kaarten intact) + `energyprijs.cards`: haalt de kant-en-klare grafiek- én contractkaart-YAML in één keer op — geen handmatig plakwerk meer vanuit de repo || 1.2.7 | Dashboardkaart: kopwaarden live in de grafiekheader (lopen direct mee met helper-wijzigingen) en y-as met vaste ondergrens 0 + zachte bovengrens; README-tekst aangepast || 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer |
+| 1.2.10 | Integratietegel toont de services (dynamische sw_version uit manifest + entry-titel); README legt de service-vindroute uit via de integratiepagina ||
+| 1.2.9 | Nieuwe service `energyprijs.dashboard` (eigen user-dashboard aanmaken of bijwerken; upgrade-proof, andere kaarten intact) + `energyprijs.cards`: kant-en-klare grafiek- én contractkaart-YAML in één keer opvragen ||
+| 1.2.6 | Prijs-sensoren + EnergyZero-bron krijgen state-triggers op de contract-helpers: formules herberekenen direct bij wijziging, geen HA-herstart meer ||
 | 1.0.1 | Fixes uit HA-test: `min/max/initial`, mode `restart`, Jinja zonder zip-filter, availability-patroon |
 | 1.0.0 | Eerste versie: installer + package |
