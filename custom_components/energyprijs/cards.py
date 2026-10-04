@@ -29,11 +29,20 @@ def _counter(naam: str, kleur: str) -> dict:
         "type": "line",
         "color": kleur,
         "float_precision": 3,
+        # data_generator draait in de BROWSER: de Jinja-only helper "states()"
+        # bestaat daar niet. Een aanroep davon gaf een
+        # ReferenceError → lege serie, 'N/A' onder de grafiek (bug tot en
+        # met v1.2.39; vastgesteld uit de kaartconfig, niet uit een live-
+        # browserconsole — zie release 1.2.40).
+        # Helpers lezen kan wél via het meegegeven `hass`-object.
         "data_generator": (
-            "const btw = 1 + parseFloat(states('input_number.prijs_btw') || '0.21');"
-            " const bel = parseFloat(states('input_number.prijs_energiebelasting') || '0');"
-            " const sl = parseFloat(states('input_number.prijs_opslag_levering') || '0');"
-            " const sal = states('input_boolean.prijs_saldering_energiebelasting_teruggave') === 'on';"
+            "const g = (id, d) => { const s = hass.states[id];"
+            " const v = s ? parseFloat(s.state) : NaN;"
+            " return isNaN(v) ? d : v; };"
+            " const btw = 1 + g('input_number.prijs_btw', 0.21);"
+            " const bel = g('input_number.prijs_energiebelasting', 0);"
+            " const sl = g('input_number.prijs_opslag_levering', 0);"
+            " const sal = hass.states['input_boolean.prijs_saldering_energiebelasting_teruggave']?.state === 'on';"
             " return entity.attributes.vandaag.map((e) =>"
             " [new Date(e.t).getTime() + 450000,"
             " ((e.p + sl) * btw + (sal ? bel * btw : 0))]);"
@@ -78,6 +87,8 @@ GRAFIEK_CARD = {
         _counter("verkoopprijs", "#d94040"),
     ],
     "apex_config": {
+        # hele legenda weg: de staafkleuren zijn voldoende (verzoek 4 okt '26)
+        "legend": {"show": False},
         "xaxis": {
             # as loopt een halve kolom (7,5 min) buiten de dag → eerste/laatste staaf volledig
             "min": "EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000",
