@@ -366,7 +366,10 @@ automation:
 #    Dus uitgesloten van de history-opslag; de grafiek leest de LIVE-attributes,
 #    die door de recorder niet beïnvloed worden. Anders krijgt Jan een "Failed to
 #    commit database changes"-waarschuwing bij elke herberekening.
+#    VORM: 'exclude' is een MAPPING met 'entities:' — de legacy lijst-vorm
+#    ('exclude: [entity_id: [...]]') wordt door HA 2026.x afgewezen
+#    ("expected a dictionary"), live gemeld door Jan op 3 okt '26.
 recorder:
   exclude:
-    - entity_id:
-        - sensor.stroomprijs_daglijst
+    entities:
+      - sensor.stroomprijs_daglijst
