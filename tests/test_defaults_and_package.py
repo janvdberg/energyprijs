@@ -98,3 +98,71 @@ async def test_dashboard_opslaan_no_mutation_when_helpers_missing(hass):
         except RuntimeError as e:
             assert "helpers" in str(e)
     assert mutations == [], "dashboard-item aangemaakt ondanks gefaalde validatie"
+
+async def test_opbouwcheck_vervangt_oude_koppen(hass):
+    """Dashboard uit een oudere versie (kopwaarden/N/A onder de grafiek) moet
+    bij de eerstvolgende opslag HERBOUWD worden, niet als 'actueel' gelden.
+
+    Regression voor de slappe yaxis_id-check tot en met v1.2.37: die liet een
+    stalen GRAFIEK_CARD uit de multi-as-poging (1.2.20-1.2.24) eeuwigdurend
+    door de check glippen, zodat Jans dashboard van vóór 1.2.25 nooit werd
+    vervangen — de N/Onder-de-grafiek-restant die Jan op 4 okt '26 zag.
+    """
+    import copy
+    from custom_components.energyprijs.cards import GRAFIEK_CARD, NU_CARD, CONTRACT_CARD
+    from homeassistant.components.lovelace.const import LOVELACE_DATA
+    import homeassistant.components.lovelace.dashboard as lb_dash
+
+    entry = MockConfigEntry(domain="energyprijs", title="Energyprijs")
+    entry.add_to_hass(hass)
+
+    # helper + bronstates zodat de validaties slagen
+    from homeassistant.helpers import entity_registry as er
+    ent_reg = er.async_get(hass)
+    ent_reg.async_get_or_create("input_number", "energyprijs", "btw",
+                                suggested_object_id="prijs_btw")
+    hass.states.async_set("sensor.stroomprijs_daglijst", "0.2", {"vandaag": []})
+
+    # oud dashboard op schijf: grafiekkaart MET kopwaarden (pre-1.2.25-staal)
+    stale = copy.deepcopy(GRAFIEK_CARD)
+    stale["header"]["show_states"] = True
+    for s in stale["series"]:
+        if isinstance(s, dict):
+            s.setdefault("show", {})["in_header"] = True
+    stored = {"data": {"views": [{"title": "Energie", "path": "energie",
+                                   "cards": [NU_CARD, stale, CONTRACT_CARD]}],
+                        "config": {}},
+              "info": {"mode": "storage"}}
+
+    class FakeColl:
+        def __init__(self, hass_):
+            self.data = {}
+            self.store = type("S", (), {
+                "async_delay_save": lambda self, fn, delay=0: fn()})()
+        async def async_load(self): pass
+        async def async_create_item(self, item):
+            self.data["x"] = dict(item, id="x"); return self.data["x"]
+        async def async_update_item(self, dash_id, item): pass
+        def _data_to_save(self): return list(self.data.values())
+
+    saved = []
+    hass.data[LOVELACE_DATA] = object()
+
+    class FakeStore:
+        def __init__(self, hass_, entry_): pass
+        async def async_load(self, force=False): return stored["data"]
+        async def async_save(self, config): saved.append(copy.deepcopy(config))
+
+    with patch.object(lb_dash, "LovelaceStorage", FakeStore), \
+         patch.object(lb_dash, "DashboardsCollection", FakeColl):
+        res = await inst._dashboard_opslaan(hass)
+
+    assert res.get("act") != "huidig", "stale opbouw werd als actueel herkend"
+    assert saved, "niets weggeschreven — dashboard blijft stale"
+    new_graf = next(c for c in saved[0]["views"][0]["cards"]
+                    if isinstance(c, dict) and c.get("type") == "custom:apexcharts-card")
+    assert new_graf["header"].get("show_states") is False
+    assert all(not (s.get("show") or {}).get("in_header")
+               for s in new_graf["series"] if isinstance(s, dict))
+
+

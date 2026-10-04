@@ -436,14 +436,19 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         return "custom:apexcharts-card" in types and "entities" in types
 
     def _opbouw_klopt(cards) -> bool:
-        """Kaarten moeten de ACTUELE serie-opbouw hebben (niet alleen maar twee kaarten)."""
+        """De grafiekkaart moet exact de actuele opbouw van cards.py hebben.
+
+        Les live-log 4 okt '26: een verouderde check (alleen yaxis_id 'prijzen',
+        een kenmerk uit de multi-as-poging van 1.2.20-1.2.24 die nooit heeft
+        gedraaid) maakte dat dashboards uit oudere versies — met kopwaarden en
+        N/A onder de grafiek — bij elke herstart als 'actueel' golden en nooit
+        werden vervangen. Nu: vergelijk de grafiekkaart sleutel-op-sleutel met
+        GRAFIEK_CARD zelf; één bron van waarheid, dus elke kaartwijziging in
+        cards.py forceert automatisch een herbouw van het dashboard.
+        """
         graf = next((c for c in cards if isinstance(c, dict)
                      and c.get("type") == "custom:apexcharts-card"), None)
-        if graf is None:
-            return False
-        # tekenprijslijnen met eigen as => kenmerk voor ≥1.2.20
-        return any(s.get("yaxis_id") == "prijzen" for s in graf.get("series", [])
-                   if isinstance(s, dict))
+        return graf == GRAFIEK_CARD
 
     if (cfg is not None and act == "bijgewerkt"
             and first.get("energyprijs_versie") == manifest_version
