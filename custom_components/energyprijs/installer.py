@@ -59,6 +59,11 @@ HELPERS_DEFAULTS: dict[str, float] = {
     "accu_vermogen_uit_kw": 5.0,
 }
 
+# Helpers die in eerdere versies zijn meegeleverd maar niet meer door het package
+# worden gedefinieerd → bij setup uit de entity registry opruimen, anders blijft er
+# een "niet meer beschikbaar"-entiteit achter (review v1.2.42, punt 3).
+VEROUDERDE_HELPERS: tuple[str, ...] = ("input_number.accu_handmatig_pct",)
+
 
 def _config_dir(hass: HomeAssistant) -> Path:
     return Path(hass.config.path())
@@ -493,7 +498,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         if t == "markdown":
             # accu-contracttegel herkennen op zijn contract-sensor (oude markdown-
             # tegels van gebruikers blijven dus intact)
-            return "sensor.accu_percentage" in str(card.get("content", ""))
+            return "sensor.energyprijs_accu_percentage" in str(card.get("content", ""))
         return False
 
     kept = [c for c in cards_list if not _is_ours(c)]

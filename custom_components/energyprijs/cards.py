@@ -93,9 +93,12 @@ ACCUEENHEDEN_CARD = {
     "title": "Accu — contract & snelkoppeling",
     "content": (
         "## 🔋 Accupercentage\n"
-        "Bron: `{{ state_attr('sensor.accu_percentage', 'bron') or 'nog niet ingesteld' }}`"
-        " — **{{ states('sensor.accu_percentage') }}%**\n"
-        "{% set soc = states('sensor.accu_percentage') | float(-1) %}\n"
+        "{% set soc_eid = 'sensor.energyprijs_accu_percentage' %}\n"
+        "{% set src = states('input_text.accu_bron_entity') | trim %}\n"
+        "{% if src == '' or src in ('unknown', 'unavailable', 'none') %}"
+        "Bron: `Geen bron ingesteld`"
+        "{% else %}Bron: `{{ src }}` — **{{ states(soc_eid) }}%**{% endif %}\n"
+        "{% set soc = states(soc_eid) | float(-1) %}\n"
         "{% set kwh = states('input_number.accu_capaciteit_kwh') | float(0) %}\n"
         "{% set p_in = states('input_number.accu_vermogen_in_kw') | float(0) %}\n"
         "{% set p_uit = states('input_number.accu_vermogen_uit_kw') | float(0) %}\n"
@@ -118,9 +121,7 @@ ACCUCONTRACT_CARD = {
     "state_color": True,
     "entities": [
         {"entity": "input_text.accu_bron_entity",
-         "name": "Bron-entity accu-% (leeg = handmatig)"},
-        {"entity": "input_number.accu_handmatig_pct",
-         "name": "Handmatig percentage (%)"},
+         "name": "Bron-entity accu-%"},
         {"entity": "input_number.accu_capaciteit_kwh",
          "name": "Capaciteit (kWh)"},
         {"entity": "input_number.accu_vermogen_in_kw",

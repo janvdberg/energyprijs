@@ -44,6 +44,7 @@ TEMPLATE_UNIQUE_IDS: list[tuple[str, str]] = [
     ("sensor", "stroomprijs_daglijst"),
     ("sensor", "stroomprijs_afname"),
     ("sensor", "stroomprijs_levering"),
+    ("sensor", "energyprijs_accu_percentage"),
     ("binary_sensor", "prijzen_kruiscontrole_afwijking"),
     ("binary_sensor", "prijzen_morgen_beschikbaar"),
 ]
@@ -56,6 +57,10 @@ HELPER_ENTITY_IDS: list[str] = [
     "input_number.prijs_afwijkingsdrempel",
     "input_number.prijs_laad_drempel",
     "input_boolean.prijs_saldering_energiebelasting_teruggave",
+    "input_text.accu_bron_entity",
+    "input_number.accu_capaciteit_kwh",
+    "input_number.accu_vermogen_in_kw",
+    "input_number.accu_vermogen_uit_kw",
 ]
 
 
@@ -63,6 +68,28 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Registreer de installatieservices."""
     await async_register_services(hass)
     return True
+
+
+async def _ruim_verouderde_helpers(hass: HomeAssistant) -> None:
+    """Verwijder helpers die het package niet meer definieert (v1.2.42-review).
+
+    Een in een eerdere release meegeleverde helper (nu: input_number.accu_handmatig_pct)
+    blijft anders als 'niet meer beschikbaar'-entiteit in de registry staan.
+    Veiligheidsregel: alleen verwijderen als de entity in de registry koppelbaar is
+    aan DEZE config-entry (door ons package aangemaakt); een door de gebruiker zelf
+    gemaakte gelijknamige helper laten we met rust.
+    """
+    from .installer import VEROUDERDE_HELPERS
+
+    reg = er.async_get(hass)
+    entry_ids = {e.entry_id for e in hass.config_entries.async_entries(DOMAIN)}
+    for eid in VEROUDERDE_HELPERS:
+        ent = reg.async_get(eid)
+        if ent is None:
+            continue
+        if ent.config_entry_id in entry_ids or ent.platform == DOMAIN:
+            reg.async_remove(eid)
+            _LOGGER.info("energyprijs: verouderde helper %s verwijderd", eid)
 
 
 @callback
@@ -134,6 +161,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await installer_sync_package(hass)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("energyprijs: package-sync mislukt", exc_info=True)
+        try:
+            await _ruim_verouderde_helpers(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: opruimen verouderde helpers mislukt", exc_info=True)
         try:
             await _ensure_helper_defaults(hass)
         except Exception:  # noqa: BLE001

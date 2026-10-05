@@ -254,40 +254,32 @@ template:
           {{ ((basis + states('input_number.prijs_opslag_levering') | float(0)) * btw
               + (states('input_number.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
 
-  # ── ACCU-CONTRACT: sensor.accu_percentage = dé vaste naam, bron kiest de gebruiker.
-  #    Staat input_text.accu_bron_entity op een entity_id → live volgen; leeg → handmatig-veld.
-  #    GECOÖRDINEERD: state-based templates luisteren niet naar input_*, dus expliciete triggers.
-  - triggers:
-      - trigger: homeassistant
-        event: start
-      - trigger: state
-        entity_id:
-          - input_text.accu_bron_entity
-          - input_number.accu_handmatig_pct
-    sensor:
-      - name: "Accu percentage"
-        unique_id: accu_percentage_pkg
+  # ── ACCU-CONTRACT: sensor.energyprijs_accu_percentage = vaste, botsingvrije naam.
+  #    input_text.accu_bron_entity bevat een entity_id → deze state-based template
+  #    volgt die LIVE (states(src) wordt tijdens renderen opgevraagd; HA triggert
+  #    op elke entiteit die de template leest — óók dynamisch gekozen). Geen
+  #    triggers-blok nodig; expliciete triggers zouden het juist on-live maken.
+  #    Leeg veld of onbeschikbare bron → unavailable + "Geen bron ingesteld".
+  #    Zelfverwijzing (bron == eigen id) → unavailable, geen lus.
+  - sensor:
+      - name: "Energyprijs Accu percentage"
+        unique_id: energyprijs_accu_percentage
         unit_of_measurement: "%"
         state_class: measurement
         availability: >-
           {% set src = states('input_text.accu_bron_entity') | trim %}
-          {% if src and src not in ('unknown', 'unavailable', 'none') %}
-            {{ has_value(src) }}
-          {% else %}
-            true
-          {% endif %}
+          {{ bool(src and src not in ('unknown', 'unavailable', 'none')
+                  and src != 'sensor.energyprijs_accu_percentage'
+                  and has_value(src)) }}
         state: >-
           {% set src = states('input_text.accu_bron_entity') | trim %}
-          {% if src and src not in ('unknown', 'unavailable', 'none') %}
+          {% if src and src not in ('unknown', 'unavailable', 'none')
+                and src != 'sensor.energyprijs_accu_percentage' %}
             {{ states(src) }}
           {% else %}
-            {{ states('input_number.accu_handmatig_pct') }}
+            none
           {% endif %}
-        attributes:
-          bron: >-
-            {% set src = states('input_text.accu_bron_entity') | trim %}
-            {{ src if (src and src not in ('unknown','unavailable','none'))
-               else 'handmatig' }}
+
 
 input_number:
   # OPLET: geen 'initial' hier. initial zet de waarde bij ELKE herstart terug
@@ -338,26 +330,6 @@ input_number:
     step: 0.001
     mode: box
     icon: mdi:scale-balance
-
-input_boolean:
-  prijs_saldering_energiebelasting_teruggave:
-    name: "Prijs: saldering (belasting-teruggave bij levering)"
-    icon: mdi:solar-power
-    # NU: on (saldering nog van kracht t/m 31-12-2026).
-    # Per 1-1-2027: uitzetten → leveringformule valt automatisch terug op spot+btw.
-
-# ── ACCU-CONTRACT: snelkoppeling naar de accu-SOC van GEBRUIKERS eigen systeem ──
-#   Bewezen patroon (Jans test, 5 okt '26): input_text met entity_id + template-
-#   sensor (zie template-hierboven) die states(src) volgt. Leeg veld → handmatig.
-input_text:
-  accu_bron_entity:
-    name: "Accu: bron-entity percentage"
-    min: 0
-    max: 255
-    mode: text
-    icon: mdi:source-branch
-
-input_number:
   accu_capaciteit_kwh:
     name: "Accu: capaciteit (kWh)"
     unit_of_measurement: "kWh"
@@ -382,14 +354,21 @@ input_number:
     step: 0.1
     mode: box
     icon: mdi:current-dc
-  accu_handmatig_pct:
-    name: "Accu: handmatig percentage (nooit-leeg laten als geen live-bron)"
-    unit_of_measurement: "%"
+
+input_boolean:
+  prijs_saldering_energiebelasting_teruggave:
+    name: "Prijs: saldering (belasting-teruggave bij levering)"
+    icon: mdi:solar-power
+    # NU: on (saldering nog van kracht t/m 31-12-2026).
+    # Per 1-1-2027: uitzetten → leveringformule valt automatisch terug op spot+btw.
+
+input_text:
+  accu_bron_entity:
+    name: "Accu: bron-entity percentage"
     min: 0
-    max: 100
-    step: 1
-    mode: box
-    icon: mdi:gesture-tap
+    max: 255
+    mode: text
+    icon: mdi:source-branch
 
 automation:
   - alias: "Prijzen: meld bij bronuitval of basis-onbetrouwbaar"

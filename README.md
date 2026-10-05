@@ -1,6 +1,6 @@
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.x-blue?logo=homeassistant)
 ![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-orange?logo=hackthebox)
-![versie](https://img.shields.io/badge/versie-1.2.42-brightgreen)
+![versie](https://img.shields.io/badge/versie-1.2.43-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 # ⚡ Energyprijs
@@ -84,8 +84,8 @@ binary_sensor.prijzen_kruiscontrole_afwijking
 binary_sensor.prijzen_morgen_beschikbaar
 input_number.prijs_btw / _energiebelasting / _opslag_afname / _opslag_levering / _afwijkingsdrempel / _laad_drempel
 input_boolean.prijs_saldering_energiebelasting_teruggave
-input_text.accu_bron_entity           sensor.accu_percentage (snelkoppeling)
-input_number.accu_handmatig_pct / _capaciteit_kwh / _vermogen_in_kw / _vermogen_uit_kw
+input_text.accu_bron_entity           sensor.energyprijs_accu_percentage (snelkoppeling)
+input_number.accu_capaciteit_kwh / _vermogen_in_kw / _vermogen_uit_kw
 automation.prijzen_*  (2 meld-automatiseringen)
 ```
 
@@ -133,20 +133,24 @@ entities:
 
 De meeste huizen hebben allang een accu-percentage-entity — alleen heet die bij de één
 `sensor.solarman_battery_soc`, bij de ander `sensor.battery`. Het package lost dat op met
-één vaste naam plus één invulveld:
+één vaste, botsingvrije naam plus één invulveld:
 
 | Helper | Betekenis |
 |---|---|
-| `input_text.accu_bron_entity` | entity_id van jouw SOC-sensor (plakken of via de entiteitenkiezer). **Leeg → handmatig-veld** |
-| `input_number.accu_handmatig_pct` | voor wie géén live-SOC heeft: vul het percentage zelf in |
+| `input_text.accu_bron_entity` | entity_id van jouw SOC-sensor (plakken of via de entiteitenkiezer). Leeg → `sensor.energyprijs_accu_percentage` is unavailable en de tegel toont "Geen bron ingesteld" |
 | `input_number.accu_capaciteit_kwh` | accucapaciteit — maakt %→kWh mogelijk |
 | `input_number.accu_vermogen_in_kw` / `_uit_kw` | max laad-/ontlaadvermogen — deurtijd-berekening |
 
-`sensor.accu_percentage` volgt de gekozen bron **live** (state-trigger op het tekstveld):
-vul iets anders in, de tegel en elke formule lopen direct mee. Elk dashboard, elke
-automatisering en elke formule verwijst alleen naar `sensor.accu_percentage` — nooit naar
-de bron van iemand anders. De drie getal-helpers krijgen bij de allereerste installatie
-conservatieve startwaarden (10 kWh / 5 kW); verzet ze naar jouw accu.
+`sensor.energyprijs_accu_percentage` is een state-based template-sensor en volgt de
+gekozen bron **live**: HA triggert op elke entiteit die tijdens het renderen met
+`states()` wordt gelezen — dus óók de dynamisch gekozen bron-entiteit. Vul iets anders
+in of laat je SOC veranderen, de tegel en elke formule lopen direct mee. Elk dashboard,
+elke automatisering en elke formule verwijst alleen naar `sensor.energyprijs_accu_percentage`
+— nooit naar de bron van iemand anders. De prefix voorkomt een naambotsing met een
+bestaande `sensor.accu_percentage` in jouw setup. Zelfverwijzing (het veld bevat de
+sensor zelf) wordt gedetecteerd → unavailable, geen lus. De drie getal-helpers krijgen
+bij de allereerste installatie conservatieve startwaarden (10 kWh / 5 kW); verzet ze
+naar jouw accu.
 
 ## Dashboard in één keer
 
@@ -334,7 +338,8 @@ weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
 
 | Versie | Wijziging |
 |---|---|
-| 1.2.42 | **Accu-contract**: het bewezen snelkoppeling-patroon uit de package — `input_text.accu_bron_entity` bevat een entity_id en `sensor.accu_percentage` (template, gecoördineerd) volgt die live; leeg veld → handmatig-veld `accu_handmatig_pct`. Nieuwe invulvelden capaciteit (kWh) + laad-/ontlaadvermogen (kW), éénmalige defaults. Dashboard krijgt twee extra kaarten: accu-eenheden (SOC + doorrekenen naar kWh en laad-/ontlaaduren) en accu-contractinstellingen; golden file + tests uitgebreid naar 5 kaarten |
+| 1.2.43 | Review-fixes op v1.2.42: (1) dubbele top-levelsleutel `input_number` verwijderd — het tweede blok schuwde de zes prijshelpers uit het geparsede package (lege contracttegel, foute all-in prijzen); (2) strikte YAML-loader-test + kaarten↔package cross-check: elke entiteit die een dashboardkaart gebruikt moet door het package gedefinieerd zijn; (3) `accu_handmatig_pct` overal verwijderd, incl. registry-opruiming bij setup voor bestaande installaties; (4) accu-sensor is nu écht state-based/live: zonder triggers-blok, volgt HA de dynamisch gekozen bron-entiteit vanzelf (live bewezen in e2e-test, incl. zelfverwijzing-guard); (5) naamconflict opgelost: de contract-sensor heet `sensor.energyprijs_accu_percentage` met expliciete unique_id — geen botsing meer met bestaande `sensor.accu_percentage`. 34/34 tests groen, package door HA's eigen componenten geladen in e2e ||
+| 1.2.42 | **Accu-contract**: het bewezen snelkoppeling-patroon uit de package — `input_text.accu_bron_entity` bevat een entity_id en `sensor.energyprijs_accu_percentage` (state-based template, volgt de dynamische bron live; zelfverwijzing → unavailable) is dé vaste contractnaam met prefix tegen naambotsing. Leeg veld → unavailable + "Geen bron ingesteld". Nieuwe invulvelden capaciteit (kWh) + laad-/ontlaadvermogen (kW), éénmalige defaults. Dashboard krijgt twee extra kaarten: accu-eenheden (SOC + doorrekenen naar kWh en laad-/ontlaaduren) en accu-contractinstellingen; golden file + tests uitgebreid naar 5 kaarten. Review-fixes same-day: dubbele top-levelsleutel `input_number` verwijderd (prijshelpers bestonden niet meer in het geparsede package → lege contracttegel), strikte YAML-loader-test tegen dubbele sleutels, cross-check kaarten↔package-entiteiten, handmatig-veld overal verwijderd incl. registry-opruiming bij setup ||
  1.2.41 | Dashboard genereert exact de door Jan handmatig aangepaste opbouw: alleen bruto-staafjes (verkoopprijslijn verwijderd), legenda verborgen, titel "Stroomprijs", prijs-tegels als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) verankert: code en gebruikersdashboard lopen niet uit elkaar ||
 | 1.2.40 | Legenda verborgen (`apex_config.legend.show: false`) + fix lege verkoopprijsserie (data_generator riep de Jinja-only `states()` aan in browser-JS → ReferenceError; nu via `hass.states`) ||
 | 1.2.39 | Review-ronde: config-flow gerepareerd (ImportError → altijd install_failed); configuration.yaml wordt nooit meer herschreven (read-only status-check + plakinstructie); defaults krijgen vervolgpogingen (STARTED + 5-min timer) ||
