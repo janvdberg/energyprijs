@@ -275,7 +275,8 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     De flush zit daarom in een try/except dat dat niet neerhaalt.
     """
     from .cards import (ACCUCONTRACT_CARD, ACCUEENHEDEN_CARD, CONTRACT_CARD,
-                        GRAFIEK_CARD, NU_CARD)
+                        GRAFIEK_CARD, NU_CARD, PVCONTRACT_CARD,
+                        PVINSTELLINGEN_CARD)
 
     # ── 0a) package in sync met de geïnstalleerde code (veilige route:
     #        sha256-check + repair-issue bij een write, geen blinde overschrijving)
@@ -493,18 +494,20 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             return "sensor.stroomprijs_daglijst" in ents
         if t == "entities":
             ents = {c.get("entity") if isinstance(c, dict) else c for c in card.get("entities", [])}
-            return ("input_number.prijs_btw" in ents or "sensor.stroomprijs_afname" in ents
-                    or "input_text.accu_bron_entity" in ents)
+            return ({"input_number.prijs_btw", "sensor.stroomprijs_afname",
+                     "input_text.accu_bron_entity", "input_text.pv_bron_vandaag",
+                     "input_text.pv_bron_morgen"} & ents)
         if t == "markdown":
-            # accu-contracttegel herkennen op zijn contract-sensor (oude markdown-
-            # tegels van gebruikers blijven dus intact)
-            return "sensor.energyprijs_accu_percentage" in str(card.get("content", ""))
+            # accu- en pv-contracttegels herkennen op hun contract-sensoren
+            return ("sensor.energyprijs_accu_percentage" in str(card.get("content", ""))
+                    or "sensor.energyprijs_pv_vandaag" in str(card.get("content", "")))
         return False
 
     kept = [c for c in cards_list if not _is_ours(c)]
     removed = len(cards_list) - len(kept)
     first["cards"] = kept + [NU_CARD, GRAFIEK_CARD, CONTRACT_CARD,
-                             ACCUEENHEDEN_CARD, ACCUCONTRACT_CARD]
+                             ACCUEENHEDEN_CARD, ACCUCONTRACT_CARD,
+                             PVCONTRACT_CARD, PVINSTELLINGEN_CARD]
 
     new_cfg = {"views": views}
     if (cfg or {}).get("jinja"):
@@ -714,20 +717,25 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_cards(call: ServiceCall) -> dict:
         """Geef de kant-en-klare dashboardkaarten (grafiek + contractinvulvelden)."""
         from .cards import build_cards_yaml
-        nu, grafiek, contract, accueenheden, accucontract = build_cards_yaml()
+        (nu, grafiek, contract, accueenheden, accucontract,
+         pvcontract, pvinstellingen) = build_cards_yaml()
         return {
             "nu": nu,
             "grafiek": grafiek,
             "contract": contract,
             "accueenheden": accueenheden,
             "accucontract": accucontract,
+            "pvcontract": pvcontract,
+            "pvinstellingen": pvinstellingen,
             "uitleg": (
                 "Plak de kaarten in deze volgorde in je view: 'nu' (grid-tegel met "
                 "inkoop- en verkoopprijs), 'grafiek' (apexcharts bruto-staafjes zonder "
                 "legenda, vereist HACS), 'contract' (entities-tegel), 'accueenheden' "
-                "(accu-SOC + doorberekende kWh/uren) en 'accucontract' (snelkoppeling "
-                "naar jouw SOC-entity + capaciteit/vermogens). Alles is dynamisch: "
-                "sensoren herberekenen direct bij helper-wijziging."
+                "(accu-SOC + doorberekende kWh/uren), 'accucontract' (snelkoppeling "
+                "naar jouw SOC-entity + capaciteit/vermogens), 'pvcontract' "
+                "(verwachte zonnestroom vandaag/morgen + schatting in €) en "
+                "'pvinstellingen' (snelkoppelingen naar jouw PV-forecast-entiteiten). "
+                "Alles is dynamisch: sensoren herberekenen direct bij helper-wijziging."
             ),
         }
 

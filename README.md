@@ -86,6 +86,7 @@ input_number.prijs_btw / _energiebelasting / _opslag_afname / _opslag_levering /
 input_boolean.prijs_saldering_energiebelasting_teruggave
 input_text.accu_bron_entity           sensor.energyprijs_accu_percentage (snelkoppeling)
 input_number.accu_capaciteit_kwh / _vermogen_in_kw / _vermogen_uit_kw
+input_text.pv_bron_vandaag / _pv_bron_morgen   sensor.energyprijs_pv_vandaag / _pv_morgen (snelkoppelingen)
 automation.prijzen_*  (2 meld-automatiseringen)
 ```
 
@@ -151,6 +152,16 @@ bestaande `sensor.accu_percentage` in jouw setup. Zelfverwijzing (het veld bevat
 sensor zelf) wordt gedetecteerd → unavailable, geen lus. De drie getal-helpers krijgen
 bij de allereerste installatie conservatieve startwaarden (10 kWh / 5 kW); verzet ze
 naar jouw accu.
+
+| Helper | Betekenis |
+|---|---|
+| `input_text.pv_bron_vandaag` | entity_id van jouw PV-forecast-sensor voor vandaag (bijv. `sensor.<forecast_solar>_energy_production_today_remaining`). Leeg → `sensor.energyprijs_pv_vandaag` is unavailable en de tegel toont "Geen bron ingesteld" |
+| `input_text.pv_bron_morgen` | entity_id van jouw PV-forecast-sensor voor morgen (bijv. `sensor.<forecast_solar>_energy_production_tomorrow`). Leeg → `sensor.energyprijs_pv_morgen` is unavailable |
+
+`sensor.energyprijs_pv_vandaag` en `sensor.energyprijs_pv_morgen` zijn state-based
+template-sensoren en volgen de gekozen bron **live** — exact hetzelfde patroon als de
+accu-snelkoppeling. In de `pvcontract`-tegel zie je de verwachte kWh en een schatting
+van de extra verkoopwaarde op basis van jouw `prijs_opslag_levering` + `prijs_btw`.
 
 ## Dashboard in één keer
 
@@ -338,6 +349,7 @@ weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
 
 | Versie | Wijziging |
 |---|---|
+| 1.3.0 | **PV-contract**: twee extra snelkoppelingen voor de verwachte zonnestroom — `input_text.pv_bron_vandaag` / `input_text.pv_bron_morgen` → `sensor.energyprijs_pv_vandaag` / `sensor.energyprijs_pv_morgen` (state-based, live, zelfverwijzing-guard). Dashboard krijgt twee kaarten: pvcontract (kWh vandaag/morgen + schatting in €) en pvinstellingen. Tests uitgebreid met e2e-pv-snelkoppeling en golden-file extensie ||
 | 1.2.43 | Review-fixes op v1.2.42: (1) dubbele top-levelsleutel `input_number` verwijderd — het tweede blok schuwde de zes prijshelpers uit het geparsede package (lege contracttegel, foute all-in prijzen); (2) strikte YAML-loader-test + kaarten↔package cross-check: elke entiteit die een dashboardkaart gebruikt moet door het package gedefinieerd zijn; (3) `accu_handmatig_pct` overal verwijderd, incl. registry-opruiming bij setup voor bestaande installaties; (4) accu-sensor is nu écht state-based/live: zonder triggers-blok, volgt HA de dynamisch gekozen bron-entiteit vanzelf (live bewezen in e2e-test, incl. zelfverwijzing-guard); (5) naamconflict opgelost: de contract-sensor heet `sensor.energyprijs_accu_percentage` met expliciete unique_id — geen botsing meer met bestaande `sensor.accu_percentage`. 34/34 tests groen, package door HA's eigen componenten geladen in e2e ||
 | 1.2.42 | **Accu-contract**: het bewezen snelkoppeling-patroon uit de package — `input_text.accu_bron_entity` bevat een entity_id en `sensor.energyprijs_accu_percentage` (state-based template, volgt de dynamische bron live; zelfverwijzing → unavailable) is dé vaste contractnaam met prefix tegen naambotsing. Leeg veld → unavailable + "Geen bron ingesteld". Nieuwe invulvelden capaciteit (kWh) + laad-/ontlaadvermogen (kW), éénmalige defaults. Dashboard krijgt twee extra kaarten: accu-eenheden (SOC + doorrekenen naar kWh en laad-/ontlaaduren) en accu-contractinstellingen; golden file + tests uitgebreid naar 5 kaarten. Review-fixes same-day: dubbele top-levelsleutel `input_number` verwijderd (prijshelpers bestonden niet meer in het geparsede package → lege contracttegel), strikte YAML-loader-test tegen dubbele sleutels, cross-check kaarten↔package-entiteiten, handmatig-veld overal verwijderd incl. registry-opruiming bij setup ||
  1.2.41 | Dashboard genereert exact de door Jan handmatig aangepaste opbouw: alleen bruto-staafjes (verkoopprijslijn verwijderd), legenda verborgen, titel "Stroomprijs", prijs-tegels als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) verankert: code en gebruikersdashboard lopen niet uit elkaar ||

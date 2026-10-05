@@ -131,6 +131,48 @@ ACCUCONTRACT_CARD = {
     ],
 }
 
+# ── PV-CONTRACT-tegel (v1.3.0): twee bron-invulvelden + schatting van de
+#    extra verkoopwaarde op basis van de all-in verkoopprijs.
+#    Let op: de markdown-tegel gebruikt de package-sensoren
+#    sensor.energyprijs_pv_vandaag/_morgen als contract; de bron-entiteiten
+#    zelf worden alléén via de input_text-helpers gelezen.
+PVCONTRACT_CARD = {
+    "type": "markdown",
+    "title": "Zon — contract & snelkoppelingen",
+    "content": (
+        "## ☀️ Verwachte zonnestroom\n"
+        "{% set vandaag = states('sensor.energyprijs_pv_vandaag') | float(-1) %}\n"
+        "{% set morgen = states('sensor.energyprijs_pv_morgen') | float(-1) %}\n"
+        "{% set src_vandaag = states('input_text.pv_bron_vandaag') | trim %}\n"
+        "{% set src_morgen = states('input_text.pv_bron_morgen') | trim %}\n"
+        "{% set prijs_levering = states('sensor.stroomprijs_levering') | float(0) %}\n"
+        "{% if src_vandaag in ('', 'unknown', 'unavailable', 'none') %}"
+        "Vandaag: `Geen bron ingesteld`"
+        "{% else %}Vandaag: **{{ vandaag | round(2) }} kWh** ({{ src_vandaag }}){% endif %}\n"
+        "{% if src_morgen in ('', 'unknown', 'unavailable', 'none') %}"
+        "Morgen: `Geen bron ingesteld`"
+        "{% else %}Morgen: **{{ morgen | round(2) }} kWh** ({{ src_morgen }}){% endif %}\n"
+        "{% if vandaag >= 0 and prijs_levering > 0 %}"
+        "* Vandaag → ± **{{ (vandaag * prijs_levering) | round(2) }} €** extra verkoop (all-in)"
+        "{% endif %}\n"
+        "{% if morgen >= 0 and prijs_levering > 0 %}"
+        "* Morgen → ± **{{ (morgen * prijs_levering) | round(2) }} €** extra verkoop (all-in)"
+        "{% endif %}"
+    ),
+}
+
+PVINSTELLINGEN_CARD = {
+    "type": "entities",
+    "title": "Zon — contractinstellingen",
+    "show_header_toggle": False,
+    "state_color": True,
+    "entities": [
+        {"entity": "input_text.pv_bron_vandaag",
+         "name": "Bron-entity vandaag"},
+        {"entity": "input_text.pv_bron_morgen",
+         "name": "Bron-entity morgen"},
+    ],
+}
 
 CONTRACT_CARD = {
     "type": "entities",
@@ -220,11 +262,15 @@ def _scalar(v) -> str:
     return s
 
 
-def build_cards_yaml() -> tuple[str, str, str, str, str]:
-    """Geef (nu_yaml, grafiek_yaml, contract_yaml, accueenheden_yaml, accucontract_yaml)."""
+def build_cards_yaml() -> tuple[str, str, str, str, str, str, str]:
+    """Geef (nu_yaml, grafiek_yaml, contract_yaml, accueenheden_yaml,
+    accucontract_yaml, pvcontract_yaml, pvinstellingen_yaml)."""
     nu = _yaml_dump(NU_CARD)
     grafiek = _yaml_dump(GRAFIEK_CARD)
     contract = _yaml_dump(CONTRACT_CARD)
     accueenheden = _yaml_dump(ACCUEENHEDEN_CARD)
     accucontract = _yaml_dump(ACCUCONTRACT_CARD)
-    return nu, grafiek, contract, accueenheden, accucontract
+    pvcontract = _yaml_dump(PVCONTRACT_CARD)
+    pvinstellingen = _yaml_dump(PVINSTELLINGEN_CARD)
+    return (nu, grafiek, contract, accueenheden, accucontract,
+            pvcontract, pvinstellingen)

@@ -99,3 +99,15 @@ views:
             name: Laadvermogen max (kW)
           - entity: input_number.accu_vermogen_uit_kw
             name: Ontlaadvermogen max (kW)
+      - type: markdown
+        title: "Zon — contract & snelkoppelingen"
+        content: "## ☀️ Verwachte zonnestroom\n{% set vandaag = states('sensor.energyprijs_pv_vandaag') | float(-1) %}\n{% set morgen = states('sensor.energyprijs_pv_morgen') | float(-1) %}\n{% set src_vandaag = states('input_text.pv_bron_vandaag') | trim %}\n{% set src_morgen = states('input_text.pv_bron_morgen') | trim %}\n{% set prijs_levering = states('sensor.stroomprijs_levering') | float(0) %}\n{% if src_vandaag in ('', 'unknown', 'unavailable', 'none') %}Vandaag: `Geen bron ingesteld`{% else %}Vandaag: **{{ vandaag | round(2) }} kWh** ({{ src_vandaag }}){% endif %}\n{% if src_morgen in ('', 'unknown', 'unavailable', 'none') %}Morgen: `Geen bron ingesteld`{% else %}Morgen: **{{ morgen | round(2) }} kWh** ({{ src_morgen }}){% endif %}\n{% if vandaag >= 0 and prijs_levering > 0 %}* Vandaag → ± **{{ (vandaag * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}\n{% if morgen >= 0 and prijs_levering > 0 %}* Morgen → ± **{{ (morgen * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}"
+      - type: entities
+        title: Zon — contractinstellingen
+        show_header_toggle: false
+        state_color: true
+        entities:
+          - entity: input_text.pv_bron_vandaag
+            name: Bron-entity vandaag
+          - entity: input_text.pv_bron_morgen
+            name: Bron-entity morgen

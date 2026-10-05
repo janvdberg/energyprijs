@@ -280,6 +280,48 @@ template:
             none
           {% endif %}
 
+  # ── PV-CONTRACT (v1.3.0): twee vaste, botsingvrije contract-namen voor de
+  #    verwachte zonnestroom. input_text.pv_bron_vandaag/morgen bevatten elk een
+  #    entity_id (bijv. een Forecast.Solar-sensor). State-based templates volgen
+  #    de gekozen bron live, net als de accu-snelkoppeling. Beide velden leeg of
+  #    onbeschikbaar → unavailable + "Geen bron ingesteld".
+  - sensor:
+      - name: "Energyprijs PV vandaag"
+        unique_id: energyprijs_pv_vandaag
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        availability: >-
+          {% set src = states('input_text.pv_bron_vandaag') | trim %}
+          {{ bool(src and src not in ('unknown', 'unavailable', 'none')
+                  and src != 'sensor.energyprijs_pv_vandaag'
+                  and has_value(src)) }}
+        state: >-
+          {% set src = states('input_text.pv_bron_vandaag') | trim %}
+          {% if src and src not in ('unknown', 'unavailable', 'none')
+                and src != 'sensor.energyprijs_pv_vandaag' %}
+            {{ states(src) | float(0) }}
+          {% else %}
+            none
+          {% endif %}
+
+      - name: "Energyprijs PV morgen"
+        unique_id: energyprijs_pv_morgen
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        availability: >-
+          {% set src = states('input_text.pv_bron_morgen') | trim %}
+          {{ bool(src and src not in ('unknown', 'unavailable', 'none')
+                  and src != 'sensor.energyprijs_pv_morgen'
+                  and has_value(src)) }}
+        state: >-
+          {% set src = states('input_text.pv_bron_morgen') | trim %}
+          {% if src and src not in ('unknown', 'unavailable', 'none')
+                and src != 'sensor.energyprijs_pv_morgen' %}
+            {{ states(src) | float(0) }}
+          {% else %}
+            none
+          {% endif %}
+
 
 input_number:
   # OPLET: geen 'initial' hier. initial zet de waarde bij ELKE herstart terug
@@ -369,6 +411,18 @@ input_text:
     max: 255
     mode: text
     icon: mdi:source-branch
+  pv_bron_vandaag:
+    name: "PV: bron-entity verwachting vandaag"
+    min: 0
+    max: 255
+    mode: text
+    icon: mdi:weather-sunny
+  pv_bron_morgen:
+    name: "PV: bron-entity verwachting morgen"
+    min: 0
+    max: 255
+    mode: text
+    icon: mdi:weather-sunset
 
 automation:
   - alias: "Prijzen: meld bij bronuitval of basis-onbetrouwbaar"

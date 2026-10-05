@@ -45,6 +45,8 @@ TEMPLATE_UNIQUE_IDS: list[tuple[str, str]] = [
     ("sensor", "stroomprijs_afname"),
     ("sensor", "stroomprijs_levering"),
     ("sensor", "energyprijs_accu_percentage"),
+    ("sensor", "energyprijs_pv_vandaag"),
+    ("sensor", "energyprijs_pv_morgen"),
     ("binary_sensor", "prijzen_kruiscontrole_afwijking"),
     ("binary_sensor", "prijzen_morgen_beschikbaar"),
 ]
@@ -61,6 +63,8 @@ HELPER_ENTITY_IDS: list[str] = [
     "input_number.accu_capaciteit_kwh",
     "input_number.accu_vermogen_in_kw",
     "input_number.accu_vermogen_uit_kw",
+    "input_text.pv_bron_vandaag",
+    "input_text.pv_bron_morgen",
 ]
 
 
