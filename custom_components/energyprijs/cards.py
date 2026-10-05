@@ -86,6 +86,50 @@ NU_CARD = {
     "columns": 2,
 }
 
+# ── ACCU-CONTRACT-tegel (v1.2.42): snelkoppeling + drie invulvelden + mee-rekenen.
+#    Sensor-namen zijn het package-contract; ontbrekende velden tonen '—' (geen crash).
+ACCUEENHEDEN_CARD = {
+    "type": "markdown",
+    "title": "Accu — contract & snelkoppeling",
+    "content": (
+        "## 🔋 Accupercentage\n"
+        "Bron: `{{ state_attr('sensor.accu_percentage', 'bron') or 'nog niet ingesteld' }}`"
+        " — **{{ states('sensor.accu_percentage') }}%**\n"
+        "{% set soc = states('sensor.accu_percentage') | float(-1) %}\n"
+        "{% set kwh = states('input_number.accu_capaciteit_kwh') | float(0) %}\n"
+        "{% set p_in = states('input_number.accu_vermogen_in_kw') | float(0) %}\n"
+        "{% set p_uit = states('input_number.accu_vermogen_uit_kw') | float(0) %}\n"
+        "{% if soc >= 0 and kwh > 0 %}\n"
+        "* In de accu: **{{ (soc / 100 * kwh) | round(2) }} kWh**\n"
+        "{% endif %}\n"
+        "{% if soc >= 0 and kwh > 0 and p_in > 0 %}\n"
+        "* Vol laden vanaf nu: ± **{{ ((100 - soc) / 100 * kwh / p_in) | round(1) }} uur**\n"
+        "{% endif %}\n"
+        "{% if soc >= 0 and kwh > 0 and p_uit > 0 %}\n"
+        "* Leeg ontladen vanaf nu: ± **{{ (soc / 100 * kwh / p_uit) | round(1) }} uur**\n"
+        "{% endif %}"
+    ),
+}
+
+ACCUCONTRACT_CARD = {
+    "type": "entities",
+    "title": "Accu — contractinstellingen",
+    "show_header_toggle": False,
+    "state_color": True,
+    "entities": [
+        {"entity": "input_text.accu_bron_entity",
+         "name": "Bron-entity accu-% (leeg = handmatig)"},
+        {"entity": "input_number.accu_handmatig_pct",
+         "name": "Handmatig percentage (%)"},
+        {"entity": "input_number.accu_capaciteit_kwh",
+         "name": "Capaciteit (kWh)"},
+        {"entity": "input_number.accu_vermogen_in_kw",
+         "name": "Laadvermogen max (kW)"},
+        {"entity": "input_number.accu_vermogen_uit_kw",
+         "name": "Ontlaadvermogen max (kW)"},
+    ],
+}
+
 
 CONTRACT_CARD = {
     "type": "entities",
@@ -175,9 +219,11 @@ def _scalar(v) -> str:
     return s
 
 
-def build_cards_yaml() -> tuple[str, str, str]:
-    """Geef (nu_yaml, grafiek_yaml, contract_yaml)."""
+def build_cards_yaml() -> tuple[str, str, str, str, str]:
+    """Geef (nu_yaml, grafiek_yaml, contract_yaml, accueenheden_yaml, accucontract_yaml)."""
     nu = _yaml_dump(NU_CARD)
     grafiek = _yaml_dump(GRAFIEK_CARD)
     contract = _yaml_dump(CONTRACT_CARD)
-    return nu, grafiek, contract
+    accueenheden = _yaml_dump(ACCUEENHEDEN_CARD)
+    accucontract = _yaml_dump(ACCUCONTRACT_CARD)
+    return nu, grafiek, contract, accueenheden, accucontract

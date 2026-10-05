@@ -83,3 +83,21 @@ views:
             name: Leveranciersopslag levering (€/kWh)
           - entity: input_boolean.prijs_saldering_energiebelasting_teruggave
             name: Saldering (teruggave belasting)
+      - type: markdown
+        title: "Accu — contract & snelkoppeling"
+        content: "## 🔋 Accupercentage\nBron: `{{ state_attr('sensor.accu_percentage', 'bron') or 'nog niet ingesteld' }}` — **{{ states('sensor.accu_percentage') }}%**\n{% set soc = states('sensor.accu_percentage') | float(-1) %}\n{% set kwh = states('input_number.accu_capaciteit_kwh') | float(0) %}\n{% set p_in = states('input_number.accu_vermogen_in_kw') | float(0) %}\n{% set p_uit = states('input_number.accu_vermogen_uit_kw') | float(0) %}\n{% if soc >= 0 and kwh > 0 %}\n* In de accu: **{{ (soc / 100 * kwh) | round(2) }} kWh**\n{% endif %}\n{% if soc >= 0 and kwh > 0 and p_in > 0 %}\n* Vol laden vanaf nu: ± **{{ ((100 - soc) / 100 * kwh / p_in) | round(1) }} uur**\n{% endif %}\n{% if soc >= 0 and kwh > 0 and p_uit > 0 %}\n* Leeg ontladen vanaf nu: ± **{{ (soc / 100 * kwh / p_uit) | round(1) }} uur**\n{% endif %}"
+      - type: entities
+        title: Accu — contractinstellingen
+        show_header_toggle: false
+        state_color: true
+        entities:
+          - entity: input_text.accu_bron_entity
+            name: "Bron-entity accu-% (leeg = handmatig)"
+          - entity: input_number.accu_handmatig_pct
+            name: "Handmatig percentage (%)"
+          - entity: input_number.accu_capaciteit_kwh
+            name: Capaciteit (kWh)
+          - entity: input_number.accu_vermogen_in_kw
+            name: Laadvermogen max (kW)
+          - entity: input_number.accu_vermogen_uit_kw
+            name: Ontlaadvermogen max (kW)

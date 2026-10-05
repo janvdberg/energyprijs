@@ -1,6 +1,6 @@
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.x-blue?logo=homeassistant)
 ![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-orange?logo=hackthebox)
-![versie](https://img.shields.io/badge/versie-1.2.41-brightgreen)
+![versie](https://img.shields.io/badge/versie-1.2.42-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 # ⚡ Energyprijs
@@ -84,6 +84,8 @@ binary_sensor.prijzen_kruiscontrole_afwijking
 binary_sensor.prijzen_morgen_beschikbaar
 input_number.prijs_btw / _energiebelasting / _opslag_afname / _opslag_levering / _afwijkingsdrempel / _laad_drempel
 input_boolean.prijs_saldering_energiebelasting_teruggave
+input_text.accu_bron_entity           sensor.accu_percentage (snelkoppeling)
+input_number.accu_handmatig_pct / _capaciteit_kwh / _vermogen_in_kw / _vermogen_uit_kw
 automation.prijzen_*  (2 meld-automatiseringen)
 ```
 
@@ -127,6 +129,25 @@ entities:
 
 ✅ **Volledig dynamisch:** de prijs-sensoren hebben state-triggers op hun contract-helpers. Verzet btw, energiebelasting, een opslag of zet saldering om — `sensor.stroomprijs_afname` / `_levering` (en de EnergyZero-bron) herberekenen **direct**, zonder herstart en zonder package-reload; de prijs-tegels en de daglijst-gaten lopen binnen een paar seconden mee.
 
+### Accu-contract: de snelkoppeling naar jóuw accu (v1.2.42)
+
+De meeste huizen hebben allang een accu-percentage-entity — alleen heet die bij de één
+`sensor.solarman_battery_soc`, bij de ander `sensor.battery`. Het package lost dat op met
+één vaste naam plus één invulveld:
+
+| Helper | Betekenis |
+|---|---|
+| `input_text.accu_bron_entity` | entity_id van jouw SOC-sensor (plakken of via de entiteitenkiezer). **Leeg → handmatig-veld** |
+| `input_number.accu_handmatig_pct` | voor wie géén live-SOC heeft: vul het percentage zelf in |
+| `input_number.accu_capaciteit_kwh` | accucapaciteit — maakt %→kWh mogelijk |
+| `input_number.accu_vermogen_in_kw` / `_uit_kw` | max laad-/ontlaadvermogen — deurtijd-berekening |
+
+`sensor.accu_percentage` volgt de gekozen bron **live** (state-trigger op het tekstveld):
+vul iets anders in, de tegel en elke formule lopen direct mee. Elk dashboard, elke
+automatisering en elke formule verwijst alleen naar `sensor.accu_percentage` — nooit naar
+de bron van iemand anders. De drie getal-helpers krijgen bij de allereerste installatie
+conservatieve startwaarden (10 kWh / 5 kW); verzet ze naar jouw accu.
+
 ## Dashboard in één keer
 
 ### Weg 1: automatisch — eigen dashboard, compleet gevuld
@@ -159,10 +180,10 @@ pas dan `cards.py` in de repo aan.
 ### Weg 2: handmatig — kaarten in je bestaande dashboard
 
 Liever zelf bepalen waar de kaarten komen? Roep **`energyprijs.cards`** aan
-(Developer Tools → Actions, Response data aan) en plak de drie YAML-blokken
-(`nu` + `grafiek` + `contract`) via **Add card → Show code editor** in je eigen
-dashboard — in die volgorde. De grafiek vereist de HACS-kaart `apexcharts-card`;
-de tegels zijn pure core.
+(Developer Tools → Actions, Response data aan) en plak de vijf YAML-blokken
+(`nu` + `grafiek` + `contract` + `accueenheden` + `accucontract`) via **Add card →
+Show code editor** in je eigen dashboard — in die volgorde. De grafiek vereist de
+HACS-kaart `apexcharts-card`; de tegels zijn pure core.
 
 ## Zo ziet je dashboard er daarna uit
 
@@ -313,6 +334,7 @@ weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
 
 | Versie | Wijziging |
 |---|---|
+| 1.2.42 | **Accu-contract**: het bewezen snelkoppeling-patroon uit de package — `input_text.accu_bron_entity` bevat een entity_id en `sensor.accu_percentage` (template, gecoördineerd) volgt die live; leeg veld → handmatig-veld `accu_handmatig_pct`. Nieuwe invulvelden capaciteit (kWh) + laad-/ontlaadvermogen (kW), éénmalige defaults. Dashboard krijgt twee extra kaarten: accu-eenheden (SOC + doorrekenen naar kWh en laad-/ontlaaduren) en accu-contractinstellingen; golden file + tests uitgebreid naar 5 kaarten |
  1.2.41 | Dashboard genereert exact de door Jan handmatig aangepaste opbouw: alleen bruto-staafjes (verkoopprijslijn verwijderd), legenda verborgen, titel "Stroomprijs", prijs-tegels als 2-koloms grid met `state_color` op Inkoopprijs. Golden-file-test (`tests/golden_dashboard.yaml`) verankert: code en gebruikersdashboard lopen niet uit elkaar ||
 | 1.2.40 | Legenda verborgen (`apex_config.legend.show: false`) + fix lege verkoopprijsserie (data_generator riep de Jinja-only `states()` aan in browser-JS → ReferenceError; nu via `hass.states`) ||
 | 1.2.39 | Review-ronde: config-flow gerepareerd (ImportError → altijd install_failed); configuration.yaml wordt nooit meer herschreven (read-only status-check + plakinstructie); defaults krijgen vervolgpogingen (STARTED + 5-min timer) ||

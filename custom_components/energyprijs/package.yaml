@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 1.2.33 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.2.42 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
@@ -254,6 +254,41 @@ template:
           {{ ((basis + states('input_number.prijs_opslag_levering') | float(0)) * btw
               + (states('input_number.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
 
+  # ── ACCU-CONTRACT: sensor.accu_percentage = dé vaste naam, bron kiest de gebruiker.
+  #    Staat input_text.accu_bron_entity op een entity_id → live volgen; leeg → handmatig-veld.
+  #    GECOÖRDINEERD: state-based templates luisteren niet naar input_*, dus expliciete triggers.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id:
+          - input_text.accu_bron_entity
+          - input_number.accu_handmatig_pct
+    sensor:
+      - name: "Accu percentage"
+        unique_id: accu_percentage_pkg
+        unit_of_measurement: "%"
+        state_class: measurement
+        availability: >-
+          {% set src = states('input_text.accu_bron_entity') | trim %}
+          {% if src and src not in ('unknown', 'unavailable', 'none') %}
+            {{ has_value(src) }}
+          {% else %}
+            true
+          {% endif %}
+        state: >-
+          {% set src = states('input_text.accu_bron_entity') | trim %}
+          {% if src and src not in ('unknown', 'unavailable', 'none') %}
+            {{ states(src) }}
+          {% else %}
+            {{ states('input_number.accu_handmatig_pct') }}
+          {% endif %}
+        attributes:
+          bron: >-
+            {% set src = states('input_text.accu_bron_entity') | trim %}
+            {{ src if (src and src not in ('unknown','unavailable','none'))
+               else 'handmatig' }}
+
 input_number:
   # OPLET: geen 'initial' hier. initial zet de waarde bij ELKE herstart terug
   # en wist daarmee de door Jan ingestelde contractwaarden. Zonder initial
@@ -310,6 +345,51 @@ input_boolean:
     icon: mdi:solar-power
     # NU: on (saldering nog van kracht t/m 31-12-2026).
     # Per 1-1-2027: uitzetten → leveringformule valt automatisch terug op spot+btw.
+
+# ── ACCU-CONTRACT: snelkoppeling naar de accu-SOC van GEBRUIKERS eigen systeem ──
+#   Bewezen patroon (Jans test, 5 okt '26): input_text met entity_id + template-
+#   sensor (zie template-hierboven) die states(src) volgt. Leeg veld → handmatig.
+input_text:
+  accu_bron_entity:
+    name: "Accu: bron-entity percentage"
+    min: 0
+    max: 255
+    mode: text
+    icon: mdi:source-branch
+
+input_number:
+  accu_capaciteit_kwh:
+    name: "Accu: capaciteit (kWh)"
+    unit_of_measurement: "kWh"
+    min: 0
+    max: 500
+    step: 0.1
+    mode: box
+    icon: mdi:battery-high
+  accu_vermogen_in_kw:
+    name: "Accu: laadvermogen max (kW)"
+    unit_of_measurement: "kW"
+    min: 0
+    max: 100
+    step: 0.1
+    mode: box
+    icon: mdi:current-dc
+  accu_vermogen_uit_kw:
+    name: "Accu: ontlaadvermogen max (kW)"
+    unit_of_measurement: "kW"
+    min: 0
+    max: 100
+    step: 0.1
+    mode: box
+    icon: mdi:current-dc
+  accu_handmatig_pct:
+    name: "Accu: handmatig percentage (nooit-leeg laten als geen live-bron)"
+    unit_of_measurement: "%"
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    icon: mdi:gesture-tap
 
 automation:
   - alias: "Prijzen: meld bij bronuitval of basis-onbetrouwbaar"

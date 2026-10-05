@@ -31,12 +31,16 @@ GOLDEN = yaml.safe_load(
 # ── 1) golden file == wat cards.py genereert ───────────────────────────────
 
 def test_cards_py_genereert_exact_het_golden_dashboard():
-    from custom_components.energyprijs.cards import (CONTRACT_CARD,
+    from custom_components.energyprijs.cards import (ACCUCONTRACT_CARD,
+                                                     ACCUEENHEDEN_CARD,
+                                                     CONTRACT_CARD,
                                                      GRAFIEK_CARD, NU_CARD)
-    g_nu, g_graf, g_contract = GOLDEN["cards"]
+    g_nu, g_graf, g_contract, g_accuen, g_accuc = GOLDEN["cards"]
     assert NU_CARD == g_nu, "NU_CARD wijkt af van het gebruikersdashboard"
     assert GRAFIEK_CARD == g_graf, "GRAFIEK_CARD wijkt af van het gebruikersdashboard"
     assert CONTRACT_CARD == g_contract, "CONTRACT_CARD wijkt af"
+    assert ACCUEENHEDEN_CARD == g_accuen, "ACCUEENHEDEN_CARD wijkt af"
+    assert ACCUCONTRACT_CARD == g_accuc, "ACCUCONTRACT_CARD wijkt af"
 
 
 # ── helper: dashboard-op-schijf nabootsen ──────────────────────────────────
@@ -113,7 +117,9 @@ async def test_gouden_dashboard_wordt_niet_herbouwd(hass):
 
 async def test_oude_v1240_grafiek_wordt_precies_een_keer_vervangen(hass):
     await _prep_entry(hass)
-    from custom_components.energyprijs.cards import (CONTRACT_CARD,
+    from custom_components.energyprijs.cards import (ACCUCONTRACT_CARD,
+                                                     ACCUEENHEDEN_CARD,
+                                                     CONTRACT_CARD,
                                                      GRAFIEK_CARD, NU_CARD)
     stale_grafiek = {
         "type": "custom:apexcharts-card",
@@ -153,6 +159,9 @@ async def test_oude_v1240_grafiek_wordt_precies_een_keer_vervangen(hass):
                         and c.get("type") == "custom:apexcharts-card")
         assert new_graf == GRAFIEK_CARD
         assert len(new_graf["series"]) == 1
+        # accu-contractkaarten moeten nu ook in de view staan (v1.2.42)
+        kaarten = saved[0]["views"][0]["cards"]
+        assert ACCUEENHEDEN_CARD in kaarten and ACCUCONTRACT_CARD in kaarten
         # tweede aanroep: nu identiek aan golden → huidig, nul extra saves
         res2 = await inst._dashboard_opslaan(hass)
         assert res2.get("act") == "huidig", "tweede ronde bouwde opnieuw"
