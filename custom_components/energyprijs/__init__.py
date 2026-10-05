@@ -26,6 +26,7 @@ from .installer import (
     async_register_services,
     _dashboard_opslaan,
     _manifest_version,
+    dashboard_bestaat,
     _ensure_helper_defaults,
     defaults_klaar,
     sync_package_if_changed as installer_sync_package,
@@ -209,8 +210,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.debug("energyprijs: defaults in timer mislukt", exc_info=True)
 
         manifest_version = _manifest_version(hass)
-        if entry.data.get("dashboard_versie") == manifest_version:
-            return  # al op de juiste versie
+        if await _dashboard_klaar():
+            return  # marker klopt én dashboard bestaat
 
         try:
             res = await _dashboard_opslaan(hass)
@@ -241,9 +242,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         reg = er.async_get(hass)
         return reg.async_get("input_number.prijs_btw") is not None
 
-    def _dashboard_klaar() -> bool:
-        """True als het dashboard op de huidige manifest-versie staat."""
-        return entry.data.get("dashboard_versie") == _manifest_version(hass)
+    async def _dashboard_bestaat() -> bool:
+        """Bestaat ons dashboard-item daadwerkelijk op disk? (review 5 okt, pr. 1)"""
+        return await dashboard_bestaat(hass)
+
+    async def _dashboard_klaar() -> bool:
+        """Klaar = marker klopt ÉN het dashboard bestaat echt op disk."""
+        if entry.data.get("dashboard_versie") != _manifest_version(hass):
+            return False
+        if not await _dashboard_bestaat():
+            # gebruiker heeft het dashboard in de UI verwijderd → marker wissen,
+            # de aanroeper bouwt het deze ronde gewoon opnieuw op.
+            _LOGGER.info(
+                "energyprijs: dashboard-verwijdering gedetecteerd — marker reset, "
+                "opbouw wordt hersteld"
+            )
+            try:
+                hass.config_entries.async_update_entry(
+                    entry, data={**entry.data, "dashboard_versie": None}
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+        return True
 
     async def _startup_dashboard(_event=None) -> None:
         _LOGGER.debug("energyprijs: dashboard-check bij startup")
@@ -251,8 +272,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # toen nog niet in states): package-sync + contract-defaults. Review 4 okt:
         # zonder dit punt had een vroege setup-run de defaults voor altijd gemist.
         await _sync_package_and_defaults()
-        if _dashboard_klaar():
-            _LOGGER.debug("energyprijs: dashboard al op versie %s — skip", _manifest_version(hass))
+        klaar = await _dashboard_klaar()
+        _LOGGER.info(
+            "energyprijs: dashboard-check bij startup → marker=%s manifest=%s — %s",
+            entry.data.get("dashboard_versie"), _manifest_version(hass),
+            "bestaat en actueel, overslagen" if klaar else "opbouw volgt nu",
+        )
+        if klaar:
             return
         if not _package_klaar():
             _LOGGER.info("energyprijs: package nog niet geladen; dashboard later")

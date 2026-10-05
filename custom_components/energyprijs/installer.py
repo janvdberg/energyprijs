@@ -346,6 +346,11 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         except Exception:  # noqa: BLE001
             pass
 
+    # Bestaat ons dashboard al in de LIVE collectie (de instantie die de UI
+    # bedient)? Haalbare route: een tweede DashboardsCollection op dezelfde
+    # storage-key leest .storage/lovelace_dashboards — disk is waar de UI het
+    # item vandaan haalt. De live-instantie zelf is niet publiek bereikbaar,
+    # dus controleren we disk én registreren we daarna expliciet (hieronder).
     if existing is None:
         try:
             entry = await coll.async_create_item({
@@ -361,6 +366,21 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             raise RuntimeError(f"dashboard aanmaken mislukt: {err}") from err
         act = "aangemaakt"
         await _flush_collection_save()
+        # ── PROBLEEM 2 (review 5 okt '26): onze tweede collectie-instance heeft
+        #    GEEN listeners, dus HA's storage_dashboard_changed draait niet en
+        #    registreert het dashboard niet in de LIVE LovelaceData. De UI-websocket
+        #    (lovelace/config?url_path=…) zoekt daar en krijgt 'config_not_found' →
+        #    leeg dashboard tot een herstart. Oplossen doen we precies zoals core:
+        #    handmatig registreren in hass.data[LOVELACE_DATA].dashboards. ──
+        if DASH_ID not in lov_data.dashboards:
+            try:
+                lov_data.dashboards[DASH_ID] = lb_dash.LovelaceStorage(hass, entry)
+                diag["live_geregistreerd"] = True
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("energyprijs: live-dashboardregistratie mislukt", exc_info=True)
+                diag["live_geregistreerd"] = False
+        else:
+            diag["live_geregistreerd"] = "reeds_aanwezig"
         # panel zo snel mogelijk tonen; dit heeft geen effect op de luchtige
         # dashboard-view (mode "storage" haalt de content uit storage)
         try:
@@ -378,6 +398,15 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     else:
         entry = existing
         act = "bijgewerkt"
+        # Zelfde live-registratie als hierboven: mist de UI-collectie ons item
+        # (bv. omdat HA het bij een eerdere run nooit heeft gezien), registreer nu.
+        if DASH_ID not in lov_data.dashboards:
+            try:
+                lov_data.dashboards[DASH_ID] = lb_dash.LovelaceStorage(hass, entry)
+                diag["live_geregistreerd"] = True
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("energyprijs: live-dashboardregistratie (bestaand) mislukt", exc_info=True)
+                diag["live_geregistreerd"] = False
         try:
             frontend.async_register_built_in_panel(
                 hass, "lovelace",
@@ -460,12 +489,19 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
                      and c.get("type") == "custom:apexcharts-card"), None)
         return graf == GRAFIEK_CARD
 
+    live_aanwezig = DASH_ID in lov_data.dashboards
     if (cfg is not None and act == "bijgewerkt"
             and first.get("energyprijs_versie") == manifest_version
             and _heeft_onze_kaarten(first.get("cards") or [])
             and _opbouw_klopt(first.get("cards") or [])
             and first.get("type") != "sections"):
-        return {"act": "huidig", "reeds_actueel_versie": manifest_version}
+        if live_aanwezig:
+            return {"act": "huidig", "reeds_actueel_versie": manifest_version}
+        # Review 5 okt '26, probleem 2: op disk is alles actueel, maar de LIVE
+        # collectie kent ons dashboard niet → websocket vindt geen config.
+        # Val door naar de normale schrijfroute; die registreert live en vult
+        # de cache. Geen loop: na deze run is live_aanwezig True.
+        diag["reden_doorgevallen"] = "niet_in_live_collectie"
     diag["view_type_voor"] = first.get("type", "(klassiek)")
     diag["cards_voor"] = len(first.get("cards") or [])
     # user dashboards worden in de UI als SECTIE-view aangemaakt ("New section");
@@ -519,6 +555,14 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     # lovelace_updated af — de browser tekent de kaarten dan direct, zonder reload.
     try:
         live = lov_data.dashboards.get(DASH_ID)
+        if live is None:
+            # alsnog registreren (kan mislukt zijn bij create vóór deze run)
+            try:
+                live = lb_dash.LovelaceStorage(hass, entry)
+                lov_data.dashboards[DASH_ID] = live
+                diag["live_geregistreerd"] = True
+            except Exception:  # noqa: BLE001
+                pass
         if live is not None and hasattr(live, "async_save"):
             await live.async_save(new_cfg)
             diag["cache_bijgewerkt"] = True
@@ -526,6 +570,30 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             diag["cache_bijgewerkt"] = False
     except Exception as e3:  # noqa: BLE001
         diag["cache_fout"] = str(e3)
+
+    # ── TERUGVAL (review 5 okt): lukt live-registratie/cache niet, dan ziet de
+    #    UI het dashboard pas na een herstart. Laat dat géén stil falen zijn:
+    #    repair-issue + INFO-log in plaats van een leeg dashboard. ──
+    if not diag.get("cache_bijgewerkt") and DASH_ID not in lov_data.dashboards:
+        try:
+            ir.async_create_issue(
+                hass, DOMAIN, "dashboard_live_registratie",
+                is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key="dashboard_live_registratie",
+                translation_placeholders={"versie": manifest_version},
+            )
+            diag["repair_issue"] = "dashboard_live_registratie"
+            _LOGGER.info(
+                "energyprijs: dashboard staat op disk maar NIET in de live "
+                "collectie — herstart Home Assistant om het te tonen (repair-issue geplaatst)"
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: repair-issue mislukt", exc_info=True)
+    else:
+        try:
+            ir.async_delete_issue(hass, DOMAIN, "dashboard_live_registratie")
+        except Exception:  # noqa: BLE001
+            pass
 
     # ── NAVRAAG: lees terug wat er echt op disk staat (catcht silent failures)
     try:
@@ -701,7 +769,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return result
 
     async def handle_dashboard(call: ServiceCall) -> dict:
-        """Maak het user-dashboard aan of werk de kaarten bij."""
+        """Maak het user-dashboard aan of werk de kaarten bij.
+
+        Wordt NOOIT overgeslagen op alleen de versie-marker: een in de UI
+        verwijderd dashboard wordt hiermee gegarandeerd hersteld (review 5 okt).
+        """
         try:
             res = await _dashboard_opslaan(hass)
         except Exception as e:  # noqa: BLE001
@@ -753,6 +825,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
             "package_actueel": gelijk,
             "package_pad": str(pkg_file),
             "versie": _manifest_version(hass),
+            "dashboard_bestaat": await dashboard_bestaat(hass),
         }
 
     hass.services.async_register(
@@ -774,21 +847,24 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
 
 
-async def dashboard_bestaat_hier(hass: HomeAssistant) -> bool:
-    """Is ons dashboard op dit moment geregistreerd in HA's dashboardlijst?
+async def dashboard_bestaat(hass: HomeAssistant) -> bool:
+    """Bestaat ons dashboard-item daadwerkelijk in .storage/lovelace_dashboards?
 
-    Gebruikt de LIVE DashboardsCollection uit hass.data (die van de UI), geen
-    tweede instance — een weggegooid dashboard verdwijnt daar direct uit.
+    Eén bron voor zowel __init__ (startup/timer-check, marker mag nooit alleen
+    beslissen — review 5 okt '26 probleem 1) als handle_status. Leest via een
+    verse DashboardsCollection op dezelfde storage-key die HA's UI-collectie
+    vult; onbereikbaar → False (liever één herbouw te veel dan een stil
+    verdwenen dashboard).
     """
     from homeassistant.components.lovelace import dashboard as lb_dash
     from homeassistant.components.lovelace.const import LOVELACE_DATA
 
-    lov_data = hass.data.get(LOVELACE_DATA)
-    if lov_data is None:
+    if hass.data.get(LOVELACE_DATA) is None:
         return False
     try:
         coll = lb_dash.DashboardsCollection(hass)
         await coll.async_load()
         return any(it.get("url_path") == DASH_ID for it in coll.data.values())
     except Exception:  # noqa: BLE001
+        _LOGGER.debug("energyprijs: dashboard-bestaanscheck mislukt", exc_info=True)
         return False

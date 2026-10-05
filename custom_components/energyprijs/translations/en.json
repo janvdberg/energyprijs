@@ -16,6 +16,9 @@
   },
   "options": {},
   "issues": {
+    "dashboard_live_registratie": {
+      "description": "The 'Energie — stroomprijs' dashboard (version {versie}) is correctly stored on disk, but Home Assistant has not yet added it to the live dashboard list. Restart Home Assistant (Settings → System → Restart) to show it."
+    },
     "package_restart_needed": {
       "title": "Energyprijs: herstart vereist",
       "description": "Het package-bestand op {pad} is bijgewerkt naar versie {versie}. Home Assistant laadt packages alleen bij een herstart — herstart nu (Instellingen → Systeem → Herstarten) om de nieuwe sensoren en helpers te activeren."
