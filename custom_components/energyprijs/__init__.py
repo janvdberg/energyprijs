@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.typing import ConfigType
 
 from datetime import timedelta
@@ -143,13 +144,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # Het package wordt pas bij een herstart geladen; direct na installeren
-    # bestaan de entiteiten dus nog niet. Review 4 okt '26: het commentaar
+    # bestaan de entiteiten dus nog niet. Let op: het commentaar
     # beloofde "elk half uur opnieuw" maar er was géén timer — entiteiten die
     # later in de registry verschenen werden nooit gekoppeld. Nu wél: een
-    # halfuurtijdner die stopt zodra alles (< totaal resterend) onder het
-    # device staat.
-    totaal = len(TEMPLATE_UNIQUE_IDS) + len(HELPER_ENTITY_IDS)
-
+    # halfuurtijdner die bij elke ronde koppelt wat nog los staat.
     def _try_link(_=None) -> None:
         n = _link_entities(hass, entry, device.id)
         if n:
@@ -185,8 +183,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:  # noqa: BLE001
         pass
 
-    # ── 5-min back-up timer: alleen zolang het dashboard niet op de huidige
-    #    manifest-versie staat. Biedt vangnet als het package te laat laadt.
+    # ── Back-up-timer: bewaakt of het dashboard nog bestaat/op de juiste
+    #    versie staat. Start op 5 min (vangnet voor een traag package); zodra
+    #    één ronde aantoonbaar slaagt schakelt hij terug naar 1 uur — een
+    #    verwijderd dashboard komt dan alsnog binnen 60 min terug, maar een
+    #    storage-probleem veroorzaakt geen herbouw-staccato.
     # ────────────────────────────────────────────────────────────────────────
     async def _auto_dashboard(_now=None) -> None:
         from homeassistant.components.lovelace.const import LOVELACE_DATA
@@ -220,9 +221,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass.config_entries.async_update_entry(
                     entry, data={**entry.data, "dashboard_versie": manifest_version}
                 )
+                _terug_naar_1_uur()
         except Exception:  # noqa: BLE001
             _LOGGER.debug("energyprijs: dashboard nog niet gereed — later opnieuw",
                           exc_info=True)
+
+    def _terug_naar_1_uur() -> None:
+        """Verlaag het bewakingstempo na aantoonbaar succes (review pr. 3)."""
+        nonlocal unsub2
+        if unsub2 is not None:
+            try:
+                unsub2()
+            except Exception:  # noqa: BLE001
+                pass
+            unsub2 = None
+            _LOGGER.info("energyprijs: dashboard-wacht verlaagd naar 1 uur")
+            entry.async_on_unload(
+                async_track_time_interval(hass, _auto_dashboard, timedelta(hours=1))
+            )
 
     # ── Startup-orchestratie (les uit WrtManager #156 + HA core #165767):
     #    Pas nadat HA volledig is gestart (EVENT_HOMEASSISTANT_STARTED) maken we
@@ -242,15 +258,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         reg = er.async_get(hass)
         return reg.async_get("input_number.prijs_btw") is not None
 
-    async def _dashboard_bestaat() -> bool:
-        """Bestaat ons dashboard-item daadwerkelijk op disk? (review 5 okt, pr. 1)"""
-        return await dashboard_bestaat(hass)
+    laatst_onbekend = {"ts": None}  # INFO-throttle: leesfout max 1× per uur loggen
 
     async def _dashboard_klaar() -> bool:
-        """Klaar = marker klopt ÉN het dashboard bestaat echt op disk."""
+        """Klaar = marker klopt ÉN het dashboard bestaat echt op disk.
+
+        Een onzekere check (None) telt als 'klaar': liever overslaan dan bij een
+        blijvende storage-fout elke timer-ronde te herbouwen.
+        """
         if entry.data.get("dashboard_versie") != _manifest_version(hass):
             return False
-        if not await _dashboard_bestaat():
+        exists = await dashboard_bestaat(hass)
+        if exists is None:
+            from datetime import timedelta as _td
+            now = dt_util.utcnow()
+            if (laatst_onbekend["ts"] is None
+                    or now - laatst_onbekend["ts"] >= _td(hours=1)):
+                laatst_onbekend["ts"] = now
+                _LOGGER.info(
+                    "energyprijs: dashboard-bestaan niet vaststelbaar (lovelace/"
+                    "storage onbereikbaar) — overslagen, geen herbouw")
+            return True
+        if not exists:
             # gebruiker heeft het dashboard in de UI verwijderd → marker wissen,
             # de aanroeper bouwt het deze ronde gewoon opnieuw op.
             _LOGGER.info(
@@ -269,7 +298,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def _startup_dashboard(_event=None) -> None:
         _LOGGER.debug("energyprijs: dashboard-check bij startup")
         # Eerst de taken die bij setup misschien te vroeg vielen (helpers bestonden
-        # toen nog niet in states): package-sync + contract-defaults. Review 4 okt:
+        # toen nog niet in states): package-sync + contract-defaults.
         # zonder dit punt had een vroege setup-run de defaults voor altijd gemist.
         await _sync_package_and_defaults()
         klaar = await _dashboard_klaar()
@@ -305,7 +334,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # en is per definitie thread-safe (HA's eigen helper voor precies dit).
     # Eerdere versies deden dit met een lambda + hass.async_create_task, maar
     # het STARTED-event wordt vanuit een executor-thread afgevuurd → RuntimeError
-    # + 'coroutine never awaited' (live-log 3 okt). Niet opnieuw.
+    # + 'coroutine never awaited'. Niet opnieuw.
     from homeassistant.helpers.start import async_at_started
 
     entry.async_on_unload(async_at_started(hass, _startup_dashboard))
@@ -314,7 +343,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # manifest-versie staat. Biedt vangnet als het package te laat laadt of
     # de startup-check te vroeg draaide.
     unsub2 = async_track_time_interval(hass, _auto_dashboard, timedelta(minutes=5))
-    entry.async_on_unload(unsub2)
+    entry.async_on_unload(lambda: unsub2() if unsub2 else None)
     return True
 
 

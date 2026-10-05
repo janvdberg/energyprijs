@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import custom_components.energyprijs.installer as inst
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.storage import Store
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
@@ -251,9 +250,15 @@ async def test_opbouwcheck_forceert_herbouw_bij_nieuwe_legenda_key(hass):
     # live LovelaceCache nabootsen: in een draaiende HA vult de eerste save
     # ._data en is de 2e aanroep 'huidig' — zonder deze cache zou elke ronde
     # 'bijgewerkt' blijven (metadata-only, geen herbouw).
+    # Eén schrijver (review v1.3.2, punt 2): als er een live-instantie is,
+    # save ALLEEN die — niet ook nog de losse store. Capture daarom op FakeLive.
+    saved_live = []
     class FakeLive:
         _data = None
-        async def async_save(self, config): self._data = config
+        async def async_save(self, config):
+            self._data = config
+            saved_live.append(copy.deepcopy(config))
+            stored.clear(); stored.update(copy.deepcopy(config))
 
     hass.data[LOVELACE_DATA].dashboards = {inst.DASH_ID: FakeLive()}
 
@@ -262,8 +267,10 @@ async def test_opbouwcheck_forceert_herbouw_bij_nieuwe_legenda_key(hass):
         res1 = await inst._dashboard_opslaan(hass)
         assert res1.get("act") != "huidig", \
             "kaart zonder legend-key werd als actueel herkend"
-        assert saved, "niets weggeschreven"
-        new_graf = next(c for c in saved[0]["views"][0]["cards"]
+        assert saved_live, "niets weggeschreven"
+        assert not saved, "twee schrijvers gedetecteerd (store óók opgeslagen)"
+        assert res1["diag"]["schrijver"] == "live"
+        new_graf = next(c for c in saved_live[0]["views"][0]["cards"]
                         if isinstance(c, dict)
                         and c.get("type") == "custom:apexcharts-card")
         assert new_graf["apex_config"]["legend"]["show"] is False
@@ -273,4 +280,6 @@ async def test_opbouwcheck_forceert_herbouw_bij_nieuwe_legenda_key(hass):
         # _data); in een draaiende HA zet de eerste save de energyprijs_versie-
         # tag + cache, waarna de check terugkeert met 'huidig'.)
         res2 = await inst._dashboard_opslaan(hass)
-        assert len(saved) == 1, "tweede opslag schreef opnieuw — herbouw-loop!"
+        assert res2["act"] == "huidig", f"tweede aanroep bouwde opnieuw ({res2['act']})"
+        assert len(saved_live) == 1, "tweede opslag schreef opnieuw — herbouw-loop!"
+        assert saved == [], "store schreef naast live — dubbele schrijver"

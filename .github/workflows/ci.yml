@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: "ruff (F-regels: unused imports, undefined names)"
+        run: uvx ruff check --select F custom_components/ tests/
+
+  test-current-ha:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: venv met nieuwste HA + testplugin
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python homeassistant pytest-homeassistant-custom-component pytest
+      - name: suite
+        run: .venv/bin/python -m pytest -q tests/
+
+  canary-min-ha:
+    # Reviewpunten 3 en 6: de private-API-route (coll.store / coll._data_to_save /
+    # DashboardsCollection op dezelfde storage-key) mag niet stil breken bij een
+    # HA-update. Deze job draait tegen de MINIMUM ondersteunde versie uit hacs.json
+    # en bevestigt expliciet dat die attributen bestaan én dat een aanmaak werkelijk
+    # op schijf landt.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: versie uit hacs.json lezen
+        id: ver
+        run: python -c "import json;print('min='+json.load(open('hacs.json'))['homeassistant'])" >> "$GITHUB_OUTPUT"
+      - name: venv met minimale HA
+        run: |
+          uv venv .venv-min
+          uv pip install --python .venv-min/bin/python "homeassistant==${{ steps.ver.outputs.min }}"
+          uv pip install --python .venv-min/bin/python pytest-homeassistant-custom-component pytest || true
+      - name: canary — private API-aanwezigheid + write-to-disk
+        run: .venv-min/bin/python -m pytest -q tests/test_canary_private_api.py
+      - name: dashboard-tests op min-versie
+        run: .venv-min/bin/python -m pytest -q tests/test_dashboard_verwijderd_herstel.py tests/test_review_v132_fixes.py

@@ -150,7 +150,7 @@ def test_elke_entiteit_uit_cards_bestaat_in_package_of_is_extern():
 
 def test_accu_template_sensor_definieert_zichzelf_niet_als_default_bron():
     """De contract-sensor heet energyprijs_accu_percentage (prefix, géén botsing)."""
-    pkg = strict_pkg()
+    strict_pkg()  # parset door de strikte loader — faalt al bij dup-sleutels
     blob = PKG_PATH.read_text(encoding="utf-8")
     assert "energyprijs_accu_percentage" in blob
     assert "unique_id: accu_percentage_pkg" not in blob

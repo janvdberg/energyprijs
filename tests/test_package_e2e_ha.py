@@ -127,7 +127,6 @@ async def test_package_template_sensor_luistert_niet_meer_naar_handmatig(hass):
     tekst = PKG_PATH.read_text(encoding="utf-8")
     assert "accu_handmatig_pct" not in tekst
     # template-blok mag geen state-triggers meer hebben op input_*
-    import re
     m = re.search(r"- sensor:\n(?:[^\n]+\n)*?        unique_id: energyprijs_accu_percentage", tekst)
     assert m, "accu-template-blok niet gevonden"
     assert "triggers:" not in tekst[max(0, m.start()-300):m.start()+20]

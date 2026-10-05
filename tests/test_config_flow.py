@@ -6,7 +6,6 @@ toevoegen via de UI faalde ALTIJD en geen enkele test ving dat op.
 """
 from unittest.mock import patch
 
-import pytest
 from homeassistant import data_entry_flow
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 

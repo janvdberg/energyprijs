@@ -15,7 +15,6 @@ async def test_package_template_valid(hass):
 
 async def test_package_helpers_input_number(hass):
     from homeassistant.components import input_number
-    import voluptuous as vol
     pkg = yaml.safe_load(open(str(PKG_PATH)))
     for name, cfg in pkg["input_number"].items():
         # valideer tegen HA's echte YAML-schema (slug-key-vorm)

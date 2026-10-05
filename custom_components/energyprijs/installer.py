@@ -11,8 +11,6 @@ integratie zelfvoorzienend is (geen netwerk nodig, werkt achter firewalls).
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import re
 from pathlib import Path
@@ -22,8 +20,6 @@ import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import issue_registry as ir
-
-from . import cards as _cards
 
 try:
     from homeassistant.core import SupportsResponse
@@ -61,7 +57,7 @@ HELPERS_DEFAULTS: dict[str, float] = {
 
 # Helpers die in eerdere versies zijn meegeleverd maar niet meer door het package
 # worden gedefinieerd → bij setup uit de entity registry opruimen, anders blijft er
-# een "niet meer beschikbaar"-entiteit achter (review v1.2.42, punt 3).
+# een "niet meer beschikbaar"-entiteit achter.
 VEROUDERDE_HELPERS: tuple[str, ...] = ("input_number.accu_handmatig_pct",)
 
 
@@ -101,7 +97,7 @@ async def _write_package(hass: HomeAssistant) -> Path:
 async def sync_package_if_changed(hass: HomeAssistant) -> bool:
     """Schrijf het ingebedde package ALLEEN bij inhoudelijke wijziging.
 
-    Chicken-and-egg (live-log 3 okt '26): een HACS-update vervangt alleen
+    Chicken-and-egg: een HACS-update vervangt alleen
     custom_components/; het op disk staande /config/packages/energyprijs.yaml
     blijft oud tot de integratie het herschrijft — en packages kunnen na het
     laden niet worden herladen. Daarom: zo vroeg mogelijk (async_setup_entry)
@@ -165,7 +161,7 @@ PACKAGES_REGEL = "  packages: !include_dir_named packages"
 def _packages_status_sync(config_path: Path) -> tuple[str, str]:
     """Controleer of HA onze package ZAL laden — zonder iets te schrijven.
 
-    Les review 4 okt '26 (P2): de vorige versie plakte bij een bestaand
+    Waarom read-only: de vorige versie plakte bij een bestaand
     homeassistant:-blok (met bv. alleen name:/unit_system:) een TWEEDE
     top-level homeassistant:-blok in. Dubbele sleutels zijn ongeldige YAML —
     HA startte dan niet meer goed. Een integratie hoort het hoofdbestand van
@@ -195,7 +191,7 @@ def _packages_status_sync(config_path: Path) -> tuple[str, str]:
         Let op de ANCHOR: een `homeassistant:` dat zelf ingesprongen staat — bv.
         onder default_config:, zoals het oud energyprijs-blok van Jan deed — is
         GEEN top-level key en negeert HA stilzwijgend. Zulke blokken tellen dus
-        NIET als ok; ze leveren 'handmatig' op met plakinstructie. Review 4 okt '26.
+        NIET als ok; ze leveren 'handmatig' op met plakinstructie.
         """
         for m in re.finditer(r"(?m)^homeassistant\s*:[ \t]*$", original):
             tail = original[m.end():]
@@ -226,7 +222,7 @@ def _packages_status_sync(config_path: Path) -> tuple[str, str]:
 
 
 def _ensure_packages_include_sync(config_path: Path) -> tuple[bool, str]:
-    """Verouderde ingang; gedraagt zich nu read-only (P2-fix 4 okt '26).
+    """Verouderde ingang; gedraagt zich read-only.
 
     Schrijft NIET meer naar configuration.yaml. Geeft (False, "[status] uitleg").
     """
@@ -241,11 +237,12 @@ def _manifest_version(hass: HomeAssistant) -> str:
 
     importlib.metadata.version("energyprijs") doet bij elke call een listdir
     van de site-packages-root — een geblokkeerd I/O-pad dat HA 2026 flagt.
-    Één bron: const.VERSION (review 4 okt '26, K3).
+    Één bron: const.VERSION.
     """
     return str(_MANIFEST.get("version", "0"))
 
 DASH_ID = "energyprijs"
+VIEW_PATH = "energie"   # onze view is aan de path herkenbaar, nooit aan een positie
 DASH_TITEL = "Energie — stroomprijs"
 DASH_ICOON = "mdi:flash"
 
@@ -307,7 +304,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             "Lovelace-integratie is niet actief — kan geen user-dashboard beheren."
         )
 
-    # ── 1b) VALIDATIES — VÓÓR elke bijwerking (les live-log 3 okt '26, 17:52):
+    # ── 1b) VALIDATIES — VÓÓR elke bijwerking:
     #    eerder stond deze check ná async_create_item + panel-registratie, dus
     #    een gefaalde guard liet een LEEG dashboard achter. Nu: eerst toetsen,
     #    dan pas muteren. Een leeg dashboard is erger dan tijdelijk N/A.
@@ -366,7 +363,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             raise RuntimeError(f"dashboard aanmaken mislukt: {err}") from err
         act = "aangemaakt"
         await _flush_collection_save()
-        # ── PROBLEEM 2 (review 5 okt '26): onze tweede collectie-instance heeft
+        # ── Tweede collectie-instance heeft
         #    GEEN listeners, dus HA's storage_dashboard_changed draait niet en
         #    registreert het dashboard niet in de LIVE LovelaceData. De UI-websocket
         #    (lovelace/config?url_path=…) zoekt daar en krijgt 'config_not_found' →
@@ -465,8 +462,28 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     # de storage bestond; bij ConfigNotFound (nog nooit opgeslagen) blijft ie None,
     # waarna async_save zelf _load() aanroept.
 
-    views = (cfg or {}).get("views") or [{"title": "Energie", "path": "energie", "cards": []}]
-    first = views[0]
+    # Onze view is aan de path herkenbaar ("energie"), NOOIT aan positie 0: een
+    # gebruiker met een eigen eerste view wordt nooit overschreven of platgeslagen.
+    # Een dashboard dat wij zelf hebben gebouwd vóór deze
+    # conventie heeft één view zonder path — die is van ons en erven we. Pas bij
+    # méér dan één padloze view kiezen we niet blind: dan nemen we de laatste
+    # (onze eigen ouderste opbouw staat rechts) en laten we rest met rust.
+    views = list((cfg or {}).get("views") or [])
+    own_idx = next((i for i, v in enumerate(views)
+                    if isinstance(v, dict) and v.get("path") == VIEW_PATH), None)
+    if own_idx is None:
+            # legacy-compatibiliteit: één view zonder path = ons dashboard
+        padloos = [i for i, v in enumerate(views)
+                   if isinstance(v, dict) and not v.get("path")]
+        if len(padloos) == 1:
+            own_idx = padloos[0]
+            views[own_idx]["path"] = VIEW_PATH
+        else:
+            own_idx = padloos[-1] if padloos else None
+        if own_idx is None:
+            views.append({"title": "Energie", "path": VIEW_PATH, "cards": []})
+            own_idx = len(views) - 1
+    first = views[own_idx]
 
     # ── idempotente check: is ons dashboard al gevuld met DEZE versie? Dan hoeft
     #    er niets te gebeuren — zo mag de service elke 5 min rustig langskomen. ──
@@ -477,7 +494,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     def _opbouw_klopt(cards) -> bool:
         """De grafiekkaart moet exact de actuele opbouw van cards.py hebben.
 
-        Les live-log 4 okt '26: een verouderde check (alleen yaxis_id 'prijzen',
+        Waarom sleutel-op-sleutel: een verouderde check (alleen yaxis_id 'prijzen',
         een kenmerk uit de multi-as-poging van 1.2.20-1.2.24 die nooit heeft
         gedraaid) maakte dat dashboards uit oudere versies — met kopwaarden en
         N/A onder de grafiek — bij elke herstart als 'actueel' golden en nooit
@@ -497,7 +514,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             and first.get("type") != "sections"):
         if live_aanwezig:
             return {"act": "huidig", "reeds_actueel_versie": manifest_version}
-        # Review 5 okt '26, probleem 2: op disk is alles actueel, maar de LIVE
+        # Op disk is alles actueel, maar de LIVE
         # collectie kent ons dashboard niet → websocket vindt geen config.
         # Val door naar de normale schrijfroute; die registreert live en vult
         # de cache. Geen loop: na deze run is live_aanwezig True.
@@ -548,11 +565,13 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     new_cfg = {"views": views}
     if (cfg or {}).get("jinja"):
         new_cfg["jinja"] = cfg["jinja"]
-    await store.async_save(new_cfg)   # vuurt lovelace_updated af → frontend ververst
 
-    # Kaarten in de LIVE LovelaceCache zetten: dezelfde instantie die de UI via
-    # websocket bedient. async_save vult ._data, herbouwt de json-cache en vuurt
-    # lovelace_updated af — de browser tekent de kaarten dan direct, zonder reload.
+    # Eén schrijver op .storage/lovelace.<id>: de
+    # LIVE-instantie is dezelfde die de UI-websocket bedient — als die er is,
+    # save je ALLEEN daar; een tweede LovelaceStorage op dezelfde key zou een
+    # dubbel lovelace_updated-event + race tussen caches geven. Zonder live-
+    # instantie valt de schrijfroute terug op de lokale store.
+    writer = None
     try:
         live = lov_data.dashboards.get(DASH_ID)
         if live is None:
@@ -562,16 +581,19 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
                 lov_data.dashboards[DASH_ID] = live
                 diag["live_geregistreerd"] = True
             except Exception:  # noqa: BLE001
-                pass
+                live = None
         if live is not None and hasattr(live, "async_save"):
-            await live.async_save(new_cfg)
-            diag["cache_bijgewerkt"] = True
-        else:
-            diag["cache_bijgewerkt"] = False
+            writer = live
     except Exception as e3:  # noqa: BLE001
         diag["cache_fout"] = str(e3)
 
-    # ── TERUGVAL (review 5 okt): lukt live-registratie/cache niet, dan ziet de
+    if writer is None:
+        writer = store
+    await writer.async_save(new_cfg)
+    diag["schrijver"] = "live" if writer is not store else "store"
+    diag["cache_bijgewerkt"] = writer is not store
+
+    # ── TERUGVAL: lukt live-registratie/cache niet, dan ziet de
     #    UI het dashboard pas na een herstart. Laat dat géén stil falen zijn:
     #    repair-issue + INFO-log in plaats van een leeg dashboard. ──
     if not diag.get("cache_bijgewerkt") and DASH_ID not in lov_data.dashboards:
@@ -595,10 +617,14 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         except Exception:  # noqa: BLE001
             pass
 
-    # ── NAVRAAG: lees terug wat er echt op disk staat (catcht silent failures)
+    # ── NAVRAAG: lees terug via de schrijver zelf — diens cache is na save
+    #    gegarandeerd consistent; een losse store zou stale kunnen zijn.
     try:
-        back = await store.async_load(force=True)
-        b_cards = (back or {}).get("views", [{}])[0].get("cards") or []
+        back = await writer.async_load(force=True)
+        b_views = (back or {}).get("views") or []
+        b_own = next((v for v in b_views if isinstance(v, dict)
+                      and v.get("path") == VIEW_PATH), None)
+        b_cards = (b_own or {}).get("cards") or []
         diag["cards_na"] = len(b_cards)
         diag["types_na"] = sorted({str(c.get("type")) for c in b_cards if isinstance(c, dict)})
     except Exception as e2:  # noqa: BLE001
@@ -614,7 +640,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
         "act": act,
         "dashboard_id": dash_id,
         "verwijderde_eigen_oude_kaarten": removed,
-        "totaal_cards_eerste_view": len(first["cards"]),
+        "totaal_cards_energie_view": len(first["cards"]),
         "url_path": DASH_ID,
     }
 
@@ -656,11 +682,11 @@ async def defaults_klaar(hass: HomeAssistant) -> bool:
 async def _ensure_helper_defaults(hass: HomeAssistant) -> bool:
     """Zet eenmalig de contract-defaults voor helpers die NOG NOOIT zijn ingevuld.
 
-    Nuance (review 4 okt '26): "waarde exact 0" betekent "nog nooit gezet".
+    Nuance: "waarde exact 0" betekent "nog nooit gezet".
     Wie bewust 0 invult vóór de allereerste run, wordt die ene keer overschreven
     met de neutrale default — daarna beschermt het persistente vlaggetje per helper.
 
-    Regels (live-log 3 okt '26, punt 4):
+    Regels:
       - Alleen handelen als de entiteit bestaat EN beschikbaar is in states
         (een service-call op een ontbrekende entiteit deed stil niets en werd
         toch als gelukt gemarkeerd).
@@ -730,7 +756,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         #    inclusief repair-issue bij een write)
         pkg_changed = await sync_package_if_changed(hass)
 
-        # 2) configuration.yaml CONTROLEREN (nooit schrijven — P2-fix 4 okt '26)
+        # 2) configuration.yaml CONTROLEREN (nooit schrijven)
         status, note = await hass.async_add_executor_job(_packages_status_sync, cfg_file)
 
         # 3) status bepalen
@@ -749,11 +775,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
             _LOGGER.warning("energyprijs.install: dashboard-aanmaak mislukt: %s", e)
             result["dashboard_fout"] = str(e)
 
-        if restart_needed and call.data.get(CONF_FORCE_RESTART, False):
+        if result["herstart_nodig"] and call.data.get(CONF_FORCE_RESTART, False):
             _LOGGER.warning("energyprijs: herstart wordt forcerend geactiveerd")
             await hass.services.async_call("homeassistant", "restart", blocking=False)
             result["herstart_gestart"] = True
-        elif restart_needed:
+        elif result["herstart_nodig"]:
             result["actie"] = (
                 "Herstart Home Assistant (Instellingen → Systeem → Herstarten) "
                 "om de packages-include te activeren. Het dashboard is al aangemaakt."
@@ -772,7 +798,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         """Maak het user-dashboard aan of werk de kaarten bij.
 
         Wordt NOOIT overgeslagen op alleen de versie-marker: een in de UI
-        verwijderd dashboard wordt hiermee gegarandeerd hersteld (review 5 okt).
+        verwijderd dashboard wordt hiermee gegarandeerd hersteld.
         """
         try:
             res = await _dashboard_opslaan(hass)
@@ -825,7 +851,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
             "package_actueel": gelijk,
             "package_pad": str(pkg_file),
             "versie": _manifest_version(hass),
-            "dashboard_bestaat": await dashboard_bestaat(hass),
+            "dashboard_bestaat": {True: True, False: False, None: "onbekend"}[
+                await dashboard_bestaat(hass)],
         }
 
     hass.services.async_register(
@@ -847,24 +874,25 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
 
 
-async def dashboard_bestaat(hass: HomeAssistant) -> bool:
-    """Bestaat ons dashboard-item daadwerkelijk in .storage/lovelace_dashboards?
+async def dashboard_bestaat(hass: HomeAssistant) -> bool | None:
+    """Bestaat ons dashboard-item in .storage/lovelace_dashboards?
 
-    Eén bron voor zowel __init__ (startup/timer-check, marker mag nooit alleen
-    beslissen — review 5 okt '26 probleem 1) als handle_status. Leest via een
-    verse DashboardsCollection op dezelfde storage-key die HA's UI-collectie
-    vult; onbereikbaar → False (liever één herbouw te veel dan een stil
-    verdwenen dashboard).
+    Drie uitkomsten: True = item gevonden, False = item
+    écht weg (gebruiker heeft het verwijderd → herbouwen), None = de check kon
+    niet uitgevoerd worden (lovelace inactief of leesfout). Bij None mag de
+    aanroeper NOOIT herbouwen: een blijvende storage-fout otherwise elke ronde
+    een schrijfactie losmaken. De uitzondering wordt hier gelogd (met exc), de
+    aanroeper beslist en logt de consequentie.
     """
     from homeassistant.components.lovelace import dashboard as lb_dash
     from homeassistant.components.lovelace.const import LOVELACE_DATA
 
     if hass.data.get(LOVELACE_DATA) is None:
-        return False
+        return None
     try:
         coll = lb_dash.DashboardsCollection(hass)
         await coll.async_load()
         return any(it.get("url_path") == DASH_ID for it in coll.data.values())
     except Exception:  # noqa: BLE001
-        _LOGGER.debug("energyprijs: dashboard-bestaanscheck mislukt", exc_info=True)
-        return False
+        _LOGGER.warning("energyprijs: dashboard-bestaanscheck mislukt", exc_info=True)
+        return None
