@@ -25,14 +25,14 @@ GRAFIEK_CARD = {
     "type": "custom:apexcharts-card",
     "section_mode": True,
     "experimental": {"color_threshold": True, "disable_config_validation": True},
-    "graph_span": "24h",
+    "graph_span": "48h",
     "span": {"start": "day"},
     "update_interval": "5min",
     "show": {"last_updated": True},
     "now": {"show": True, "label": "nu"},
     "header": {
         "show": True,
-        "title": "Stroomprijs",
+        "title": "Stroomprijs — vandaag + morgen",
         "show_states": False,
         "colorize_states": False,
     },
@@ -42,8 +42,8 @@ GRAFIEK_CARD = {
             "name": "bruto",
             "type": "column",
             "data_generator": (
-                "return entity.attributes.vandaag.map((e) => "
-                "[new Date(e.t).getTime() + 450000, e.p]);"
+                "return entity.attributes.vandaag.concat(entity.attributes.morgen)"
+                ".map((e) => [new Date(e.t).getTime() + 450000, e.p]);"
             ),
             "float_precision": 3,
             "color_threshold": [
@@ -59,9 +59,15 @@ GRAFIEK_CARD = {
         # hele legenda weg: de staafkleuren zijn voldoende (verzoek 4 okt '26)
         "legend": {"show": False},
         "xaxis": {
-            # as loopt een halve kolom (7,5 min) buiten de dag → eerste/laatste staaf volledig
+            # datetime-as met dag-markerings; halve kolom (7,5 min) marge links/rechts
+            "type": "datetime",
             "min": "EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000",
-            "max": "EVAL:new Date(new Date().setHours(23,59,59,999)).getTime() + 450000",
+            "max": "EVAL:new Date(new Date().setHours(0,0,0,0) + 2*86400000).getTime() + 450000",
+            "labels": {
+                "formatter": "EVAL:(ts) => new Date(ts).toLocaleDateString(undefined,"
+                " {weekday:'short', day:'numeric'}) + ' ' + new Date(ts).toLocaleTimeString(undefined,"
+                " {hour:'2-digit', minute:'2-digit'})"
+            },
         },
     },
     "yaxis": [

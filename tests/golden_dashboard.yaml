@@ -23,7 +23,7 @@ views:
         experimental:
           color_threshold: true
           disable_config_validation: true
-        graph_span: 24h
+        graph_span: 48h
         span:
           start: day
         update_interval: 5min
@@ -34,36 +34,35 @@ views:
           label: nu
         header:
           show: true
-          title: Stroomprijs
+          title: Stroomprijs — vandaag + morgen
           show_states: false
           colorize_states: false
         series:
           - entity: sensor.stroomprijs_daglijst
             name: bruto
             type: column
-            data_generator: >-
-              return entity.attributes.vandaag.map((e) => [new
-              Date(e.t).getTime() + 450000, e.p]);
+            data_generator: "return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.p]);"
             float_precision: 3
             color_threshold:
               - value: 0
-                color: '#0a8f3c'
+                color: "#0a8f3c"
               - value: 0.1
-                color: '#2fbf5f'
+                color: "#2fbf5f"
               - value: 0.25
-                color: '#e6b800'
+                color: "#e6b800"
               - value: 0.4
-                color: '#d94040'
+                color: "#d94040"
             show:
               in_header: false
         apex_config:
           legend:
             show: false
           xaxis:
-            min: EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000
-            max: >-
-              EVAL:new Date(new Date().setHours(23,59,59,999)).getTime() +
-              450000
+            type: datetime
+            min: "EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000"
+            max: "EVAL:new Date(new Date().setHours(0,0,0,0) + 2*86400000).getTime() + 450000"
+            labels:
+              formatter: "EVAL:(ts) => new Date(ts).toLocaleDateString(undefined, {weekday:'short', day:'numeric'}) + ' ' + new Date(ts).toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'})"
         yaxis:
           - decimals: 3
             min: '|-0.04|'
