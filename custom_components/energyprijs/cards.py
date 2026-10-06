@@ -111,6 +111,11 @@ ACCUEENHEDEN_CARD = {
         "{% if soc >= 0 and kwh > 0 %}\n"
         "* In de accu: **{{ (soc / 100 * kwh) | round(2) }} kWh**\n"
         "{% endif %}\n"
+        "{% set res_pct = states('input_number.accu_reserve_pct') | float(-1) %}\n"
+        "{% if soc >= 0 and kwh > 0 and res_pct >= 0 %}\n"
+        "* Boven de reserve: **{{ ((soc - res_pct) / 100 * kwh) | round(2) }} kWh**"
+        " (reserve {{ res_pct | round(0) }}% = {{ (res_pct / 100 * kwh) | round(1) }} kWh)\n"
+        "{% endif %}\n"
         "{% if soc >= 0 and kwh > 0 and p_in > 0 %}\n"
         "* Vol laden vanaf nu: ± **{{ ((100 - soc) / 100 * kwh / p_in) | round(1) }} uur**\n"
         "{% endif %}\n"
@@ -134,6 +139,8 @@ ACCUCONTRACT_CARD = {
          "name": "Laadvermogen max (kW)"},
         {"entity": "input_number.accu_vermogen_uit_kw",
          "name": "Ontlaadvermogen max (kW)"},
+        {"entity": "input_number.accu_reserve_pct",
+         "name": "Reserve — SOC-ondergrens (%)"},
     ],
 }
 

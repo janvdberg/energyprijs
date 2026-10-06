@@ -53,6 +53,9 @@ HELPERS_DEFAULTS: dict[str, float] = {
     "accu_capaciteit_kwh": 10.0,
     "accu_vermogen_in_kw": 5.0,
     "accu_vermogen_uit_kw": 5.0,
+    # reserve-contract (v1.4.0): startpunt 20%; Jans eigen 86-kWh-accu maakt hem
+    # bij eerste installatie dus 17 kWh — hij verhoogt 'm naar zin (storing-cijfer).
+    "accu_reserve_pct": 20.0,
 }
 
 # Helpers die in eerdere versies zijn meegeleverd maar niet meer door het package

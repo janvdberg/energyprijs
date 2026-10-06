@@ -1,6 +1,6 @@
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.x-blue?logo=homeassistant)
 ![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-orange?logo=hackthebox)
-![versie](https://img.shields.io/badge/versie-1.2.43-brightgreen)
+![versie](https://img.shields.io/badge/versie-1.4.0-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 # ⚡ Energyprijs
@@ -85,7 +85,7 @@ binary_sensor.prijzen_morgen_beschikbaar
 input_number.prijs_btw / _energiebelasting / _opslag_afname / _opslag_levering / _afwijkingsdrempel / _laad_drempel
 input_boolean.prijs_saldering_energiebelasting_teruggave
 input_text.accu_bron_entity           sensor.energyprijs_accu_percentage (snelkoppeling)
-input_number.accu_capaciteit_kwh / _vermogen_in_kw / _vermogen_uit_kw
+input_number.accu_capaciteit_kwh / _vermogen_in_kw / _vermogen_uit_kw / _accu_reserve_pct  → sensor.energyprijs_accu_reserve (kWh)
 input_text.pv_bron_vandaag / _pv_bron_morgen   sensor.energyprijs_pv_vandaag / _pv_morgen (snelkoppelingen)
 automation.prijzen_*  (2 meld-automatiseringen)
 ```
@@ -349,6 +349,7 @@ weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
 
 | Versie | Wijziging |
 |---|---|
+| 1.4.0 | **Reserve-contract**: `input_number.accu_reserve_pct` — de SOC-ondergrens die geen enkele strategie mag underschrijden (netstoring-backup + cel-beveiliging), één bron van waarheid in plaats van verspreide hardcoded 20%-reserves. Afgeleide `sensor.energyprijs_accu_reserve` (kWh, volgt beide accu-contractnamen live; reserve 0% of ontbrekende SOC → unavailable). Accu-tegel toont nu "Boven de reserve: X kWh", contractkaart krijgt het invulveld, default éénmalig 20%. Voorbereiding solver/backtest-fase: elke winststrategie rekent vanaf nu tegen deze grens ||
 | 1.3.3 | **Reviewpunten 1-4 + 6**: eigen view-behoud (herkenning op `path: energie`, nooit meer `views[0]` — jouw eerste view blijft ongemoeid), één schrijver per herbouw (live-instantie wint; geen dubbel `lovelace_updated`-event), `dashboard_bestaat()` geeft True/False/None → een blijvende storage-leesfout veroorzaakt géén herbouw-loop en de bewakingstimer daalt na succes naar 1 uur, dode imports/variabelen weg + GitHub Actions CI met ruff (ving dabei een bestaande crasher op: `restart_needed` undefined in de install-service) en een canary-test die de private HA-API's (`coll.store`, `_data_to_save`) tegen minimum-HA bewaakt. Historische review-notities verhuisden naar CHANGELOG.md ||
 | 1.3.2 | **Verwijderd dashboard komt terug** (review 5 okt): de bestaanscheck is nu twee-voorwaardelijk — versie-marker **én** het item daadwerkelijk in `.storage/lovelace_dashboards`. Bij gedetecteerde verwijdering wist de integratie zijn marker en herbouwt startup/timer/service het dashboard vanzelf. Nieuw: na aanmaken registreert de integratie het dashboard expliciet in de **live** LovelaceData (`dashboards[url_path]`, exact zoals HA core dat doet), zodat de UI-websocket het direct vindt — geen leeg dashboard meer tot een herstart. Lukt die registratie niet, dan verschijnt er een repair-issue 'herstart Home Assistant' in plaats van stil falen. Startup-log op INFO meldt altijd: marker vs manifest + of het dashboard bestaat. Service `energyprijs.status` geeft veld `dashboard_bestaat` terug ||
 | 1.3.1 | **Grafiek toont vandaag + morgen**: `graph_span` 24h → 48u, de daglijst-samenstelling `vandaag.concat(morgen)` tekent beide dagen op één datetime-as met daglabels (wo 5 / do 6). Morgenprijzen zijn ~14:00 bekend en verschijnen dan direct rechts in beeld; vóór die tijd blijft de as netjes bij één dag. xaxis-structuur is bewust een platte string-methode (geen geneste EVAL-objecten) — apexcharts 2.2.3 aanvaardt alleen dat formaat. ||

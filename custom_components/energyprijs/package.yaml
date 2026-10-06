@@ -280,6 +280,29 @@ template:
             none
           {% endif %}
 
+  # ── RESERVE-CONTRACT (v1.4.0): input_number.accu_reserve_pct is de ondergrens
+  #    in procenten; deze sensor vertaalt naar kWh zodat formules niet zelf hoeven
+  #    te vermenigvuldigen. Leest bewust BEIDE accu-contractnamen (de oude
+  #    sensor.accu_percentage van het handels-circuit én onze eigen snelkoppeling)
+  #    — zolang minstens één een verse waarde heeft, telt de reserve mee.
+  #    Reserve-% leeg/0 → availability false (onbruikbare grens is geen grens van 0).
+  - sensor:
+      - name: "Energyprijs Accu reserve"
+        unique_id: energyprijs_accu_reserve_kwh
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        availability: >-
+          {% set res = states('input_number.accu_reserve_pct') | float(-1) %}
+          {% set cap = states('input_number.accu_capaciteit_kwh') | float(-1) %}
+          {% set soc = [states('sensor.energyprijs_accu_percentage'),
+                        states('sensor.accu_percentage')]
+                       | map('float', -1) | select('ge', 0) | max %}
+          {{ res > 0 and cap > 0 and soc >= 0 }}
+        state: >-
+          {% set res = states('input_number.accu_reserve_pct') | float(0) %}
+          {% set cap = states('input_number.accu_capaciteit_kwh') | float(0) %}
+          {{ (res / 100 * cap) | round(2) }}
+
   # ── PV-CONTRACT (v1.3.0): twee vaste, botsingvrije contract-namen voor de
   #    verwachte zonnestroom. input_text.pv_bron_vandaag/morgen bevatten elk een
   #    entity_id (bijv. een Forecast.Solar-sensor). State-based templates volgen
@@ -396,6 +419,20 @@ input_number:
     step: 0.1
     mode: box
     icon: mdi:current-dc
+  accu_reserve_pct:
+    # RESERVE-CONTRACT (v1.4.0): de SOC-ondergrens die het systeem NOOIT mag
+    # underschrijden — netstoring-overbrugging + cel-beveiliging. Alles erboven
+    # is vrij speelgeld van de solver/handelslogica. Eén bron van waarheid
+    # (herontwerp les §5.5): formules en automatiseringen lezen deze helper,
+    # nooit een hardcoded 20%. Bewust géén 'initial': HA herstelt de laatste
+    # gebruikerswaarde; de installer zet éénmalig de default (zie HELPERS_DEFAULTS).
+    name: "Accu: reserve (%, ondergrens SOC)"
+    unit_of_measurement: "%"
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    icon: mdi:battery-alert-variant-outline
 
 input_boolean:
   prijs_saldering_energiebelasting_teruggave:

@@ -46,7 +46,7 @@ def test_package_geen_dubbele_sleutels():
     pkg = strict_pkg()
     # sanity: het blok dat de bug veroorzaakte, bestaat nu één keer met ALLE helpers
     assert "prijs_btw" in pkg["input_number"], "prijshelpers weggefilterd?!"
-    assert len(pkg["input_number"]) == 9
+    assert len(pkg["input_number"]) == 10
 
 
 def test_alle_verwachte_helpers_aanwezig_in_geparsed_package():
@@ -54,10 +54,11 @@ def test_alle_verwachte_helpers_aanwezig_in_geparsed_package():
     voor_de_prijs = {"prijs_btw", "prijs_energiebelasting", "prijs_opslag_afname",
                      "prijs_opslag_levering", "prijs_laad_drempel",
                      "prijs_afwijkingsdrempel"}
-    voor_de_accu = {"accu_capaciteit_kwh", "accu_vermogen_in_kw", "accu_vermogen_uit_kw"}
+    voor_de_accu = {"accu_capaciteit_kwh", "accu_vermogen_in_kw", "accu_vermogen_uit_kw",
+                    "accu_reserve_pct"}
     assert voor_de_prijs | voor_de_accu <= set(pkg["input_number"]), \
         "elke helper uit de UI-kaart hoort in het geparsede package te staan"
-    assert {"accu_bron_entity"} == set(pkg["input_text"])
+    assert {"accu_bron_entity", "pv_bron_vandaag", "pv_bron_morgen"} <= set(pkg["input_text"])
     assert "prijs_saldering_energiebelasting_teruggave" in pkg["input_boolean"]
 
 
