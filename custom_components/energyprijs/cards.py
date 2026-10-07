@@ -28,7 +28,10 @@ GRAFIEK_CARD = {
     "experimental": {"color_threshold": True, "disable_config_validation": True},
     "graph_span": "48h",
     "span": {"start": "day"},
-    "update_interval": "5min",
+    # GEEN update_interval: apexcharts v2 negeert dan state-wijzigingen tot de
+    # timer tikt (broncode: set hass() ververst alleen zónder update_interval).
+    # Zonder die key tekent de kaart ~1,5 s na elke sensor-update — precies wat
+    # Jan wil: contract-toggle → lijn beweegt direct (review 7 okt '26, v1.4.3).
     "show": {"last_updated": True},
     "now": {"show": True, "label": "nu"},
     "header": {
@@ -58,12 +61,12 @@ GRAFIEK_CARD = {
             "show": {"in_header": False},
         },
         {
-            # dun lijntje ONDER de balkjes = verkoopprijs all-in;
+            # dun lijntje ONDER de balkjes = verkoopprijs all-in (daglijst-attr 'uit');
             # yaxis_id + min/max van de hoofd-as houdt de lijn onderaan zonder
             # eigen schaal te introduceren (v2-safe: geen losse yas-config nodig).
-            # Formule hier NAGEBOUWD uit package.yaml en live herberekend tegen de
-            # contract-helpers: de daglijst-attr 'uit' is een cached sensor-getal
-            # en liep bij Jan niet mee na het omschakelen van saldering (7 okt '26).
+            # Eén bron van waarheid: de FORMULE staat in package.yaml, de sensor
+            # herberekent direct op elke helper-toggle (state-triggers), en de
+            # kaart tekent die vernieuwing binnen ~1,5 s (geen update_interval).
             "entity": "sensor.stroomprijs_daglijst",
             "name": "verkoop",
             "type": "line",
@@ -71,15 +74,8 @@ GRAFIEK_CARD = {
             "stroke_width": 1,
             "color": "#d94040",
             "data_generator": (
-                "const h = (id, d) => { const s = hass.states[id]; "
-                "return s ? parseFloat(s.state) : d; }; "
-                "const btw = 1 + h('input_number.prijs_btw', 0.21); "
-                "const bel = h('input_number.prijs_energiebelasting', 0); "
-                "const sl = h('input_number.prijs_opslag_levering', 0); "
-                "const sal = (hass.states['input_boolean.prijs_saldering_energiebelasting_teruggave']?.state ?? 'off') === 'on'; "
                 "return entity.attributes.vandaag.concat(entity.attributes.morgen)"
-                ".map((e) => [new Date(e.t).getTime() + 450000, "
-                "(e.p + sl) * btw + (sal ? bel * btw : 0)]);"
+                ".map((e) => [new Date(e.t).getTime() + 450000, e.uit]);"
             ),
             "float_precision": 3,
             "show": {"in_header": False},

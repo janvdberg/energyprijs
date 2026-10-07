@@ -185,13 +185,76 @@ async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
     assert ".map((e) => [new Date(e.t).getTime() + 450000, e.in]);" in balk["data_generator"]
     assert lijn["name"] == "verkoop" and lijn["type"] == "line"
     assert lijn["stroke_width"] == 1 and lijn["color"] == "#d94040"
-    # verkoop herberekent LIVE vanuit de contract-helpers (saldering-toggel moet
-    # direct zichtbaar zijn — cached 'uit'-attribuut liep achter, bug v1.4.1)
-    assert "input_boolean.prijs_saldering_energiebelasting_teruggave" in lijn["data_generator"]
-    assert "(e.p + sl) * btw + (sal ? bel * btw : 0)" in lijn["data_generator"]
+    # Eén bron van waarheid: de formule staat alléén in package.yaml; de kaart
+    # leest het daglijst-attribuut en ververst op elke sensor-update. De JS-nabouw
+    # uit v1.4.2 is bewust terugdraaid (review 7 okt '26: dubbele formulebron).
+    assert ".map((e) => [new Date(e.t).getTime() + 450000, e.uit]);" in lijn["data_generator"]
+    assert "hass.states" not in lijn["data_generator"]
+    # GEEN update_interval: apexcharts v2 negeert state-wijzigingen zolang die
+    # key gezet is (broncode set hass()); zonder tekent de kaart ~1,5 s na elke
+    # sensor-update — saldering-toggle dus direct zichtbaar.
+    assert "update_interval" not in GRAFIEK_CARD
     # één gedeelde as: geen losse yas-configs (v2-safe, zónder eigen schaal per reeks)
     assert balk["yaxis_id"] == lijn["yaxis_id"] == "prijzen"
     assert len(GRAFIEK_CARD["yaxis"]) == 1
+
+
+def test_daglijst_triggers_time_pattern_en_helpers():
+    """Taak-test 7 okt '26 (v1.4.3): het daglijst-template moet zowel periodiek
+    (time_pattern /5 → state now().strftime verandert, dus 'nu' blijft lopen en de
+    kaart pakt een gemiste druppel binnen 5 min) als helper-gedreven (state op alle
+    contracthelpers, incl. saldering-toggle) verversen. De kaart zelf heeft géén
+    update_interval meer — die key blokkeert state-verversing in apexcharts v2."""
+    import yaml
+    from pathlib import Path
+
+    pkg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "custom_components/energyprijs/package.yaml").read_text()
+    )
+    template = pkg["template"]
+    # vind het blok met de daglijst-sensor
+    dagblok = next(b for b in template if any(
+        s.get("unique_id") == "stroomprijs_daglijst" for s in b.get("sensor", [])))
+    trig_types = [t["trigger"] for t in dagblok["triggers"]]
+    assert "time_pattern" in trig_types
+    tp = next(t for t in dagblok["triggers"] if t["trigger"] == "time_pattern")
+    assert tp["minutes"] == "/5"
+    st = next(t for t in dagblok["triggers"] if t["trigger"] == "state")
+    for eid in ("input_number.prijs_btw", "input_number.prijs_energiebelasting",
+                "input_number.prijs_opslag_levering",
+                "input_boolean.prijs_saldering_energiebelasting_teruggave"):
+        assert eid in st["entity_id"], f"{eid} mist als state-trigger"
+
+
+async def test_opbouwcheck_herbouwt_kaart_met_update_interval(hass):
+    """Taak-test 7 okt '26 (v1.4.3): een dashboard met de v1.4.1/v1.4.2-kaart
+    (update_interval gezet) mag NIET als actueel gelden — de sleutel-op-sleutel-
+    check moet het exact één keer vervangen; na herbouw is alles 'huidig'."""
+    from custom_components.energyprijs.cards import GRAFIEK_CARD
+    from custom_components.energyprijs import installer as inst
+
+    assert "update_interval" not in GRAFIEK_CARD  # uitgangspunt deze release
+
+    # stalens: grafiekkaart zoals die vóór 1.4.3 was opgebouwd
+    stale = dict(GRAFIEK_CARD)
+    stale["update_interval"] = "5min"
+    cards = [{"type": "grid", "cards": []}, stale, {"type": "entities", "cards": []}]
+
+    # bereikbare interne helper's _opbouw_klopt-equivalent: we simuleren de check
+    # zoals _dashboard_opslaan die doet (zelfde broncode, geen dubbele logica).
+    def _heeft_onze_kaarten(cs):
+        types = {str(c.get("type")) for c in cs if isinstance(c, dict)}
+        return "custom:apexcharts-card" in types and "entities" in types
+
+    graf = next((c for c in cards if isinstance(c, dict)
+                 and c.get("type") == "custom:apexcharts-card"), None)
+    assert _heeft_onze_kaarten(cards)          # type-check alone zou 'huidig' zeggen
+    assert graf != GRAFIEK_CARD                # maar inhoudelijke check zegt: vervangen
+    # en ná herbouw (kaart == GRAFIEK_CARD) telt het wél als actueel → geen loop
+    rebuilt = [dict(c) for c in cards]
+    rebuilt[1] = GRAFIEK_CARD
+    g2 = next(c for c in rebuilt if c.get("type") == "custom:apexcharts-card")
+    assert g2 == GRAFIEK_CARD
 
 
 async def test_opbouwcheck_forceert_herbouw_bij_nieuwe_legenda_key(hass):

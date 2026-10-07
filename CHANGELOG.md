@@ -4,6 +4,22 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-07 — verkooplijn volgt saldering direct, structureel (v1.4.3)
+- Review van Jan vastgesteld via apexcharts-card-broncode: `set hass()` ververst data
+  alléén als er GEEN `update_interval` in de config staat; met "5min" negeerde de kaart
+  elke sensor-update tot de timer tikte. Eerdere diagnose ("cached 'uit' loopt achter")
+  was onjuist: het daglijst-blok in package.yaml heeft alle contracthelpers al als
+  state-trigger en herberekent direct.
+- Fix: `update_interval` uit GRAFIEK_CARD (verversing ≈1,5 s na sensor-update),
+  verkoop-generator terug naar `e.uit` (één formulebron: package.yaml — de JS-nabouw
+  uit 1.4.2 is dubbel boekhouden en terugdraaid), en `time_pattern minutes: /5` in het
+  daglijst-triggerblok zodat de state (now().strftime('%H:%M')) periodiek verandert en
+  de "nu"-markering blijft lopen.
+- Opbouw-check (sleutel-op-sleutel met GRAFIEK_CARD) herkent de nieuwe kaart automatisch
+  → bestaande dashboards worden bij de volgende update exact één keer herbouwd.
+- Tests: 48 — o.a. geen update_interval, generator zonder hass.states, time_pattern +
+  helper-triggers aanwezig.
+
 ## 2026-10-07 — verkoop-lijn volgt saldering live (v1.4.2)
 - Jan: togglede saldering maar de rode verkoop-lijn bewoog niet. Oorzaak: de data_generator
   las het **cached** `uit`-attribuut van sensor.stroomprijs_daglijst; dat attribuut herberekent

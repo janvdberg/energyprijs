@@ -1,125 +1,179 @@
-# Golden file — exact het dashboard dat Jan handmatig opbouwde (4 okt '26).
-# De integratie MOET dit genereren; zie tests/test_golden_dashboard.py.
-# energyprijs_versie is de marker die de code zelf zet (volgt de manifestversie).
 views:
-  - title: Energie
-    path: energie
+- title: Energie
+  path: energie
+  cards:
+  - square: false
+    type: grid
     cards:
-      - square: false
-        type: grid
-        cards:
-          - type: entity
-            entity: sensor.stroomprijs_afname
-            name: Inkoopprijs
-            icon: mdi:arrow-bottom-right
-            state_color: true
-          - type: entity
-            entity: sensor.stroomprijs_levering
-            name: Verkoopprijs
-            icon: mdi:arrow-top-right
-        columns: 2
-      - type: custom:apexcharts-card
-        section_mode: true
-        experimental:
-          color_threshold: true
-          disable_config_validation: true
-        graph_span: 48h
-        span:
-          start: day
-        update_interval: 5min
-        show:
-          last_updated: true
-        now:
-          show: true
-          label: nu
-        header:
-          show: true
-          title: Stroomprijs — vandaag + morgen
-          show_states: false
-          colorize_states: false
-        series:
-          - entity: sensor.stroomprijs_daglijst
-            name: inkoop
-            type: column
-            yaxis_id: prijzen
-            data_generator: "return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.in]);"
-            float_precision: 3
-            color_threshold:
-              - value: 0
-                color: "#0a8f3c"
-              - value: 0.1
-                color: "#2fbf5f"
-              - value: 0.25
-                color: "#e6b800"
-              - value: 0.4
-                color: "#d94040"
-            show:
-              in_header: false
-          - entity: sensor.stroomprijs_daglijst
-            name: verkoop
-            type: line
-            yaxis_id: prijzen
-            stroke_width: 1
-            color: "#d94040"
-            data_generator: "const h = (id, d) => { const s = hass.states[id]; return s ? parseFloat(s.state) : d; }; const btw = 1 + h('input_number.prijs_btw', 0.21); const bel = h('input_number.prijs_energiebelasting', 0); const sl = h('input_number.prijs_opslag_levering', 0); const sal = (hass.states['input_boolean.prijs_saldering_energiebelasting_teruggave']?.state ?? 'off') === 'on'; return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, (e.p + sl) * btw + (sal ? bel * btw : 0)]);"
-            float_precision: 3
-            show:
-              in_header: false
-        apex_config:
-          legend:
-            show: false
-          xaxis:
-            type: datetime
-            min: "EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000"
-            max: "EVAL:new Date(new Date().setHours(0,0,0,0) + 2*86400000).getTime() + 450000"
-            labels:
-              formatter: "EVAL:(ts) => new Date(ts).toLocaleDateString(undefined, {weekday:'short', day:'numeric'}) + ' ' + new Date(ts).toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'})"
-        yaxis:
-          - decimals: 3
-            min: '|-0.04|'
-            max: '|+0.04|'
-      - type: entities
-        title: Stroomprijs — contractinstellingen
-        show_header_toggle: false
-        state_color: true
-        entities:
-          - entity: input_number.prijs_btw
-            name: Btw (factor, NL = 0,21)
-          - entity: input_number.prijs_energiebelasting
-            name: Energiebelasting excl. btw (€/kWh)
-          - entity: input_number.prijs_opslag_afname
-            name: Leveranciersopslag afname (€/kWh)
-          - entity: input_number.prijs_opslag_levering
-            name: Leveranciersopslag levering (€/kWh)
-          - entity: input_boolean.prijs_saldering_energiebelasting_teruggave
-            name: Saldering (teruggave belasting)
-      - type: markdown
-        title: "Accu — contract & snelkoppeling"
-        content: "## 🔋 Accupercentage\n{% set soc_eid = 'sensor.energyprijs_accu_percentage' %}\n{% set src = states('input_text.accu_bron_entity') | trim %}\n{% if src == '' or src in ('unknown', 'unavailable', 'none') %}Bron: `Geen bron ingesteld`{% else %}Bron: `{{ src }}` — **{{ states(soc_eid) }}%**{% endif %}\n{% set soc = states(soc_eid) | float(-1) %}\n{% set kwh = states('input_number.accu_capaciteit_kwh') | float(0) %}\n{% set p_in = states('input_number.accu_vermogen_in_kw') | float(0) %}\n{% set p_uit = states('input_number.accu_vermogen_uit_kw') | float(0) %}\n{% if soc >= 0 and kwh > 0 %}\n* In de accu: **{{ (soc / 100 * kwh) | round(2) }} kWh**\n{% endif %}\n{% set res_pct = states('input_number.accu_reserve_pct') | float(-1) %}\n{% if soc >= 0 and kwh > 0 and res_pct >= 0 %}\n* Boven de reserve: **{{ ((soc - res_pct) / 100 * kwh) | round(2) }} kWh** (reserve {{ res_pct | round(0) }}% = {{ (res_pct / 100 * kwh) | round(1) }} kWh)\n{% endif %}\n{% if soc >= 0 and kwh > 0 and p_in > 0 %}\n* Vol laden vanaf nu: ± **{{ ((100 - soc) / 100 * kwh / p_in) | round(1) }} uur**\n{% endif %}\n{% if soc >= 0 and kwh > 0 and p_uit > 0 %}\n* Leeg ontladen vanaf nu: ± **{{ (soc / 100 * kwh / p_uit) | round(1) }} uur**\n{% endif %}"
-      - type: entities
-        title: Accu — contractinstellingen
-        show_header_toggle: false
-        state_color: true
-        entities:
-          - entity: input_text.accu_bron_entity
-            name: "Bron-entity accu-%"
-          - entity: input_number.accu_capaciteit_kwh
-            name: Capaciteit (kWh)
-          - entity: input_number.accu_vermogen_in_kw
-            name: Laadvermogen max (kW)
-          - entity: input_number.accu_vermogen_uit_kw
-            name: Ontlaadvermogen max (kW)
-          - entity: input_number.accu_reserve_pct
-            name: "Reserve — SOC-ondergrens (%)"
-      - type: markdown
-        title: "Zon — contract & snelkoppelingen"
-        content: "## ☀️ Verwachte zonnestroom\n{% set vandaag = states('sensor.energyprijs_pv_vandaag') | float(-1) %}\n{% set morgen = states('sensor.energyprijs_pv_morgen') | float(-1) %}\n{% set src_vandaag = states('input_text.pv_bron_vandaag') | trim %}\n{% set src_morgen = states('input_text.pv_bron_morgen') | trim %}\n{% set prijs_levering = states('sensor.stroomprijs_levering') | float(0) %}\n{% if src_vandaag in ('', 'unknown', 'unavailable', 'none') %}Vandaag: `Geen bron ingesteld`{% else %}Vandaag: **{{ vandaag | round(2) }} kWh** ({{ src_vandaag }}){% endif %}\n{% if src_morgen in ('', 'unknown', 'unavailable', 'none') %}Morgen: `Geen bron ingesteld`{% else %}Morgen: **{{ morgen | round(2) }} kWh** ({{ src_morgen }}){% endif %}\n{% if vandaag >= 0 and prijs_levering > 0 %}* Vandaag → ± **{{ (vandaag * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}\n{% if morgen >= 0 and prijs_levering > 0 %}* Morgen → ± **{{ (morgen * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}"
-      - type: entities
-        title: Zon — contractinstellingen
-        show_header_toggle: false
-        state_color: true
-        entities:
-          - entity: input_text.pv_bron_vandaag
-            name: Bron-entity vandaag
-          - entity: input_text.pv_bron_morgen
-            name: Bron-entity morgen
+    - type: entity
+      entity: sensor.stroomprijs_afname
+      name: Inkoopprijs
+      icon: mdi:arrow-bottom-right
+      state_color: true
+    - type: entity
+      entity: sensor.stroomprijs_levering
+      name: Verkoopprijs
+      icon: mdi:arrow-top-right
+    columns: 2
+  - type: custom:apexcharts-card
+    section_mode: true
+    experimental:
+      color_threshold: true
+      disable_config_validation: true
+    graph_span: 48h
+    span:
+      start: day
+    show:
+      last_updated: true
+    now:
+      show: true
+      label: nu
+    header:
+      show: true
+      title: Stroomprijs — vandaag + morgen
+      show_states: false
+      colorize_states: false
+    series:
+    - entity: sensor.stroomprijs_daglijst
+      name: inkoop
+      type: column
+      yaxis_id: prijzen
+      data_generator: return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.in]);
+      float_precision: 3
+      color_threshold:
+      - value: 0
+        color: '#0a8f3c'
+      - value: 0.1
+        color: '#2fbf5f'
+      - value: 0.25
+        color: '#e6b800'
+      - value: 0.4
+        color: '#d94040'
+      show:
+        in_header: false
+    - entity: sensor.stroomprijs_daglijst
+      name: verkoop
+      type: line
+      yaxis_id: prijzen
+      stroke_width: 1
+      color: '#d94040'
+      data_generator: return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.uit]);
+      float_precision: 3
+      show:
+        in_header: false
+    apex_config:
+      legend:
+        show: false
+      xaxis:
+        type: datetime
+        min: EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000
+        max: EVAL:new Date(new Date().setHours(0,0,0,0) + 2*86400000).getTime() + 450000
+        labels:
+          formatter: EVAL:(ts) => new Date(ts).toLocaleDateString(undefined, {weekday:'short', day:'numeric'}) + ' ' + new Date(ts).toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'})
+    yaxis:
+    - decimals: 3
+      min: '|-0.04|'
+      max: '|+0.04|'
+  - type: entities
+    title: Stroomprijs — contractinstellingen
+    show_header_toggle: false
+    state_color: true
+    entities:
+    - entity: input_number.prijs_btw
+      name: Btw (factor, NL = 0,21)
+    - entity: input_number.prijs_energiebelasting
+      name: Energiebelasting excl. btw (€/kWh)
+    - entity: input_number.prijs_opslag_afname
+      name: Leveranciersopslag afname (€/kWh)
+    - entity: input_number.prijs_opslag_levering
+      name: Leveranciersopslag levering (€/kWh)
+    - entity: input_boolean.prijs_saldering_energiebelasting_teruggave
+      name: Saldering (teruggave belasting)
+  - type: markdown
+    title: Accu — contract & snelkoppeling
+    content: '## 🔋 Accupercentage
+
+      {% set soc_eid = ''sensor.energyprijs_accu_percentage'' %}
+
+      {% set src = states(''input_text.accu_bron_entity'') | trim %}
+
+      {% if src == '''' or src in (''unknown'', ''unavailable'', ''none'') %}Bron: `Geen bron ingesteld`{% else %}Bron: `{{ src }}` — **{{ states(soc_eid) }}%**{% endif %}
+
+      {% set soc = states(soc_eid) | float(-1) %}
+
+      {% set kwh = states(''input_number.accu_capaciteit_kwh'') | float(0) %}
+
+      {% set p_in = states(''input_number.accu_vermogen_in_kw'') | float(0) %}
+
+      {% set p_uit = states(''input_number.accu_vermogen_uit_kw'') | float(0) %}
+
+      {% if soc >= 0 and kwh > 0 %}
+
+      * In de accu: **{{ (soc / 100 * kwh) | round(2) }} kWh**
+
+      {% endif %}
+
+      {% set res_pct = states(''input_number.accu_reserve_pct'') | float(-1) %}
+
+      {% if soc >= 0 and kwh > 0 and res_pct >= 0 %}
+
+      * Boven de reserve: **{{ ((soc - res_pct) / 100 * kwh) | round(2) }} kWh** (reserve {{ res_pct | round(0) }}% = {{ (res_pct / 100 * kwh) | round(1) }} kWh)
+
+      {% endif %}
+
+      {% if soc >= 0 and kwh > 0 and p_in > 0 %}
+
+      * Vol laden vanaf nu: ± **{{ ((100 - soc) / 100 * kwh / p_in) | round(1) }} uur**
+
+      {% endif %}
+
+      {% if soc >= 0 and kwh > 0 and p_uit > 0 %}
+
+      * Leeg ontladen vanaf nu: ± **{{ (soc / 100 * kwh / p_uit) | round(1) }} uur**
+
+      {% endif %}'
+  - type: entities
+    title: Accu — contractinstellingen
+    show_header_toggle: false
+    state_color: true
+    entities:
+    - entity: input_text.accu_bron_entity
+      name: Bron-entity accu-%
+    - entity: input_number.accu_capaciteit_kwh
+      name: Capaciteit (kWh)
+    - entity: input_number.accu_vermogen_in_kw
+      name: Laadvermogen max (kW)
+    - entity: input_number.accu_vermogen_uit_kw
+      name: Ontlaadvermogen max (kW)
+    - entity: input_number.accu_reserve_pct
+      name: Reserve — SOC-ondergrens (%)
+  - type: markdown
+    title: Zon — contract & snelkoppelingen
+    content: '## ☀️ Verwachte zonnestroom
+
+      {% set vandaag = states(''sensor.energyprijs_pv_vandaag'') | float(-1) %}
+
+      {% set morgen = states(''sensor.energyprijs_pv_morgen'') | float(-1) %}
+
+      {% set src_vandaag = states(''input_text.pv_bron_vandaag'') | trim %}
+
+      {% set src_morgen = states(''input_text.pv_bron_morgen'') | trim %}
+
+      {% set prijs_levering = states(''sensor.stroomprijs_levering'') | float(0) %}
+
+      {% if src_vandaag in ('''', ''unknown'', ''unavailable'', ''none'') %}Vandaag: `Geen bron ingesteld`{% else %}Vandaag: **{{ vandaag | round(2) }} kWh** ({{ src_vandaag }}){% endif %}
+
+      {% if src_morgen in ('''', ''unknown'', ''unavailable'', ''none'') %}Morgen: `Geen bron ingesteld`{% else %}Morgen: **{{ morgen | round(2) }} kWh** ({{ src_morgen }}){% endif %}
+
+      {% if vandaag >= 0 and prijs_levering > 0 %}* Vandaag → ± **{{ (vandaag * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}
+
+      {% if morgen >= 0 and prijs_levering > 0 %}* Morgen → ± **{{ (morgen * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}'
+  - type: entities
+    title: Zon — contractinstellingen
+    show_header_toggle: false
+    state_color: true
+    entities:
+    - entity: input_text.pv_bron_vandaag
+      name: Bron-entity vandaag
+    - entity: input_text.pv_bron_morgen
+      name: Bron-entity morgen

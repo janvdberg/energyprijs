@@ -160,6 +160,11 @@ template:
   - triggers:
       - trigger: homeassistant
         event: start
+      # Elke 5 min een verse state (now().strftime('%H:%M')) → de kaart (zonder
+      # update_interval) ververst dan ook vanzelf: 'nu'-markering blijft lopen en
+      # een gemiste prijzendruppel pakt hij binnen 5 min op (review 7 okt '26).
+      - trigger: time_pattern
+        minutes: "/5"
       - trigger: state
         entity_id:
           - input_number.prijs_btw
