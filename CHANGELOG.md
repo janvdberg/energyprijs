@@ -4,6 +4,28 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-07 — shadow-mode voor de nieuwe accu-handelregel (v1.5.0)
+- Nieuw optioneel package `shadow/energyprijs_shadow.yaml` (revisie 3 van
+  `roi-monitor/stroomhandel_tactiek.md`):
+  - Doel-SOC = 100% − (vandaag_zon + morgen_zon) / capaciteit, geklem 20–100%
+  - Ruimetak: SOC boven doel → R; afvoer eerst naar huis (SPAAR), verkoop alleen
+    als de verkoop-eis bereikt is (COMFORT), verkoopbaar deel begrensd door min(R,S)
+  - V = η × gemiddelde van de N duurste in-prijzen (N=12 default, instelbaar)
+  - Laden alleen als in(t) + w + m < V
+  - Verkoop-eis over venster t+24u: min(net-herlaad, PV-overschot-herlaad) / η + w + m
+  - Vijf bestaande statussen als output: LADEN / OP HET NET / NEUTRAAL / SPAAR / COMFORT
+    (incl. "COMFORT (curtail)" bij negatieve uit)
+  - Zes input_number-helpers: shadow_eta (0,83), shadow_w (0,025), shadow_m (0,015),
+    shadow_n_top (12), shadow_capaciteit (92), shadow_soc_min (20)
+- E2E-test in HA-fixture: helpers + sensoren bestaan, doel-SOC-rekening (61,9% op
+  S=35/C=92), en vier beslis-scenario's (neutraal / COMFORT bij avondpiek met
+  PV-herlaad / SPAAR bij ruimtegebrek zonder marge / curtail bij negatieve uit).
+- SHADOW: geen schrijfnaar-omvormer; de automatiek logt alleen via
+  persistent_notification. Overname pas na min. 2 weken naast elkaar.
+- Installatie (handmatig): `cp shadow/energyprijs_shadow.yaml /config/packages/` +
+  herstart. Ziet de oude G1–G4-logica er anders uit na overname? Dat is de bedoeling —
+  de nieuwe regel vervangt de vier grenzensensoren door de zes shadow-sensoren.
+
 ## 2026-10-07 — verkooplijn volgt saldering direct, structureel (v1.4.3)
 - Review van Jan vastgesteld via apexcharts-card-broncode: `set hass()` ververst data
   alléén als er GEEN `update_interval` in de config staat; met "5min" negeerde de kaart
