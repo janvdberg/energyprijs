@@ -166,7 +166,8 @@ template:
               {% set ts = e.t | as_datetime %}
               {% if ts <= ns.nu + timedelta(hours=24) %}
                 {% set ns.net = ns.net + [e.in | float(9)] %}
-                {% if ts.hour >= 7 and ts.hour < 19 and e.uit is defined %}
+                {#── PV-herlaad alleen binnen het zonvenster (sun.sun) ──#}
+                {% if e.uit is defined and son is not none and op is not none and ts >= op and ts <= son %}
                   {% set ns.pv = ns.pv + [e.uit | float(9)] %}
                 {% endif %}
               {% endif %}
