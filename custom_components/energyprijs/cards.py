@@ -213,6 +213,42 @@ PVINSTELLINGEN_CARD = {
     ],
 }
 
+SHADOW_CARD = {
+    "type": "custom:state-card",
+    "entity": "sensor.shadow_status",
+    "name": "Shadow tactiek — accustatus",
+    "state": [
+        {"state": "LADEN", "icon": "mdi:battery-charging-100", "color": "var(--primary-color-blue)"},
+        {"state": "NEUTRAAL", "icon": "mdi:battery-outline", "color": "var(--primary-color-grey)"},
+        {"state": "OP HET NET", "icon": "mdi:battery-alert", "color": "var(--primary-color-orange)"},
+        {"state": "SPAAR", "icon": "mdi:battery-arrow-down", "color": "var(--primary-color-green)"},
+        {"state": "COMFORT", "icon": "mdi:solar-power", "color": "var(--primary-color-red)"},
+        {"state": "COMFORT (curtail)", "icon": "mdi:solar-power-outline", "color": "var(--primary-color-red)"},
+    ],
+    "attributes": [
+        {"attribute": "in_nu", "name": "in nu (€)"}
+    ],
+}
+
+
+SHADOW_CARD = {
+    "type": "custom:state-card",
+    "entity": "sensor.shadow_status",
+    "name": "Shadow tactiek — accustatus",
+    "state": [
+        {"state": "LADEN", "icon": "mdi:battery-charging-100", "color": "var(--primary-color-blue)"},
+        {"state": "NEUTRAAL", "icon": "mdi:battery-outline", "color": "var(--primary-color-grey)"},
+        {"state": "OP HET NET", "icon": "mdi:battery-alert", "color": "var(--primary-color-orange)"},
+        {"state": "SPAAR", "icon": "mdi:battery-arrow-down", "color": "var(--primary-color-green)"},
+        {"state": "COMFORT", "icon": "mdi:solar-power", "color": "var(--primary-color-red)"},
+        {"state": "COMFORT (curtail)", "icon": "mdi:solar-power-outline", "color": "var(--primary-color-red)"},
+    ],
+    "attributes": [
+        {"attribute": "in_nu", "name": "in nu (€)"}
+    ],
+}
+
+
 CONTRACT_CARD = {
     "type": "entities",
     "title": "Stroomprijs — contractinstellingen",
@@ -301,9 +337,9 @@ def _scalar(v) -> str:
     return s
 
 
-def build_cards_yaml() -> tuple[str, str, str, str, str, str, str]:
+def build_cards_yaml() -> tuple[str, str, str, str, str, str, str, str]:
     """Geef (nu_yaml, grafiek_yaml, contract_yaml, accueenheden_yaml,
-    accucontract_yaml, pvcontract_yaml, pvinstellingen_yaml)."""
+    accucontract_yaml, pvcontract_yaml, pvinstellingen_yaml, shadow_yaml)."""
     nu = _yaml_dump(NU_CARD)
     grafiek = _yaml_dump(GRAFIEK_CARD)
     contract = _yaml_dump(CONTRACT_CARD)
@@ -311,5 +347,6 @@ def build_cards_yaml() -> tuple[str, str, str, str, str, str, str]:
     accucontract = _yaml_dump(ACCUCONTRACT_CARD)
     pvcontract = _yaml_dump(PVCONTRACT_CARD)
     pvinstellingen = _yaml_dump(PVINSTELLINGEN_CARD)
+    shadow = _yaml_dump(SHADOW_CARD)
     return (nu, grafiek, contract, accueenheden, accucontract,
-            pvcontract, pvinstellingen)
+            pvcontract, pvinstellingen, shadow)

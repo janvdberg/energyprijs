@@ -26,7 +26,14 @@ try:
 except ImportError:  # kern < 2024.4 had 'Optional' i.p.v. 'ONLY/OPTIONAL'
     SupportsResponse = None
 
-from .const import DOMAIN, PACKAGE_FILENAME, PACKAGE_SOURCE, CONFIG_FILENAME
+from .const import (
+    CONFIG_FILENAME,
+    DOMAIN,
+    PACKAGE_FILENAME,
+    PACKAGE_SOURCE,
+    SHADOW_PACKAGE_FILENAME,
+    SHADOW_PACKAGE_SOURCE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,13 +114,17 @@ async def sync_package_if_changed(hass: HomeAssistant) -> bool:
     synchroniseren op sha256, en bij een write een repair-issue zetten dat de
     gebruiker naar de verplichte herstart wijst. Geeft True terug als disk
     werd bijgewerkt (herstart nodig om het te laden).
+
+    Sinds v1.5.1: ook het shadow-package (energyprijs_shadow.yaml) — de
+    regime-vrije tactiek voor de accu — wordt zo meegesynchroniseerd.
     """
     changed = await hass.async_add_executor_job(_sync_package_sync, hass)
-    if changed:
+    shadow_changed = await hass.async_add_executor_job(_sync_shadow_package_sync, hass)
+    if changed or shadow_changed:
         await _create_restart_issue(hass)
     else:
         await _resolve_restart_issue(hass)
-    return changed
+    return changed or shadow_changed
 
 
 def _package_gelijk_sync(hass: HomeAssistant) -> bool:
@@ -136,6 +147,33 @@ def _sync_package_sync(hass: HomeAssistant) -> bool:
         return False
     _write_package_sync(hass)
     _LOGGER.info("energyprijs: package bijgewerkt op disk — HERSTART vereist om het te laden")
+    return True
+
+
+def _shadow_package_gelijk_sync(hass: HomeAssistant) -> bool:
+    """Heeft het shadow-package op disk exact dezelfde inhoud als het ingebedde?"""
+    target = _config_dir(hass) / "packages" / SHADOW_PACKAGE_FILENAME
+    source = Path(__file__).parent / SHADOW_PACKAGE_SOURCE
+    if not target.exists():
+        return False
+    import hashlib
+
+    def h(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    return h(target) == h(source)
+
+
+def _sync_shadow_package_sync(hass: HomeAssistant) -> bool:
+    """Executor-deel: shadow-package vergelijken + eventueel schrijven."""
+    if _shadow_package_gelijk_sync(hass):
+        return False
+    packages_dir = _config_dir(hass) / "packages"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+    source = Path(__file__).parent / SHADOW_PACKAGE_SOURCE
+    target = packages_dir / SHADOW_PACKAGE_FILENAME
+    target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    _LOGGER.info("energyprijs: shadow-package bijgewerkt op disk — HERSTART vereist om het te laden")
     return True
 
 
@@ -276,7 +314,7 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
     """
     from .cards import (ACCUCONTRACT_CARD, ACCUEENHEDEN_CARD, CONTRACT_CARD,
                         GRAFIEK_CARD, NU_CARD, PVCONTRACT_CARD,
-                        PVINSTELLINGEN_CARD)
+                        PVINSTELLINGEN_CARD, SHADOW_CARD)
 
     # ── 0a) package in sync met de geïnstalleerde code (veilige route:
     #        sha256-check + repair-issue bij een write, geen blinde overschrijving)
@@ -557,13 +595,17 @@ async def _dashboard_opslaan(hass: HomeAssistant) -> dict:
             # accu- en pv-contracttegels herkennen op hun contract-sensoren
             return ("sensor.energyprijs_accu_percentage" in str(card.get("content", ""))
                     or "sensor.energyprijs_pv_vandaag" in str(card.get("content", "")))
+        if t == "custom:state-card":
+            # shadow-tactiek-tegel herkennen op de status-sensor
+            return card.get("entity") == "sensor.shadow_status"
         return False
 
     kept = [c for c in cards_list if not _is_ours(c)]
     removed = len(cards_list) - len(kept)
     first["cards"] = kept + [NU_CARD, GRAFIEK_CARD, CONTRACT_CARD,
                              ACCUEENHEDEN_CARD, ACCUCONTRACT_CARD,
-                             PVCONTRACT_CARD, PVINSTELLINGEN_CARD]
+                             PVCONTRACT_CARD, PVINSTELLINGEN_CARD,
+                             SHADOW_CARD]
 
     new_cfg = {"views": views}
     if (cfg or {}).get("jinja"):
@@ -819,7 +861,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         """Geef de kant-en-klare dashboardkaarten (grafiek + contractinvulvelden)."""
         from .cards import build_cards_yaml
         (nu, grafiek, contract, accueenheden, accucontract,
-         pvcontract, pvinstellingen) = build_cards_yaml()
+         pvcontract, pvinstellingen, shadow) = build_cards_yaml()
         return {
             "nu": nu,
             "grafiek": grafiek,
@@ -828,6 +870,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
             "accucontract": accucontract,
             "pvcontract": pvcontract,
             "pvinstellingen": pvinstellingen,
+            "shadow": shadow,
             "uitleg": (
                 "Plak de kaarten in deze volgorde in je view: 'nu' (grid-tegel met "
                 "inkoop- en verkoopprijs), 'grafiek' (apexcharts bruto-staafjes zonder "

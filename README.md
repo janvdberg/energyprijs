@@ -1,6 +1,6 @@
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.x-blue?logo=homeassistant)
 ![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-orange?logo=hackthebox)
-![versie](https://img.shields.io/badge/versie-1.4.0-brightgreen)
+![versie](https://img.shields.io/badge/versie-1.5.1-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 # ⚡ Energyprijs
@@ -14,6 +14,7 @@
 | 💶 All-in formules | Afname/levering via instelbare velden: btw, energiebelasting, opslagen |
 | 🔔 Meldingen | Automatisch bij bronuitval, spreiding of ontbrekende morgenprijzen |
 | 🗓️ 2027-bestendig | Saldering vervalt 1-1-2027 → één schakelaar om, formules passen zichzelf aan |
+| 🔋 Shadow tactiek (v1.5.1) | Regime-vrije accuhandel: 5 statussen (LADEN · NEUTRAAL · OP HET NET · SPAAR · COMFORT) op zonvenster van `sun.sun`, PV-ruimte en PV-herlaad-eis — meedraait in shadow-mode naast G1–G4 |
 
 ## Installatie
 

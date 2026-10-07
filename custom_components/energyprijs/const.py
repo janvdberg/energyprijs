@@ -2,6 +2,8 @@
 DOMAIN = "energyprijs"
 PACKAGE_FILENAME = "energyprijs.yaml"
 PACKAGE_SOURCE = "package.yaml"
+SHADOW_PACKAGE_FILENAME = "energyprijs_shadow.yaml"
+SHADOW_PACKAGE_SOURCE = "shadow/shadow.yaml"
 CONFIG_FILENAME = "configuration.yaml"
 
 import json as _json
