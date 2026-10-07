@@ -4,9 +4,10 @@ Genereert een complete, kant-en-klare Lovace-kaartconfig (prijs-tegels +
 grafiek + contract-invulvelden) die de integratie zelf in het dashboard zet —
 geen handwerk meer via "Add card → Manual YAML".
 
-Sinds v1.2.41 exact de door Jan handmatig aangepaste opbouw (golden file in
-tests/test_golden_dashboard.py): de grafiek toont ALLÉÉN de bruto-kolommen
-(verkoopprijslijn bewust verwijderd), legenda weg, titel "Stroomprijs".
+Sinds v1.2.41 verankerd als golden file (tests/test_golden_dashboard.py).
+v1.4.1: de grafiek toont de ECHTE prijzen — balkjes = inkoopprijs all-in
+(gekleurd op prijsniveau) + dun rood lijntje eronder = verkoopprijs; beide
+series delen één y-as via yaxis_id 'prijzen'. Legenda blijft uit.
 Wijzig hier alleen als je akkoord bent dat elk geïnstalleerd dashboard bij de
 volgende update naar die opbouw wordt herbouwd (opbouw-check, installer.py).
 
@@ -38,12 +39,14 @@ GRAFIEK_CARD = {
     },
     "series": [
         {
+            # balkjes = inkoopprijs all-in per uur/kwartier (daglijst-attr 'in')
             "entity": "sensor.stroomprijs_daglijst",
-            "name": "bruto",
+            "name": "inkoop",
             "type": "column",
+            "yaxis_id": "prijzen",
             "data_generator": (
                 "return entity.attributes.vandaag.concat(entity.attributes.morgen)"
-                ".map((e) => [new Date(e.t).getTime() + 450000, e.p]);"
+                ".map((e) => [new Date(e.t).getTime() + 450000, e.in]);"
             ),
             "float_precision": 3,
             "color_threshold": [
@@ -52,6 +55,23 @@ GRAFIEK_CARD = {
                 {"value": 0.25, "color": "#e6b800"},
                 {"value": 0.4, "color": "#d94040"},
             ],
+            "show": {"in_header": False},
+        },
+        {
+            # dun lijntje ONDER de balkjes = verkoopprijs all-in (daglijst-attr 'uit');
+            # yaxis_id + min/max van de hoofd-as houdt de lijn onderaan zonder
+            # eigen schaal te introduceren (v2-safe: geen losse yas-config nodig).
+            "entity": "sensor.stroomprijs_daglijst",
+            "name": "verkoop",
+            "type": "line",
+            "yaxis_id": "prijzen",
+            "stroke_width": 1,
+            "color": "#d94040",
+            "data_generator": (
+                "return entity.attributes.vandaag.concat(entity.attributes.morgen)"
+                ".map((e) => [new Date(e.t).getTime() + 450000, e.uit]);"
+            ),
+            "float_precision": 3,
             "show": {"in_header": False},
         },
     ],

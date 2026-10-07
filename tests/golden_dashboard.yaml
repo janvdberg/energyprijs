@@ -39,9 +39,10 @@ views:
           colorize_states: false
         series:
           - entity: sensor.stroomprijs_daglijst
-            name: bruto
+            name: inkoop
             type: column
-            data_generator: "return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.p]);"
+            yaxis_id: prijzen
+            data_generator: "return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.in]);"
             float_precision: 3
             color_threshold:
               - value: 0
@@ -52,6 +53,16 @@ views:
                 color: "#e6b800"
               - value: 0.4
                 color: "#d94040"
+            show:
+              in_header: false
+          - entity: sensor.stroomprijs_daglijst
+            name: verkoop
+            type: line
+            yaxis_id: prijzen
+            stroke_width: 1
+            color: "#d94040"
+            data_generator: "return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.uit]);"
+            float_precision: 3
             show:
               in_header: false
         apex_config:

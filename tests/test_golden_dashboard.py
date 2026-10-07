@@ -80,9 +80,24 @@ def _fake_lovelace(hass, stored):
             saved.append(copy.deepcopy(config))
             stored.clear(); stored.update(copy.deepcopy(config))
 
+    class ConfigNotFoundSim(Exception): pass
+
     class FakeLive:
-        _data = None
-        async def async_save(self, config): self._data = config
+        """Bootst de LIVE LovelaceCache-instantie na (v1.3.3: één schrijver).
+
+        async_load() gooit ConfigNotFound zolang er nog niets staat (exact als
+        core), daarna geeft het DEZELFDE mutateerbare 'stored'-dict terug dat de
+        installer via async_save vult — zo ziet ronde 2 zijn eigen werk en valt
+        de skip-check ('huidig') überhaupt bereikbaar te worden.
+        """
+        async def async_load(self, force=False):
+            if not stored.get("views"):
+                raise ConfigNotFoundSim("leeg")
+            return stored
+
+        async def async_save(self, config):
+            stored.clear(); stored.update(copy.deepcopy(config))
+            saved.append(copy.deepcopy(config))
 
     hass.data[LOVELACE_DATA] = types.SimpleNamespace(
         dashboards={inst.DASH_ID: FakeLive()})
@@ -162,7 +177,8 @@ async def test_oude_v1240_grafiek_wordt_precies_een_keer_vervangen(hass):
                         if isinstance(c, dict)
                         and c.get("type") == "custom:apexcharts-card")
         assert new_graf == GRAFIEK_CARD
-        assert len(new_graf["series"]) == 1
+        # v1.4.1: balkjes (inkoop) + dunne lijn (verkoop)
+        assert len(new_graf["series"]) == 2
         # accu- en pv-contractkaarten moeten nu ook in de view staan (v1.2.42/v1.3.0)
         kaarten = saved[0]["views"][0]["cards"]
         from custom_components.energyprijs.cards import (PVCONTRACT_CARD,

@@ -167,9 +167,9 @@ async def test_opbouwcheck_vervangt_oude_koppen(hass):
 
 
 async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
-    """Task-test 4 okt '26: legenda volledig verborgen in apex_config en de
-    grafiekseries zijn teruggebracht tot precies één bruto-kolom (verkoop-
-    prijslijn bewust verwijderd, v1.2.41).
+    """Taak-test 7 okt '26 (v1.4.1): legenda blijft verborgen; de grafiek toont
+    NU twee series — inkoop als gekleurde balkjes (e.in) en verkoop als dunne
+    rode lijn (e.uit) eronder. Beide delen één y-as via yaxis_id 'prijzen'.
     """
     from custom_components.energyprijs.cards import GRAFIEK_CARD
 
@@ -178,10 +178,17 @@ async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
     assert "min" in GRAFIEK_CARD["apex_config"]["xaxis"]
     assert "max" in GRAFIEK_CARD["apex_config"]["xaxis"]
 
-    assert len(GRAFIEK_CARD["series"]) == 1
-    serie = GRAFIEK_CARD["series"][0]
-    assert serie["name"] == "bruto" and serie["type"] == "column"
-    assert serie["entity"] == "sensor.stroomprijs_daglijst"
+    assert len(GRAFIEK_CARD["series"]) == 2
+    balk, lijn = GRAFIEK_CARD["series"]
+    assert balk["name"] == "inkoop" and balk["type"] == "column"
+    assert balk["entity"] == "sensor.stroomprijs_daglijst"
+    assert ".map((e) => [new Date(e.t).getTime() + 450000, e.in]);" in balk["data_generator"]
+    assert lijn["name"] == "verkoop" and lijn["type"] == "line"
+    assert lijn["stroke_width"] == 1 and lijn["color"] == "#d94040"
+    assert ".map((e) => [new Date(e.t).getTime() + 450000, e.uit]);" in lijn["data_generator"]
+    # één gedeelde as: geen losse yas-configs (v2-safe, zónder eigen schaal per reeks)
+    assert balk["yaxis_id"] == lijn["yaxis_id"] == "prijzen"
+    assert len(GRAFIEK_CARD["yaxis"]) == 1
 
 
 async def test_opbouwcheck_forceert_herbouw_bij_nieuwe_legenda_key(hass):

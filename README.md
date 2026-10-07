@@ -181,7 +181,7 @@ verschijnen nieuwe services ook in die lijst.)
 
 Dan:
 - **bestaat het dashboard niet** → er wordt een nieuw user dashboard **"Energie"**
-  aangemaakt met de prijs-tegels (inkoop/verkoop), de 24-uur-brutografiek en de
+  aangemaakt met de prijs-tegels (inkoop/verkoop), de inkoop-/verkoopgrafiek en de
   contractinvulvelden. Het verschijnt direct in je dashboardmenu;
 - **bestaat het dashboard al** → de kaarten worden bijgewerkt naar de opbouw uit de
   huidige versie. **Andere kaarten in het dashboard blijven 100% intact.**
@@ -204,7 +204,7 @@ HACS-kaart `apexcharts-card`; de tegels zijn pure core.
 
 ![Voorbeeldgrafiek](docs/voorbeeld-grafiek.png)
 
-*Inkoop- en verkoopprijs als tegels boven de grafiek (2-koloms grid). Daaronder 15-min staafjes van de bruto spotprijs; donkergroen < €0,10 · lichtgroen < €0,25 · geel < €0,40 · rood ≥ €0,40 — geen legenda, de kleuren zijn het onderscheid. De gestippelde lijn is 'nu'. Ten slotte de contract-tegel. Dit is een nabouwing met echte data van vandaag — in HA tekent ApexCharts-card exact dit beeld, inclusief hover-waarden per kwartier.*
+*Inkoop- en verkoopprijs als tegels boven de grafiek (2-koloms grid). Daaronder 15-min balkjes van de inkoopprijs all-in; donkergroen < €0,10 · lichtgroen < €0,25 · geel < €0,40 · rood ≥ €0,40 — en onder de balkjes een dun rood lijntje voor de verkoopprijs. Geen legenda: balk = inkoop, lijn = verkoop. De gestippelde lijn is 'nu'. Ten slotte de contract-tegel. Dit is een nabouwing met echte data van vandaag — in HA tekent ApexCharts-card exact dit beeld, inclusief hover-waarden per kwartier.*
 
 ## Grafiek — handmatig plakken
 
@@ -232,12 +232,13 @@ header:
   show_states: false
   colorize_states: false
 series:
-  # ── staafjes = bruto spot per kwartier, gekleurd op prijsniveau ──
+  # ── balkjes = inkoopprijs all-in per kwartier, gekleurd op prijsniveau ──
   - entity: sensor.stroomprijs_daglijst
-    name: bruto
+    name: inkoop
     type: column
+    yaxis_id: prijzen
     data_generator: >
-      return entity.attributes.vandaag.map((e) => [new Date(e.t).getTime() + 450000, e.p]);
+      return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.in]);
     float_precision: 3
     color_threshold:
       - value: 0
@@ -248,6 +249,18 @@ series:
         color: "#e6b800"
       - value: 0.4
         color: "#d94040"
+    show:
+      in_header: false
+  # ── dun lijntje onder de balkjes = verkoopprijs all-in ──
+  - entity: sensor.stroomprijs_daglijst
+    name: verkoop
+    type: line
+    yaxis_id: prijzen
+    stroke_width: 1
+    color: "#d94040"
+    data_generator: >
+      return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.uit]);
+    float_precision: 3
     show:
       in_header: false
 apex_config:
@@ -311,12 +324,14 @@ yaxis:
 
 ![Statusvoorbeeld](docs/voorbeeld-status.png)
 
-De grafiek toont bewust alléén de bruto-staafjes (geen legenda — de staafkleuren zijn het
-onderscheid; de verkoopprijslijn is sinds v1.2.41 verwijderd). Inkoopprijs en verkoopprijs
-staan als aparte tegels boven de grafiek. Hover je over een staafje,
+De grafiek toont de **inkoopprijs** als balkjes (gekleurd op prijsniveau) met daaronder een
+**dun rood lijntje voor de verkoopprijs** — geen legenda, de vormen zijn het onderscheid
+(sinds v1.4.1; vóór die tijd alleen bruto-staafjes). Inkoop- en verkoopprijs staan daarnaast
+als aparte tegels boven de grafiek. Hover je over een staafje,
 dan geeft de tooltip bruto/in/uit voor dat kwartier — want de daglijst-sensor bevat per
-interval alle drie (`{t, p, in, uit}`). Wil je in/uit per interval in de grafiek zelf,
-voeg dan deze twee lijn-series toe aan `series:` (met `show: {in_header: false}`):
+interval alle drie (`{t, p, in, uit}`). Liever bruto-staafjes met in/uit erbij als dunne
+lijnen? Vervang in de eerste serie `e.in` door `e.p` en voeg deze twee lijn-series toe
+aan `series:` (met `show: {in_header: false}`):
 
 ```yaml
   - entity: sensor.stroomprijs_daglijst
@@ -349,6 +364,7 @@ weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
 
 | Versie | Wijziging |
 |---|---|
+| 1.4.1 | **Grafiek toont echte prijzen**: de balkjes zijn nu de **inkoopprijs all-in** per kwartier (`e.in`, kleurcodering blijft), met eronder een **dun rood lijntje voor de verkoopprijs** (`e.uit`). De gebruiker hoeft niet meer zelf vanuit bruto te rekenen. Beide series delen één y-as via `yaxis_id: prijzen`; legenda blijft uit — balk = inkoop, lijn = verkoop. Hover toont bruto/in/uit zoals altijd ||
 | 1.4.0 | **Reserve-contract**: `input_number.accu_reserve_pct` — de SOC-ondergrens die geen enkele strategie mag underschrijden (netstoring-backup + cel-beveiliging), één bron van waarheid in plaats van verspreide hardcoded 20%-reserves. Afgeleide `sensor.energyprijs_accu_reserve` (kWh, volgt beide accu-contractnamen live; reserve 0% of ontbrekende SOC → unavailable). Accu-tegel toont nu "Boven de reserve: X kWh", contractkaart krijgt het invulveld, default éénmalig 20%. Voorbereiding solver/backtest-fase: elke winststrategie rekent vanaf nu tegen deze grens ||
 | 1.3.3 | **Reviewpunten 1-4 + 6**: eigen view-behoud (herkenning op `path: energie`, nooit meer `views[0]` — jouw eerste view blijft ongemoeid), één schrijver per herbouw (live-instantie wint; geen dubbel `lovelace_updated`-event), `dashboard_bestaat()` geeft True/False/None → een blijvende storage-leesfout veroorzaakt géén herbouw-loop en de bewakingstimer daalt na succes naar 1 uur, dode imports/variabelen weg + GitHub Actions CI met ruff (ving dabei een bestaande crasher op: `restart_needed` undefined in de install-service) en een canary-test die de private HA-API's (`coll.store`, `_data_to_save`) tegen minimum-HA bewaakt. Historische review-notities verhuisden naar CHANGELOG.md ||
 | 1.3.2 | **Verwijderd dashboard komt terug** (review 5 okt): de bestaanscheck is nu twee-voorwaardelijk — versie-marker **én** het item daadwerkelijk in `.storage/lovelace_dashboards`. Bij gedetecteerde verwijdering wist de integratie zijn marker en herbouwt startup/timer/service het dashboard vanzelf. Nieuw: na aanmaken registreert de integratie het dashboard expliciet in de **live** LovelaceData (`dashboards[url_path]`, exact zoals HA core dat doet), zodat de UI-websocket het direct vindt — geen leeg dashboard meer tot een herstart. Lukt die registratie niet, dan verschijnt er een repair-issue 'herstart Home Assistant' in plaats van stil falen. Startup-log op INFO meldt altijd: marker vs manifest + of het dashboard bestaat. Service `energyprijs.status` geeft veld `dashboard_bestaat` terug ||

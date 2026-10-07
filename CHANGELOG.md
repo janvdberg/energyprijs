@@ -4,6 +4,15 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-07 — grafiek op echte prijzen (v1.4.1)
+- Jan: "de gebruiker moet altijd zelf rekenen voor de echte prijzen". Balkjes tekenen nu
+  de **inkoopprijs all-in** (`e.in`) i.p.v. bruto (`e.p`); eronder een **dun rood lijntje**
+  met de verkoopprijs (`e.uit`). Beide series delen één y-as via `yaxis_id: prijzen` —
+  géén losse `yas`-configs, want apexcharts v2.2.3's strikte checker + de valkuil uit
+  1.2.20-1.2.24 (multi-as-spook) blijven geldig; `disable_config_validation` staat al aan.
+- Golden file + beide reeks-tests bijgewerkt (series == 2). Opbouw-check is sleutel-op-
+  sleutel met GRAFIEK_CARD → elk bestaand dashboard herbouwt automatisch na de update.
+
 ## 2026-10-05 — review v1.3.2 (punten 1–6)
 - **Punt 1**: view-selectie was `views[0]` → eigen eerste view van de gebruiker
   kon overschreven of platgeslagen worden. Nu: herkenning op `path == "energie"`,
