@@ -185,7 +185,10 @@ async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
     assert ".map((e) => [new Date(e.t).getTime() + 450000, e.in]);" in balk["data_generator"]
     assert lijn["name"] == "verkoop" and lijn["type"] == "line"
     assert lijn["stroke_width"] == 1 and lijn["color"] == "#d94040"
-    assert ".map((e) => [new Date(e.t).getTime() + 450000, e.uit]);" in lijn["data_generator"]
+    # verkoop herberekent LIVE vanuit de contract-helpers (saldering-toggel moet
+    # direct zichtbaar zijn — cached 'uit'-attribuut liep achter, bug v1.4.1)
+    assert "input_boolean.prijs_saldering_energiebelasting_teruggave" in lijn["data_generator"]
+    assert "(e.p + sl) * btw + (sal ? bel * btw : 0)" in lijn["data_generator"]
     # één gedeelde as: geen losse yas-configs (v2-safe, zónder eigen schaal per reeks)
     assert balk["yaxis_id"] == lijn["yaxis_id"] == "prijzen"
     assert len(GRAFIEK_CARD["yaxis"]) == 1

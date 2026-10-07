@@ -58,9 +58,12 @@ GRAFIEK_CARD = {
             "show": {"in_header": False},
         },
         {
-            # dun lijntje ONDER de balkjes = verkoopprijs all-in (daglijst-attr 'uit');
+            # dun lijntje ONDER de balkjes = verkoopprijs all-in;
             # yaxis_id + min/max van de hoofd-as houdt de lijn onderaan zonder
             # eigen schaal te introduceren (v2-safe: geen losse yas-config nodig).
+            # Formule hier NAGEBOUWD uit package.yaml en live herberekend tegen de
+            # contract-helpers: de daglijst-attr 'uit' is een cached sensor-getal
+            # en liep bij Jan niet mee na het omschakelen van saldering (7 okt '26).
             "entity": "sensor.stroomprijs_daglijst",
             "name": "verkoop",
             "type": "line",
@@ -68,8 +71,15 @@ GRAFIEK_CARD = {
             "stroke_width": 1,
             "color": "#d94040",
             "data_generator": (
+                "const h = (id, d) => { const s = hass.states[id]; "
+                "return s ? parseFloat(s.state) : d; }; "
+                "const btw = 1 + h('input_number.prijs_btw', 0.21); "
+                "const bel = h('input_number.prijs_energiebelasting', 0); "
+                "const sl = h('input_number.prijs_opslag_levering', 0); "
+                "const sal = (hass.states['input_boolean.prijs_saldering_energiebelasting_teruggave']?.state ?? 'off') === 'on'; "
                 "return entity.attributes.vandaag.concat(entity.attributes.morgen)"
-                ".map((e) => [new Date(e.t).getTime() + 450000, e.uit]);"
+                ".map((e) => [new Date(e.t).getTime() + 450000, "
+                "(e.p + sl) * btw + (sal ? bel * btw : 0)]);"
             ),
             "float_precision": 3,
             "show": {"in_header": False},

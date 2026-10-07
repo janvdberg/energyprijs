@@ -61,7 +61,7 @@ views:
             yaxis_id: prijzen
             stroke_width: 1
             color: "#d94040"
-            data_generator: "return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.uit]);"
+            data_generator: "const h = (id, d) => { const s = hass.states[id]; return s ? parseFloat(s.state) : d; }; const btw = 1 + h('input_number.prijs_btw', 0.21); const bel = h('input_number.prijs_energiebelasting', 0); const sl = h('input_number.prijs_opslag_levering', 0); const sal = (hass.states['input_boolean.prijs_saldering_energiebelasting_teruggave']?.state ?? 'off') === 'on'; return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, (e.p + sl) * btw + (sal ? bel * btw : 0)]);"
             float_precision: 3
             show:
               in_header: false

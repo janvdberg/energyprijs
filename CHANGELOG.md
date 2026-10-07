@@ -4,6 +4,16 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-07 — verkoop-lijn volgt saldering live (v1.4.2)
+- Jan: togglede saldering maar de rode verkoop-lijn bewoog niet. Oorzaak: de data_generator
+  las het **cached** `uit`-attribuut van sensor.stroomprijs_daglijst; dat attribuut herberekent
+  wel bij helper-wijziging, maar liep bij Jan achter (sensor last_changed ≠ attribute-inhoud).
+  Fix: de verkoop-generator nabouwt nu de package-formule `(e.p + sl) × btw + saldering ? bel×btw : 0`
+  rechtstreeks tegen `hass.states['input_number.…']`/`input_boolean.…` — browser-JS, live, geen
+  Jinja (`states()` bestaat daar níét, skill-regel 1.2.39). Formule in node namegemeten met Jans
+  eigen HA-data: off = 0,2779 / on = 0,3888, exact gelijk aan package. Balkjes (inkoop) blijven
+  uit cached `in` — die is saldering-onafhankelijk en loopt dus niet achter.
+
 ## 2026-10-07 — grafiek op echte prijzen (v1.4.1)
 - Jan: "de gebruiker moet altijd zelf rekenen voor de echte prijzen". Balkjes tekenen nu
   de **inkoopprijs all-in** (`e.in`) i.p.v. bruto (`e.p`); eronder een **dun rood lijntje**
