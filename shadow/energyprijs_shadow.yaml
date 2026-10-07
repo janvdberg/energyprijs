@@ -145,10 +145,12 @@ template:
           {% set S = (states('sensor.vandaag_verwachte_zonnestroom') | float(0)
                       + states('sensor.verwachte_opbrengst_morgen') | float(0)) %}
           {% set ns = namespace(net=[], pv=[], nu=now()) %}
+          {#── zonvenster: boven horizon → start is 'al begonnen' (use now); onder horizon → start = next_rising ──#}
           {% set son_raw = state_attr('sun.sun', 'next_setting') %}
           {% set op_raw = state_attr('sun.sun', 'next_rising') %}
           {% set son = son_raw | as_datetime if son_raw else none %}
           {% set op = op_raw | as_datetime if op_raw else none %}
+          {% if states('sun.sun') == 'above_horizon' and son is not none %}{% set op = now() %}{% endif %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
             {% if e.t is defined and e.in is defined %}
               {% set ts = e.t | as_datetime %}
@@ -230,17 +232,18 @@ template:
           {% set op3_raw = state_attr('sun.sun', 'next_rising') %}
           {% set son3 = son3_raw | as_datetime if son3_raw else none %}
           {% set op3 = op3_raw | as_datetime if op3_raw else none %}
+          {% if states('sun.sun') == 'above_horizon' and son3 is not none %}{% set op3 = now() %}{% endif %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
             {% if e.t is defined and e.uit is defined %}
               {% set ts = e.t | as_datetime %}
-              {% if ts <= now() + timedelta(hours=24) and son3 is not none and op3 is not none and ts >= op3 and ts <= son3 %}
+              {% if ts > now() and ts <= now() + timedelta(hours=24) and son3 is not none and op3 is not none and ts >= op3 and ts <= son3 %}
                 {% if ns3.pv_min is none or e.uit | float(9) < ns3.pv_min %}{% set ns3.pv_min = e.uit | float(9) %}{% endif %}
               {% endif %}
             {% endif %}
           {% endfor %}
           {% set S = states('sensor.vandaag_verwachte_zonnestroom') | float(0) + states('sensor.verwachte_opbrengst_morgen') | float(0) %}
           {% set pv_eis = (ns3.pv_min / eta + w + m) if (ns3.pv_min is not none and S > 0) else none %}
-          {% set R = states('sensor.shadow_ruimte_R') | float(0) %}
+          {% set R = states('sensor.shadow_ruimtegebrek_r') | float(0) %}
           {% set soc = states('sensor.accu_percentage') | float(0) %}
           {% set grens = states('input_number.shadow_soc_min') | float(20) %}
           {#── huidige kwartierprijzen ──#}
@@ -260,9 +263,7 @@ template:
           {% set besluit = namespace(s='unavailable') %}
           {% if nu2.in_nu is not none %}
             {% if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'COMFORT (curtail)' %}
-            {% elif nu2.uit_nu is not none and R2 > 0 and (
-                   (pv_eis is not none and nu2.uit_nu > pv_eis)
-                   or (pv_eis is none and nu2.uit_nu > v_eis)) %}{% set besluit.s = 'COMFORT' %}
+            {% elif nu2.uit_nu is not none and pv_eis is not none and nu2.uit_nu > pv_eis %}{% set besluit.s = 'COMFORT' %}
             {% elif R2 > 0 %}{% set besluit.s = 'SPAAR' %}
             {% elif nu2.in_nu + w + m < V %}{% set besluit.s = 'LADEN' %}
             {% elif nu2.in_nu <= V %}{% set besluit.s = 'NEUTRAAL' %}
@@ -288,7 +289,7 @@ template:
               {% endif %}
             {% endfor %}
             {{ ns.v }}
-          V: "{{ states('sensor.shadow_v_kwh') }}"
+          V: "{{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}"
           verkoop_eis: "{{ states('sensor.shadow_verkoop_eis') }}"
           herlaadkosten: "{{ states('sensor.shadow_herlaadkosten') }}"
           doel_SOC: "{{ states('sensor.shadow_doel_soc') }}"
@@ -312,8 +313,8 @@ automation:
           title: "Shadow handel — statuswijziging"
           message: >
             {{ states('sensor.shadow_status') }} | in={{ state_attr('sensor.shadow_status','in_nu') }}
-            uit={{ state_attr('sensor.shadow_status','uit_nu') }} V={{ states('sensor.shadow_v_kwh') }}
-            eis={{ states('sensor.shadow_verkoop_eis') }} R={{ states('sensor.shadow_ruimte_R') }}
+            uit={{ state_attr('sensor.shadow_status','uit_nu') }} V={{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}
+            eis={{ states('sensor.shadow_verkoop_eis') }} R={{ states('sensor.shadow_ruimtegebrek_r') }}
             doelSOC={{ states('sensor.shadow_doel_soc') }}% SOC={{ states('sensor.accu_percentage') }}%
       - action: persistent_notification.create
         data:
@@ -323,6 +324,6 @@ automation:
             Status: {{ states('sensor.shadow_status') }} —
             in {{ state_attr('sensor.shadow_status','in_nu') }} ·
             uit {{ state_attr('sensor.shadow_status','uit_nu') }} ·
-            V {{ states('sensor.shadow_v_kwh') }} · eis {{ states('sensor.shadow_verkoop_eis') }} ·
-            R {{ states('sensor.shadow_ruimte_R') }}% · SOC {{ states('sensor.accu_percentage') }}%
+            V {{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }} · eis {{ states('sensor.shadow_verkoop_eis') }} ·
+            R {{ states('sensor.shadow_ruimtegebrek_r') }}% · SOC {{ states('sensor.accu_percentage') }}%
             (doel {{ states('sensor.shadow_doel_soc') }}%). Dit is SHADOW: er wordt niet geschreven.

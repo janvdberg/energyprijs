@@ -26,6 +26,19 @@ async def _setup_shadow(hass):
         "next_rising": (now - timedelta(hours=1)).isoformat(),
         "next_setting": (now + timedelta(hours=12)).isoformat(),
     })
+    # dummy daglijst vóór block_till_done: templates renderen met correct venster
+    hass.states.async_set("sensor.stroomprijs_daglijst", "12:00", {"vandaag": [], "morgen": []})
+    await hass.async_block_till_done()
+    # forceer één herberekening van alle templates (state-trigger op sun.sun)
+    hass.states.async_set("sun.sun", "below_horizon", {
+        "next_rising": (now - timedelta(hours=1)).isoformat(),
+        "next_setting": (now + timedelta(hours=12)).isoformat(),
+    })
+    await hass.async_block_till_done()
+    hass.states.async_set("sun.sun", "above_horizon", {
+        "next_rising": (now - timedelta(hours=1)).isoformat(),
+        "next_setting": (now + timedelta(hours=12)).isoformat(),
+    })
     await hass.async_block_till_done()
     return pkg
 
@@ -40,6 +53,29 @@ def _daglijst_attr(in_lagere, in_dure, uit_lagere, uit_dure):
         t = (now - timedelta(minutes=30) + timedelta(minutes=15 * i)).isoformat()
         out.append({"t": t, "p": 0.2, "in": p_in, "uit": p_uit})
     return out
+
+
+def _daglijst_voortgang(in_lagere, in_dure, uit_lagere, uit_dure):
+    """Daglijst vanaf NU: 2 kwartieren goedkoop (zon komt binnen), 2 duur."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    out = []
+    for i, (p_in, p_uit) in enumerate([(in_lagere, uit_lagere), (in_lagere, uit_lagere),
+                                       (in_dure, uit_dure), (in_dure, uit_dure)]):
+        t = (now - timedelta(seconds=7.5) + timedelta(minutes=15 * i)).isoformat()
+        out.append({"t": t, "p": 0.2, "in": p_in, "uit": p_uit})
+    return out
+
+
+def _daglijst_piek_met_pv(in_piek, uit_piek, in_pv, uit_pv):
+    """Kwartier 1 = het huidige kwartier (avondpiek, daar verkopen we);
+    kwartier 2 = straks binnen het zonvenster (goedkoop PV-herlaadmoment)."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    return [
+        {"t": (now - timedelta(seconds=7.5)).isoformat(), "p": 0.2, "in": in_piek, "uit": uit_piek},
+        {"t": (now + timedelta(minutes=14)).isoformat(), "p": 0.2, "in": in_pv, "uit": uit_pv},
+    ]
 
 
 async def _trig(hass, soc=50, val="50"):
@@ -84,8 +120,20 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     await hass.async_block_till_done()
 
     async def zet(daglijst):
-        hass.states.async_set("sensor.stroomprijs_daglijst", "12:00", {"vandaag": daglijst, "morgen": []})
-        await hass.async_block_till_done()
+        # state-waarde per kwartier laten tikken (net als de echte template-sensor met
+        # strftime), dus elke zet is gegarandeerd een state-change voor alle templates.
+        from datetime import datetime as _dt, timedelta as _td
+        kq = 0
+        while True:
+            kq += 1
+            val = (_dt.now() - _td(seconds=kq)).strftime("%H:%M:%S")
+            prev = hass.states.get("sensor.stroomprijs_daglijst")
+            if prev is not None and val == prev.state:
+                continue
+            hass.states.async_set("sensor.stroomprijs_daglijst", val,
+                                  {"vandaag": daglijst, "morgen": []})
+            await hass.async_block_till_done()
+            break
 
     # 1) normale spread: in 0,30→0,40; uit 0,28→0,38; eis ≈ herlaad(0,30)/0,83+0,04 = 0,402
     #    hoogste uit 0,38 < eis → geen COMFORT; R = 50−100 = −50 → geen SPAAR;
@@ -93,14 +141,13 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.38))
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    print("DBG status:", st.state, st.attributes)
     assert st.state in ("NEUTRAAL", "OP HET NET"), st.state
 
     # 2) te vol voor aankomende zon (S=40 → doel 56,5; SOC 80 → R=23,5) en PV-herlaad
     #    goedkoop (middag-uit 0,05 → pv_eis ≈ 0,096) → avondpiek 0,30 > pv_eis → COMFORT
     hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "40.0")
     await _trig(hass, 80)   # doel-SOC = 100−40/92·100 ≈ 56,5 → R = 80−56,5 ≈ 23,5
-    await zet(_daglijst_attr(0.30, 0.40, 0.05, 0.30))
+    await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "COMFORT", f"avondpiek boven eis moet verkopen, got {st.state}"
@@ -116,3 +163,7 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "COMFORT (curtail)", st.state
+    st = hass.states.get("sensor.shadow_status")
+    st = hass.states.get("sensor.shadow_status")
+    st = hass.states.get("sensor.shadow_status")
+
