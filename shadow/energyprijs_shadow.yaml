@@ -83,6 +83,7 @@ template:
           - sensor.vandaag_verwachte_zonnestroom
           - sensor.verwachte_opbrengst_morgen
           - sensor.accu_percentage
+          - sun.sun
     sensor:
       # ═══ STAP 1 — doel-SOC uit verwachte zonnestroom ═══
       - name: "Shadow doel-SOC"
@@ -107,7 +108,7 @@ template:
         unit_of_measurement: "€/kWh"
         state_class: measurement
         availability: >
-          {{ has_value('sensor.stroomprijs_daglijst')
+          {{ states('sensor.stroomprijs_daglijst') not in ['unknown','unavailable']
              and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
         state: >
           {% set eta = states('input_number.shadow_eta') | float(0.83) %}
@@ -144,13 +145,17 @@ template:
           {% set S = (states('sensor.vandaag_verwachte_zonnestroom') | float(0)
                       + states('sensor.verwachte_opbrengst_morgen') | float(0)) %}
           {% set ns = namespace(net=[], pv=[], nu=now()) %}
+          {% set son_raw = state_attr('sun.sun', 'next_setting') %}
+          {% set op_raw = state_attr('sun.sun', 'next_rising') %}
+          {% set son = son_raw | as_datetime if son_raw else none %}
+          {% set op = op_raw | as_datetime if op_raw else none %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
             {% if e.t is defined and e.in is defined %}
               {% set ts = e.t | as_datetime %}
               {% if ts >= ns.nu and ts <= ns.nu + timedelta(hours=24) %}
                 {% set ns.net = ns.net + [e.in | float(9)] %}
-                {#── PV-herlaad alleen binnen zonuren (07:30–18:30 NL winter; zomers later) ──#}
-                {% if ts.hour >= 7 and ts.hour < 19 and e.uit is defined %}
+                {#── PV-herlaad alleen binnen het zonvenster (sun.sun) ──#}
+                {% if e.uit is defined and son is not none and op is not none and ts >= op and ts <= son %}
                   {% set ns.pv = ns.pv + [e.uit | float(9)] %}
                 {% endif %}
               {% endif %}
@@ -210,7 +215,7 @@ template:
         unique_id: shadow_status
         icon: mdi:content-save-settings-outline
         availability: >
-          {{ has_value('sensor.stroomprijs_daglijst')
+          {{ states('sensor.stroomprijs_daglijst') not in ['unknown','unavailable']
              and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
         state: >
           {% set eta = states('input_number.shadow_eta') | float(0.83) %}
@@ -220,10 +225,14 @@ template:
           {% set eis = states('sensor.shadow_verkoop_eis') | float(9) %}
           {#── PV-herlaad-kant: laagste uit in zonuren binnen t+24u (ten hoogste S) ──#}
           {% set ns3 = namespace(pv_min=none) %}
+          {% set son3_raw = state_attr('sun.sun', 'next_setting') %}
+          {% set op3_raw = state_attr('sun.sun', 'next_rising') %}
+          {% set son3 = son3_raw | as_datetime if son3_raw else none %}
+          {% set op3 = op3_raw | as_datetime if op3_raw else none %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
             {% if e.t is defined and e.uit is defined %}
               {% set ts = e.t | as_datetime %}
-              {% if ts <= now() + timedelta(hours=24) and ts.hour >= 7 and ts.hour < 19 %}
+              {% if ts <= now() + timedelta(hours=24) and son3 is not none and op3 is not none and ts >= op3 and ts <= son3 %}
                 {% if ns3.pv_min is none or e.uit | float(9) < ns3.pv_min %}{% set ns3.pv_min = e.uit | float(9) %}{% endif %}
               {% endif %}
             {% endif %}

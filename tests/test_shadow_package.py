@@ -16,9 +16,16 @@ SHADOW_PATH = (Path(__file__).resolve().parents[1]
 
 async def _setup_shadow(hass):
     from homeassistant.setup import async_setup_component
-    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-26" if False else "utf-8"))
+    from datetime import datetime, timedelta, timezone
+    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
     assert await async_setup_component(hass, "input_number", {"input_number": pkg["input_number"]})
     assert await async_setup_component(hass, "template", {"template": pkg["template"]})
+    # sun.sun zaaien na setup: zonvenster dekt de test-data rond 'nu'
+    now = datetime.now(timezone.utc)
+    hass.states.async_set("sun.sun", "above_horizon", {
+        "next_rising": (now - timedelta(hours=1)).isoformat(),
+        "next_setting": (now + timedelta(hours=12)).isoformat(),
+    })
     await hass.async_block_till_done()
     return pkg
 
@@ -86,6 +93,7 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.38))
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
+    print("DBG status:", st.state, st.attributes)
     assert st.state in ("NEUTRAAL", "OP HET NET"), st.state
 
     # 2) te vol voor aankomende zon (S=40 → doel 56,5; SOC 80 → R=23,5) en PV-herlaad
