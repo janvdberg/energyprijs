@@ -26,7 +26,7 @@
 #   2. EnerPrice      (HACS custom)→ sensor.enerprice_nl_day_ahead_prices_*
 #        bronnen-chain + cache; attributes prices_today/prices_tomorrow = {time, price}
 #   3. EnergyZero     (core)       → sensor.energyzero_today_energy_current_hour_price (INCL btw!)
-#   4. notify.home    (Telegram)   → pas naam aan indien jouw notify-service anders heet
+#   4. notify.mobile_app_telefoon_jan    (Telegram)   → pas naam aan indien jouw notify-service anders heet
 #
 #  ⚠️ Na installatie controleren (Settings → Entiteiten):
 #   - template entiteiten krijgen id's als sensor.prijzen_bron_nordpool,
@@ -485,7 +485,7 @@ automation:
         for: "00:05:00"
     conditions: []
     actions:
-      - action: notify.home
+      - action: notify.mobile_app_telefoon_jan
         data:
           title: "⚡ Stroomprijs-basis verstoord"
           message: >
@@ -509,7 +509,7 @@ automation:
         entity_id: binary_sensor.prijzen_morgen_beschikbaar
         state: "off"
     actions:
-      - action: notify.home
+      - action: notify.mobile_app_telefoon_jan
         data:
           title: "⚠ Morgenprijzen nog niet binnen"
           message: >

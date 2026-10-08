@@ -214,40 +214,27 @@ PVINSTELLINGEN_CARD = {
 }
 
 SHADOW_CARD = {
-    "type": "custom:state-card",
-    "entity": "sensor.shadow_status",
-    "name": "Shadow tactiek — accustatus",
-    "state": [
-        {"state": "LADEN", "icon": "mdi:battery-charging-100", "color": "var(--primary-color-blue)"},
-        {"state": "NEUTRAAL", "icon": "mdi:battery-outline", "color": "var(--primary-color-grey)"},
-        {"state": "OP HET NET", "icon": "mdi:battery-alert", "color": "var(--primary-color-orange)"},
-        {"state": "SPAAR", "icon": "mdi:battery-arrow-down", "color": "var(--primary-color-green)"},
-        {"state": "COMFORT", "icon": "mdi:solar-power", "color": "var(--primary-color-red)"},
-        {"state": "COMFORT (curtail)", "icon": "mdi:solar-power-outline", "color": "var(--primary-color-red)"},
-    ],
-    "attributes": [
-        {"attribute": "in_nu", "name": "in nu (€)"}
-    ],
+    "type": "markdown",
+    "title": "Shadow tactiek — accustatus",
+    "content": (
+        "{% if states('sensor.shadow_status') in ['unknown','unavailable'] %}"
+        "**⚠️ Shadow-status onbekend** — is het package geladen na de herstart?"
+        "{% else %}"
+        "{% set s = states('sensor.shadow_status') %}"
+        "{% if s == 'LADEN' %}🔵 **LADEN** — batterij vullen uit het net (goedkoop)"
+        "{% elif s == 'NEUTRAAL' %}⚪ **NEUTRAAL** — geen actie, prijzen te dicht bij elkaar"
+        "{% elif s == 'OP HET NET' %}🟠 **OP HET NET** — huisverbruik direct van het net"
+        "{% elif s == 'SPAAR' %}🟢 **SPAAR** — ontladen naar huis; ruimte maken voor de zon"
+        "{% elif s == 'COMFORT' %}🔴 **COMFORT** — verkopen aan het net (boven verkoop-eis)"
+        "{% elif s == 'COMFORT (curtail)' %}🔴 **COMFORT (curtail)** — negatieve prijs, export stoppen"
+        "{% else %}❓ {{ s }}{% endif %}"
+        "\n\nin {{ state_attr('sensor.shadow_status','in_nu') }} · "
+        "uit {{ state_attr('sensor.shadow_status','uit_nu') }} · "
+        "eis {{ state_attr('sensor.shadow_status','verkoop_eis') }} · "
+        "R {{ state_attr('sensor.shadow_status','R') }}"
+        "{% endif %}"
+    ),
 }
-
-
-SHADOW_CARD = {
-    "type": "custom:state-card",
-    "entity": "sensor.shadow_status",
-    "name": "Shadow tactiek — accustatus",
-    "state": [
-        {"state": "LADEN", "icon": "mdi:battery-charging-100", "color": "var(--primary-color-blue)"},
-        {"state": "NEUTRAAL", "icon": "mdi:battery-outline", "color": "var(--primary-color-grey)"},
-        {"state": "OP HET NET", "icon": "mdi:battery-alert", "color": "var(--primary-color-orange)"},
-        {"state": "SPAAR", "icon": "mdi:battery-arrow-down", "color": "var(--primary-color-green)"},
-        {"state": "COMFORT", "icon": "mdi:solar-power", "color": "var(--primary-color-red)"},
-        {"state": "COMFORT (curtail)", "icon": "mdi:solar-power-outline", "color": "var(--primary-color-red)"},
-    ],
-    "attributes": [
-        {"attribute": "in_nu", "name": "in nu (€)"}
-    ],
-}
-
 
 CONTRACT_CARD = {
     "type": "entities",
