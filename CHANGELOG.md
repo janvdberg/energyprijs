@@ -4,6 +4,57 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-10 — anti-knippering voor de shadow-status (v1.5.2)
+
+Jan: "de energyprijs schakelt wel heel vaak van laden naar spaar."
+Diagnose: de shadow-status (`sensor.shadow_status`) tikte elk kwartier tussen
+de statussen — twee oorzaken, beide gefixt:
+
+1. **Kwartier-index-gap.** De oude `nu2`-index (`ts ≤ nu < ts+15m`) rendeert
+   LEEG in het laatste moment vóór het kwartierpunt, zodra de daglijst
+   herberekend is (time_pattern /5 min) en het lopende kwartier nog niet in de
+   lijst staat. De sensor ging dan even `unavailable` en de log-automation
+   (`not: "unavailable"`) telde die onbekend→bekend-overgangen mee als
+   "statuswijziging" → elke 15 min een melding.
+   **Fix:** `nu` = laatste entry met `t ≤ nu` (deterministisch, geen gap).
+   Dit is ook wat de rest van het dashboard al doet (grafiek + tegels).
+   De log-automation-trigger vereist nu een *veelekeer* veranderde status
+   (`from` + `to` + `from_is_not: "unavailable"`) — de oude `not`-vorm is
+   deprecated en telt onbekend→bekend mee.
+
+2. **Hysterese aan de prijsgrens (tactiek §5).** Het oude gedrag schakelde
+   puur op de momentprijs: bij een vlakke prijsspel rond de LADEN-grens
+   (`in+w+m ≈ V`) of rond de verkoop-eis (`uit ≈ eis`) tikte de status elk
+   kwartier. Nu:
+   - **LADEN** ↔ NEUTRAAL: band ±H rond V (H = `input_number.shadow_hysteresis`,
+     default 0,005 €/kWh). IN als `in+w+m < V−H`, UIT pas als `in+w+m ≥ V+H`.
+   - **COMFORT**: band ±H rond `v_eis` (verkoop-eis = herlaadkosten/η+w+m,
+     tactiek rev 3 §stap 6). IN als `uit > v_eis−H`, UIT pas als `uit ≤ v_eis+H`.
+     (v1.5.1 gebruikte hier `pv_eis` = min(uit)-zonuren: die drempel is
+     gevoeliger en maakt COMFORT afwisselend actief/inactief. De tactiek zegt:
+     herlaadkosten (net MIN PV) → v_eis. De pv_eis-loop blijft als S-
+     capaciteitsgrens voor de ruimtetak, niet als statusdrempel.)
+   - **SPAAR** ↔ LADEN: de R-tak is een SOC-afwijking, geen prijsgrens —
+     de hysterese-band is hier de 0-overgang zelf: IN als R2 > 0, UIT pas
+     als R2 < 0 (SOC daadwerkelijk onder doel-SOC).
+   - **Geheugenknop** `input_text.shadow_vorige_status` (door de log-automation
+     gezet na elke wijziging) levert de "vorige status" die de band nodig
+     heeft. De sensor leest hem via `states()` tijdens renderen; HA triggert
+     op de write → de sensor herberekent ééns met de nieuwe prev.
+   - H=0 gedraagt zich als vóór 1.5.2 (alleen de nu2-index-fix is dan nog
+     van kracht). Instelbaar via `input_number.shadow_hysteresis` (0–0,05,
+     step 0,001, default 0,005).
+
+Nieuwe tests: `test_shadow_yaml_valid.py` (HA-validatie van input_number/
+input_text/template + de from/to/from_is_not-combinatie op de log-automation)
+en een e2e-scenario in `test_shadow_package.py::test_shadow_hysterese_en_
+kwartierindex` dat de hysterese-band (P1→P4: NEUTRAAL→LADEN→LADEN-blijft→
+uit-LADEN) en de kwartier-index (in_nu op de juiste entry) nameten.
+
+Installatie: HACS-update + herstart. Het shadow-package wordt door de
+installer gesynct (`_sync_shadow_package_sync`); de nieuwe helpers
+(`shadow_hysteresis`, `shadow_vorige_status`) verschijnen na de herstart.
+
 ## 2026-10-07 — shadow-mode voor de nieuwe accu-handelregel (v1.5.0)
 - Nieuw optioneel package `shadow/energyprijs_shadow.yaml` (revisie 3 van
   `roi-monitor/stroomhandel_tactiek.md`):

@@ -58,6 +58,22 @@ input_number:
     unit_of_measurement: "%"
     initial: 20
     icon: mdi:battery-low
+  shadow_hysteresis:
+    name: "Shadow hysteresis — band aan de prijsgrens (€/kWh)"
+    min: 0
+    max: 0.05
+    step: 0.001
+    unit_of_measurement: "€/kWh"
+    initial: 0.005
+    mode: box
+    icon: mdi:wave-sine
+
+input_text:
+  shadow_vorige_status:
+    name: "Shadow vorige status (geheugenknop — niet handmatig wijzigen)"
+    mode: text
+    max: 32
+    icon: mdi:history
 
 template:
   # ─────────────────────────────────────────────────────────────────────
@@ -78,6 +94,7 @@ template:
           - input_number.shadow_n_top
           - input_number.shadow_capaciteit
           - input_number.shadow_soc_min
+          - input_number.shadow_hysteresis
           - input_boolean.prijs_saldering_energiebelasting_teruggave
           - sensor.stroomprijs_daglijst
           - sensor.vandaag_verwachte_zonnestroom
@@ -243,32 +260,44 @@ template:
           {% endfor %}
           {% set S = states('sensor.vandaag_verwachte_zonnestroom') | float(0) + states('sensor.verwachte_opbrengst_morgen') | float(0) %}
           {% set pv_eis = (ns3.pv_min / eta + w + m) if (ns3.pv_min is not none and S > 0) else none %}
-          {% set R = states('sensor.shadow_ruimtegebrek_r') | float(0) %}
-          {% set soc = states('sensor.accu_percentage') | float(0) %}
-          {% set grens = states('input_number.shadow_soc_min') | float(20) %}
-          {#── huidige kwartierprijzen ──#}
+          {% set R2 = states('sensor.shadow_ruimtegebrek_r') | float(0) %}
+          {% set SOC2 = states('sensor.accu_percentage') | float(0) %}
+          {% set v_eis = states('sensor.shadow_verkoop_eis') | float(9) %}
+          {# HUIDIGE KWARTIERPRIJS v1.5.2: nu = laatste entry met t <= nu
+             (vorige formule ts <= nu < ts+15m rendeert leeg net voor het
+             kwartierpunt; zie CHANGELOG). #}
           {% set nu2 = namespace(in_nu=none, uit_nu=none) %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
             {% if e.t is defined and e.in is defined %}
               {% set ts = e.t | as_datetime %}
-              {% if ts <= now() and ts + timedelta(minutes=15) > now() %}
+              {% if ts <= now() and (nu2.in_nu is none or ts > (nu2._t | as_datetime if nu2._t else now() - timedelta(hours=48))) %}
                 {% set nu2.in_nu = e.in | float(none) %}
                 {% set nu2.uit_nu = e.uit | float(none) %}
+                {% set nu2._t = e.t %}
               {% endif %}
             {% endif %}
           {% endfor %}
-          {% set R2 = states('sensor.shadow_ruimtegebrek_r') | float(0) %}
-          {% set SOC2 = states('sensor.accu_percentage') | float(0) %}
-          {% set v_eis = states('sensor.shadow_verkoop_eis') | float(9) %}
+          {# v1.5.2: hysterese aan de V- en eis-grens; prev-status levert
+             de uit-kant van de band (zie CHANGELOG). #}
+          {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
+          {% set prev = states('input_text.shadow_vorige_status') | default('', true) | string %}
+          {% set g_laden = V - H %}
+          {% set g_laden_uit = V + H %}
+          {% set g_eis_in = v_eis + H %}
+          {% set g_eis_uit = v_eis - H %}
           {% set besluit = namespace(s='unavailable') %}
           {% if nu2.in_nu is not none %}
-            {% if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'COMFORT (curtail)' %}
-            {% elif nu2.uit_nu is not none and nu2.uit_nu > v_eis %}{% set besluit.s = 'COMFORT' %}
-            {% elif R2 > 0 %}{% set besluit.s = 'SPAAR' %}
-            {% elif nu2.in_nu + w + m < V %}{% set besluit.s = 'LADEN' %}
-            {% elif nu2.in_nu <= V %}{% set besluit.s = 'NEUTRAAL' %}
-            {% else %}{% set besluit.s = 'OP HET NET' %}{% endif %}
-          {% endif %}
+            {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'COMFORT (curtail)' %}
+            {%- elif prev == 'COMFORT' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit %}{% set besluit.s = 'COMFORT' %}
+            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in %}{% set besluit.s = 'COMFORT' %}
+            {%- elif prev == 'SPAAR' and R2 >= 0 %}{% set besluit.s = 'SPAAR' %}
+            {%- elif R2 > 0 %}{% set besluit.s = 'SPAAR' %}
+            {%- elif prev == 'LADEN' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'LADEN' %}
+            {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'LADEN' %}
+            {%- elif prev == 'NEUTRAAL' and nu2.in_nu <= g_laden_uit %}{% set besluit.s = 'NEUTRAAL' %}
+            {%- elif nu2.in_nu <= g_laden %}{% set besluit.s = 'NEUTRAAL' %}
+            {%- else %}{% set besluit.s = 'OP HET NET' %}{% endif %}
+          {%- endif %}
           {{ besluit.s }}
         attributes:
           in_nu: >
@@ -276,7 +305,7 @@ template:
             {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
               {% if e.t is defined and e.in is defined %}
                 {% set ts = e.t | as_datetime %}
-                {% if ts <= now() and ts + timedelta(minutes=15) > now() %}{% set ns.v = e.in | float(0) %}{% endif %}
+                {% if ts <= now() %}{% set ns.v = e.in | float(0) %}{% endif %}
               {% endif %}
             {% endfor %}
             {{ ns.v }}
@@ -285,7 +314,7 @@ template:
             {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
               {% if e.t is defined and e.uit is defined %}
                 {% set ts = e.t | as_datetime %}
-                {% if ts <= now() and ts + timedelta(minutes=15) > now() %}{% set ns.v = e.uit | float(0) %}{% endif %}
+                {% if ts <= now() %}{% set ns.v = e.uit | float(0) %}{% endif %}
               {% endif %}
             {% endfor %}
             {{ ns.v }}
@@ -299,6 +328,12 @@ template:
 automation:
   # ── beslis-logboek: elke statuswijziging in het HA-logboek én als
   #    persistent event (recorder) zodat het maandrapport het kan lezen ──
+  #  v1.5.2: de trigger vereist nu een VEELEKEER veranderde status (from + to
+  #  + from != to). Oude versie: elke state-set met not unavailable → telde
+  #  onbekend→bekend-overgangen (kwartier-index-gap) óók mee.
+  #  De action zet óók de geheugenknop (input_text.shadow_vorige_status) die
+  #  de status-sensor leest voor de hysterese. NOT: input_text in triggers —
+  #  de sensor leest hem wel via states(), dus HA triggert op elke write.
   - alias: "Shadow handel — log elke statusbeslissing"
     id: energyprijs_shadow_log
     mode: queued
@@ -306,8 +341,31 @@ automation:
     triggers:
       - trigger: state
         entity_id: sensor.shadow_status
-        not: "unavailable"
+        to:
+          - LADEN
+          - OP HET NET
+          - NEUTRAAL
+          - SPAAR
+          - COMFORT
+          - COMFORT (curtail)
+        from:
+          - LADEN
+          - OP HET NET
+          - NEUTRAAL
+          - SPAAR
+          - COMFORT
+          - COMFORT (curtail)
+        from_is_not: "unavailable"
     actions:
+      # v1.5.2: de geheugenknop eerst zetten — de status-sensor leest deze
+      # (via states() tijdens renderen) en HA triggert op de write, dus de
+      # sensor herberekent ééns met de nieuwe prev-waarde. Zonder deze stap
+      # kent de hysterese de vorige status niet.
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.shadow_vorige_status
+        data:
+          value: "{{ trigger.to_state.state }}"
       - action: notify.persistent_notification
         data_template:
           title: "Shadow handel — statuswijziging"
