@@ -55,6 +55,8 @@ template:
           {{ states('sensor.nord_pool_nl_current_price') }}
         attributes:
           beschikbaar: "{{ has_value('sensor.nord_pool_nl_current_price') }}"
+          prices_today: "[]"
+          prices_tomorrow: "[]"
 
       # ── BRON 2: EnerPrice market (excl. btw), incl. diens provider/cache-status.
       #    EXACTE attribute-namen conform repo-broncode (models.py as_attribute → {time, price}):
@@ -153,10 +155,23 @@ template:
         attributes:
           interval_min: 60   # EnergyZero-core-sensor is per uur; NordPool/EnerPrice leveren straks 15 min
           beschikbaar: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
+          prices_today: "[]"
+          prices_tomorrow: "[]"
 
   # ── GECOÖRDINEERD: daglijst herberekent live bij elke contractwijziging ──
   #    (state-based template-sensoren luisteren normaal NIET naar input_*;
   #     dit blok doet dat wél, zodat de rode verkoopreeks direct meeloopt.)
+  #    v1.5.3 — eerste-beschikbare-bron + verifiëren:
+  #    1. BRON = eerste bron (vaste volgorde EnerPrice → Nord Pool →
+  #       EnergyZero) met een LEVENDE daglijst. De eerste die iets heeft
+  #       levert de daglijst; de andere bronnen worden daarna gecontroleerd
+  #       op overinstemming (max. afwijking tussen de drie) via
+  #       binary_sensor.prijzen_morgen_spreiding en de 15:15-melding.
+  #       Vóór v1.5.3 las de daglijst ALLEEN van EnerPrice — als die om 23:00
+  #       de D+1-prijzen nog niet had, bleef 'morgen' leeg terwijl de
+  #       prijzen al bekend waren (Jan, 10 okt '26).
+  #    2. De daglijst-sensor zelf heeft GEEN availability-afhankelijkheid op
+  #       één bron: zolang er ÉÉN daglijst is, staat de sensor.
   - triggers:
       - trigger: homeassistant
         event: start
@@ -181,14 +196,25 @@ template:
         state: >
           {{ now().strftime('%H:%M') }}
         attributes:
+          # v1.5.3: eerste bron (vaste volgorde) met een levende daglijst.
+          bron: >
+            {% if state_attr('sensor.prijzen_bron_enerprice', 'prices_today') | default([], true) | count > 0 %}enerprice
+            {% elif state_attr('sensor.prijzen_bron_nordpool', 'prices_today') | default([], true) | count > 0 %}nordpool
+            {% elif state_attr('sensor.prijzen_bron_energyzero', 'prices_today') | default([], true) | count > 0 %}energyzero
+            {% endif %}
           vandaag: >
             {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
             {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
             {% set sa = states('input_number.prijs_opslag_afname') | float(0) %}
             {% set sl = states('input_number.prijs_opslag_levering') | float(0) %}
             {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
-            {% set ns = namespace(out=[]) %}
-            {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_today') | default([], true) %}
+            {% set ns = namespace(out=[], eid='') %}
+            {% for naam, eid in [('enerprice','sensor.prijzen_bron_enerprice'),
+                                 ('nordpool','sensor.prijzen_bron_nordpool'),
+                                 ('energyzero','sensor.prijzen_bron_energyzero')] %}
+              {% if ns.eid == '' and state_attr(eid, 'prices_today') | default([], true) | count > 0 %}{% set ns.eid = eid %}{% endif %}
+            {% endfor %}
+            {% for i in state_attr(ns.eid, 'prices_today') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
                 {% set allin = ((p + sa + bel) * btw) | round(4) %}
@@ -206,8 +232,13 @@ template:
             {% set sa = states('input_number.prijs_opslag_afname') | float(0) %}
             {% set sl = states('input_number.prijs_opslag_levering') | float(0) %}
             {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
-            {% set ns = namespace(out=[]) %}
-            {% for i in state_attr('sensor.prijzen_bron_enerprice', 'prices_tomorrow') | default([], true) %}
+            {% set ns = namespace(out=[], eid='') %}
+            {% for naam, eid in [('enerprice','sensor.prijzen_bron_enerprice'),
+                                 ('nordpool','sensor.prijzen_bron_nordpool'),
+                                 ('energyzero','sensor.prijzen_bron_energyzero')] %}
+              {% if ns.eid == '' and state_attr(eid, 'prices_tomorrow') | default([], true) | count > 0 %}{% set ns.eid = eid %}{% endif %}
+            {% endfor %}
+            {% for i in state_attr(ns.eid, 'prices_tomorrow') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
                 {% set allin = ((p + sa + bel) * btw) | round(4) %}
@@ -498,6 +529,9 @@ automation:
             {{ state_attr('sensor.stroomprijs_basis','bronnen_actief') | join(', ') }}.
             {% endif %}
 
+  # v1.5.3: melding verduidelijkt — de daglijst pakt nu de EERSTE bron met
+  # morgenprijzen (zie attributes.bron op sensor.stroomprijs_daglijst); de
+  # overige bronnen dienen als verifiëring (kruiscontrole op het momentprijs).
   - alias: "Prijzen: herinner om 15:15 als morgenprijzen ontbreken"
     id: prijzen_meld_morgen_missing
     mode: single
@@ -513,7 +547,9 @@ automation:
         data:
           title: "⚠ Morgenprijzen nog niet binnen"
           message: >
-            Om 15:15 zijn er geen morgen-intervallen. Actieve bronnen:
+            Om 15:15 heeft géén bron morgen-intervallen. Daglijst-bron:
+            {{ state_attr('sensor.stroomprijs_daglijst', 'bron') | default('geen', true) }}.
+            Actieve momentprijs-bronnen:
             {{ state_attr('sensor.stroomprijs_basis','bronnen_actief') | default(['geen'], true) | join(', ') }}.
             Planning vanmiddag niet uitvoeren tot ze binnen zijn.
 # ── RECORDER: sensor.stroomprijs_daglijst draagt ±2×96 kwartieren in attributes ──

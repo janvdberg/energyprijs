@@ -4,6 +4,39 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-10 — daglijst pakt eerste beschikbare bron + verifiëren (v1.5.3)
+
+Jan (2 u 's nachts): "we hebben nog geen prijzen voor morgen terwijl de
+prijzen al wél bekend zijn." Oorzaak: de daglijst (`sensor.stroomprijs_daglijst`)
+las uitsluitend van EnerPrice (`prices_today`/`prices_tomorrow`). Om die tijd
+had EnerPrice de D+1-prijzen nog niet opgehaald → `morgen` leeg, terwijl de
+D+1-prijzen al op de markt stonden.
+
+Fix: de daglijst kiest nu de **eerste bron (vaste volgorde EnerPrice →
+Nord Pool → EnergyZero) met een levende daglijst** — "eerste pakken,
+latere verifiëren":
+- `attributes.bron` op `sensor.stroomprijs_daglijst` toont welke bron de
+  daglijst nu levert (enerprice / nordpool / energyzero / leeg = géén).
+- `vandaag` en `morgen` worden per dag apart gekozen: de eerste bron met
+  prijs voor DIE dag. Een bron die alleen vandaag levert, is dus geen
+  bron voor morgen.
+- Alle drie de bron-sensoren (Nord Pool, EnergyZero) dragen nu lege
+  `prices_today`/`prices_tomorrow`-attributes, zodat het selectie-mechanisme
+  overal dezelfde structuur ziet.
+- **Verifiëren**: de bestaande momentprijs-kruiscontrole
+  (`binary_sensor.prijzen_kruiscontrole_afwijking`) checkt dat de drie
+  bronnen op het momentprijs overeenkomen; de 15:15-melding noemt nu
+  expliciet welke bron de daglijst levert én welke momentprijs-bronnen
+  actief zijn.
+- De daglijst-sensor zelf heeft géén availability-afhankelijkheid op één
+  bron: zolang er ÉÉN daglijst is, staat de sensor.
+
+Nieuwe tests: `tests/test_daglijst_bron_fallback.py` (3 e2e-scenario's:
+EnerPrice-voorkeur, Nord Pool-fallback, EnergyZero-fallback).
+
+Installatie: HACS-update + herstart. De bron-fallback werkt direct; de
+15:15-melding en `attributes.bron` verschijnen na de herstart.
+
 ## 2026-10-10 — anti-knippering voor de shadow-status (v1.5.2)
 
 Jan: "de energyprijs schakelt wel heel vaak van laden naar spaar."
