@@ -251,42 +251,69 @@ SHADOW_CARD = {
     ),
 }
 
+# v1.5.8: vertical-stack i.p.v. één entities-kaart. De rendements- en
+# 2028-tariefhelpers (v1.5.5) moesten zichtbaar worden, maar geneste
+# `type: entities`-subkaarten als ROW zijn géén geldige rows — de visuele
+# editor van HA meldt "Required key 'entities.N.entity' is missing" en
+# weigert de kaart te bewerken. Platte rijen (v1.5.7) repareerden dat,
+# maar ten koste van de groepskoppen. Losse kaarten in één stack behouden
+# de koppen, iconen én de editor-compatibiliteit.
 CONTRACT_CARD = {
-    "type": "entities",
-    "title": "Stroomprijs — contractinstellingen",
-    "show_header_toggle": False,
-    "state_color": True,
-    "entities": [
-        {"entity": "input_number.prijs_btw", "name": "Btw (factor, NL = 0,21)"},
-        {"entity": "input_number.prijs_energiebelasting",
-         "name": "Energiebelasting excl. btw (€/kWh)"},
-        {"entity": "input_number.prijs_opslag_afname",
-         "name": "Leveranciersopslag afname (€/kWh)"},
-        {"entity": "input_number.prijs_opslag_levering",
-         "name": "Leveranciersopslag levering (€/kWh)"},
-        {"entity": "input_boolean.prijs_saldering_energiebelasting_teruggave",
-         "name": "Saldering (teruggave belasting)"},
-        # v1.5.6/7: de helpers uit v1.5.5 bestáán al (installer zet de
-        # defaults) maar waren nergens te zien. Geneste `type: entities`
-        # subkaarten zijn géén geldige rows in een entities-kaart — de
-        # visuele editor van HA gooit er een configuratiefout op (de row-
-        # struct aanvaardt alleen string/{entity,name,icon} + bekende
-        # row-types). Daarom: gewoon platte rijen met een verduidelijkende
-        # naam.
-        {"entity": "input_number.rendement_laad_pct",
-         "name": "Rendement: laden net→cel (%)"},
-        {"entity": "input_number.rendement_ontlaad_pct",
-         "name": "Rendement: ontladen cel→AC (%)"},
-        {"entity": "input_number.rendement_roundtrip_pct",
-         "name": "Rendement: roundtrip net→cel→net (%)"},
-        {"entity": "input_number.shadow_eta",
-         "name": "Rendement: η solvermodel (×) — géén meting"},
-        {"entity": "input_number.prijs_dal_uren",
-         "name": "Tarief 2028: dal tot (uur, lokale klok)"},
-        {"entity": "input_number.prijs_top_uren",
-         "name": "Tarief 2028: AVP-top vanaf (uur)"},
-        {"entity": "input_number.prijs_opslag_tijdsafhankelijk",
-         "name": "Tarief 2028: tijdsafh. opslag (€/kWh) — 0 = nog niet zover"},
+    "type": "vertical-stack",
+    "cards": [
+        {
+            "type": "entities",
+            "title": "Stroomprijs — contractinstellingen",
+            "show_header_toggle": False,
+            "state_color": True,
+            "entities": [
+                {"entity": "input_number.prijs_btw",
+                 "name": "Btw (factor, NL = 0,21)"},
+                {"entity": "input_number.prijs_energiebelasting",
+                 "name": "Energiebelasting excl. btw (€/kWh)"},
+                {"entity": "input_number.prijs_opslag_afname",
+                 "name": "Leveranciersopslag afname (€/kWh)"},
+                {"entity": "input_number.prijs_opslag_levering",
+                 "name": "Leveranciersopslag levering (€/kWh)"},
+                {"entity": "input_boolean.prijs_saldering_"
+                           "energiebelasting_teruggave",
+                 "name": "Saldering (teruggave belasting)"},
+            ],
+        },
+        {
+            "type": "entities",
+            "title": "Rendement accu — gemeten aug→okt '26",
+            "icon": "mdi:battery-sync",
+            "show_header_toggle": False,
+            "state_color": True,
+            "entities": [
+                {"entity": "input_number.rendement_laad_pct",
+                 "name": "Laden net→cel (%)"},
+                {"entity": "input_number.rendement_ontlaad_pct",
+                 "name": "Ontladen cel→AC (%)"},
+                {"entity": "input_number.rendement_roundtrip_pct",
+                 "name": "Roundtrip net→cel→net (%)"},
+                {"entity": "input_number.shadow_eta",
+                 "name": "η solvermodel (×) — gewogen laad/ontlaad, "
+                         "géén meting"},
+            ],
+        },
+        {
+            "type": "entities",
+            "title": "Tariefcontract 2028 — tijdsafhankelijke opslag",
+            "icon": "mdi:clock-alert-outline",
+            "show_header_toggle": False,
+            "state_color": True,
+            "entities": [
+                {"entity": "input_number.prijs_dal_uren",
+                 "name": "Dal tot (uur, lokale klok)"},
+                {"entity": "input_number.prijs_top_uren",
+                 "name": "AVP-top vanaf (uur, lokale klok)"},
+                {"entity": "input_number.prijs_opslag_tijdsafhankelijk",
+                 "name": "Tijdsafh. opslag (€/kWh) — 0 = contract nog "
+                         "niet zover"},
+            ],
+        },
     ],
 }
 

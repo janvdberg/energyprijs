@@ -4,6 +4,19 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-12 — CONTRACT_CARD als vertical-stack (v1.5.8)
+
+Zelfde root-cause als v1.5.7, maar Jan wil de groepskoppen terug: "Verplaats
+de geneste kaarten uit de entities:-lijst en maak ze losse kaarten in één
+vertical-stack." De buitenste contractkaart blijft een platte entities-kaart
+(5 rijen), gevolgd door zelfstandige kaarten "Rendement accu" (rendement_* +
+shadow_eta, icon mdi:battery-sync) en "Tariefcontract 2028" (prijs_dal_uren,
+prijs_top_uren, prijs_opslag_tijdsafhankelijk, icon mdi:clock-alert-outline).
+Alle namen/iconen/entity-id's behouden; `color: state` komt nergens voor —
+dat is géén entities-key; het equivalent is `state_color: true` op de kaart
+zelf en staat dus gewoon zo. Elke subkaart is nu apart in de visuele editor
+te bewerken zonder configuratiefout.
+
 ## 2026-10-12 — geneste groepen verwijderd uit CONTRACT_CARD (v1.5.7)
 
 Jan stuurde een screenshot: de visuele editor van HA markeerde de kaart met
