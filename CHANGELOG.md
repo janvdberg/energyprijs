@@ -4,7 +4,7 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
-## 2026-10-12 — gemeten rendement als aparte invulvelden (v1.5.5, nog niet gepubliceerd)
+## 2026-10-12 — gemeten rendement als aparte invulvelden (v1.5.5)
 
 Jan: "handelen met verlies is dom". De meting aug-okt '26 (`accu_verlies_meten.py`)
 geeft laden ~77% / ontladen ~90% → roundtrip ~70%; de solver-rekenkunde ging uit
@@ -23,7 +23,7 @@ van 0,83 (vóór-meting-aanname).
   G1=0,315; daaronder kruist het model en handelt het niet meer — precies de
   gewenste "nooit met verlies"-gedrag.
 - Tests: `pytest tests/test_shadow_package.py tests/test_shadow_yaml_valid.py`
-  → 8 passed. Nog NIET op GitHub vrijgegeven (werkboom lokaal, v1.5.5).
+  → 8 passed. Gepubliceerd op GitHub (master én main, commit 52440b6).
 
 ## 2026-10-10 — daglijst pakt eerste beschikbare bron + verifiëren (v1.5.3)
 
