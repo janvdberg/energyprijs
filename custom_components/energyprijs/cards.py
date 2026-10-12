@@ -266,41 +266,27 @@ CONTRACT_CARD = {
          "name": "Leveranciersopslag levering (€/kWh)"},
         {"entity": "input_boolean.prijs_saldering_energiebelasting_teruggave",
          "name": "Saldering (teruggave belasting)"},
-        # v1.5.6: de helpers uit v1.5.5 bestáán al (installer zet de defaults)
-        # maar waren nergens te zien. Geneste uitklapgroepen (native `type:
-        # entities` + `name:` — geen HACS-kaart nodig) houden de kaart rustig.
-        {
-            "type": "entities",
-            "name": "Rendement accu — gemeten aug→okt '26",
-            "icon": "mdi:battery-sync",
-            "show_header_toggle": False,
-            "state_color": True,
-            "entities": [
-                {"entity": "input_number.rendement_laad_pct",
-                 "name": "Laden net→cel (%)"},
-                {"entity": "input_number.rendement_ontlaad_pct",
-                 "name": "Ontladen cel→AC (%)"},
-                {"entity": "input_number.rendement_roundtrip_pct",
-                 "name": "Roundtrip net→cel→net (%)"},
-                {"entity": "input_number.shadow_eta",
-                 "name": "η solvermodel (×) — gewogen laad/ontlaad, géén meting"},
-            ],
-        },
-        {
-            "type": "entities",
-            "name": "Tariefcontract 2028 — tijdsafhankelijke opslag",
-            "icon": "mdi:clock-alert-outline",
-            "show_header_toggle": False,
-            "state_color": True,
-            "entities": [
-                {"entity": "input_number.prijs_dal_uren",
-                 "name": "Dal tot (uur, lokale klok)"},
-                {"entity": "input_number.prijs_top_uren",
-                 "name": "AVP-top vanaf (uur, lokale klok)"},
-                {"entity": "input_number.prijs_opslag_tijdsafhankelijk",
-                 "name": "Tijdsafh. opslag (€/kWh) — 0 = contract nog niet zover"},
-            ],
-        },
+        # v1.5.6/7: de helpers uit v1.5.5 bestáán al (installer zet de
+        # defaults) maar waren nergens te zien. Geneste `type: entities`
+        # subkaarten zijn géén geldige rows in een entities-kaart — de
+        # visuele editor van HA gooit er een configuratiefout op (de row-
+        # struct aanvaardt alleen string/{entity,name,icon} + bekende
+        # row-types). Daarom: gewoon platte rijen met een verduidelijkende
+        # naam.
+        {"entity": "input_number.rendement_laad_pct",
+         "name": "Rendement: laden net→cel (%)"},
+        {"entity": "input_number.rendement_ontlaad_pct",
+         "name": "Rendement: ontladen cel→AC (%)"},
+        {"entity": "input_number.rendement_roundtrip_pct",
+         "name": "Rendement: roundtrip net→cel→net (%)"},
+        {"entity": "input_number.shadow_eta",
+         "name": "Rendement: η solvermodel (×) — géén meting"},
+        {"entity": "input_number.prijs_dal_uren",
+         "name": "Tarief 2028: dal tot (uur, lokale klok)"},
+        {"entity": "input_number.prijs_top_uren",
+         "name": "Tarief 2028: AVP-top vanaf (uur)"},
+        {"entity": "input_number.prijs_opslag_tijdsafhankelijk",
+         "name": "Tarief 2028: tijdsafh. opslag (€/kWh) — 0 = nog niet zover"},
     ],
 }
 

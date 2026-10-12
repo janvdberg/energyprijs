@@ -4,6 +4,19 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-12 — geneste groepen verwijderd uit CONTRACT_CARD (v1.5.7)
+
+Jan stuurde een screenshot: de visuele editor van HA markeerde de kaart met
+"Required key entities.5.entity is missing / provided value ... expected
+(string) but received JSON object". Oorzaak: `type: entities` subkaarten als
+ROW binnen een entities-kaart zijn geen geldige row-configuratie — de
+front-end-editor (superstruct `entitiesRowConfigStruct`) kent alleen strings,
+`{entity,name,icon}` en de vaste row-types (divider/section/weblink/...).
+De kaarten renderen wel, maar elke UI-bewerking slaat mis.
+- Oplossing: helpers plat in de lijst als gewone `{entity, name}`-rijen, met
+  naamvoorzetsels "Rendement: ..." / "Tarief 2028: ...". Zichtbaarheid uit
+  v1.5.6 blijft; de config is nu ook editor-compatibel.
+
 ## 2026-10-12 — rendements- en 2028-helpers zichtbaar op dashboard (v1.5.6)
 
 Jan: "de helpers voor accu-efficiëntie ook op het dashboard terugzien".
