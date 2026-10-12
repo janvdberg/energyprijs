@@ -46,7 +46,8 @@ def test_package_geen_dubbele_sleutels():
     pkg = strict_pkg()
     # sanity: het blok dat de bug veroorzaakte, bestaat nu één keer met ALLE helpers
     assert "prijs_btw" in pkg["input_number"], "prijshelpers weggefilterd?!"
-    assert len(pkg["input_number"]) == 10
+    # v1.5.6: 10 prijs-/accu-helpers + 6 rendement-/2028-helpers (aug '26)
+    assert len(pkg["input_number"]) == 16
 
 
 def test_alle_verwachte_helpers_aanwezig_in_geparsed_package():
@@ -88,6 +89,8 @@ EXTERN_TOEGESTAAN = {
     "sensor.energyzero_today_energy_current_hour_price",
     "binary_sensor.enerprice_nl_day_ahead_prices_api_data_available",
     "notify.home",
+    # installer-HELPERS_DEFAULTS (v1.5.5): solver-η, géén package-helper
+    "input_number.shadow_eta",
 }
 
 

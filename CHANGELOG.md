@@ -4,6 +4,22 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-12 — rendements- en 2028-helpers zichtbaar op dashboard (v1.5.6)
+
+Jan: "de helpers voor accu-efficiëntie ook op het dashboard terugzien".
+De v1.5.5-helpers bestonden al (installer zette defaults) maar waren nergens
+zichtbaar. Eerste poging gebruikte `custom:expandable-entities-card` — een
+HACS-kaart die hier niet geïnstalleerd is; rood kaartje gegarandeerd.
+- Oplossing: native Lovelace-uitklapgroepen (`type: entities` + `name:` —
+  geneste groepen vouwen vanzelf uit, geen extra installatie nodig).
+- Twee groepen in de ACCUCONTRACT_CARD: "Rendement accu — gemeten aug→okt '26"
+  (rendement_laad/ontlaad/roundtrip_pct + shadow_eta) en "Tariefcontract 2028 —
+  tijdsafhankelijke opslag" (prijs_dal_uren, prijs_top_uren,
+  prijs_opslag_tijdsafhankelijk).
+- shadow_eta hernoemd naar "η solvermodel (×) — gewogen laad/ontlaad, géén
+  meting": het is de modelwaarde ≈0,835, niet de gemeten roundtrip 0,70.
+- Versie 1.5.5 → 1.5.6 (dashboard herbouwt zich via de dashboard_versie-marker).
+
 ## 2026-10-12 — gemeten rendement als aparte invulvelden (v1.5.5)
 
 Jan: "handelen met verlies is dom". De meting aug-okt '26 (`accu_verlies_meten.py`)
