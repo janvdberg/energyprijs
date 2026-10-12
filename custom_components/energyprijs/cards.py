@@ -233,6 +233,21 @@ SHADOW_CARD = {
         "eis {{ state_attr('sensor.shadow_status','verkoop_eis') }} · "
         "R {{ state_attr('sensor.shadow_status','R') }}"
         "{% endif %}"
+        # v1.5.4 — kruiscontroleprijs (excl btw) per bron, uit het hoofdpackage.
+        # EnergyZero deelt door de wettelijke 1.21; NordPool/EnerPrice corrigeren
+        # via de contract-BTW-helper. Zo is één €-basis vergelijkbaar.
+        "\n\n{% set bronnen = ["
+        "('EZ', 'sensor.prijzen_bron_energyzero'),"
+        "('NP', 'sensor.prijzen_bron_nordpool'),"
+        "('EP', 'sensor.prijzen_bron_enerprice')] %}"
+        "{% set sichten = namespace(lijst=[]) %}"
+        "{% for tag, eid in bronnen %}"
+        "{% if states(eid) not in ['unknown','unavailable','none'] %}"
+        "{% set sichten.lijst = sichten.lijst + [tag ~ ' ' ~ '%.4f'|format(states(eid)|float(0))] %}"
+        "{% endif %}"
+        "{% endfor %}"
+        "{% if sichten.lijst | length > 1 %}🔀 {{ sichten.lijst | join(' · ') }}\n"
+        "\n   (excl btw — spreiding toetsen via sensor.prijzen_spreiding_max){% endif %}"
     ),
 }
 

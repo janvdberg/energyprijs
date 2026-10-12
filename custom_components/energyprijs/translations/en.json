@@ -22,6 +22,10 @@
     "package_restart_needed": {
       "title": "Energyprijs: herstart vereist",
       "description": "Het package-bestand op {pad} is bijgewerkt naar versie {versie}. Home Assistant laadt packages alleen bij een herstart — herstart nu (Instellingen → Systeem → Herstarten) om de nieuwe sensoren en helpers te activeren."
+    },
+    "packages_include_handmatig": {
+      "title": "Energyprijs: packages worden niet geladen",
+      "description": "De include-regel voor packages ontbreekt in configuration.yaml, dus de sensoren en het dashboard van Energyprijs laden niet. {toelichting}"
     }
   }
 }

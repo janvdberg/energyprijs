@@ -21,6 +21,10 @@
     },
     "package_restart_needed": {
       "description": "Het energieprijs-package is zojuist bijgewerkt naar versie {versie}. Home Assistant laadt packages alleen tijdens het opstarten: herstart nu (Instellingen → Systeem → Herstarten) om de nieuwe sensoren en automations te activeren. Tot die tijd kan het dashboard oude waarden tonen."
+    },
+    "packages_include_handmatig": {
+      "title": "Energyprijs: packages worden niet geladen",
+      "description": "De include-regel voor packages ontbreekt in configuration.yaml, dus de sensoren en het dashboard van Energyprijs laden niet. {toelichting}"
     }
   }
 }

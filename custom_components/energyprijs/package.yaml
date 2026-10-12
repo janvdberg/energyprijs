@@ -26,7 +26,9 @@
 #   2. EnerPrice      (HACS custom)→ sensor.enerprice_nl_day_ahead_prices_*
 #        bronnen-chain + cache; attributes prices_today/prices_tomorrow = {time, price}
 #   3. EnergyZero     (core)       → sensor.energyzero_today_energy_current_hour_price (INCL btw!)
-#   4. notify.mobile_app_telefoon_jan    (Telegram)   → pas naam aan indien jouw notify-service anders heet
+#   4. een notify-service (mobiel/Telegram/persistent) → vul diens naam in sonder
+#      'notify.'-voorvoegsel in input_text.prijs_notify_doel (standaard leeg →
+#      persistent_notification; niets faalt dan)
 #
 #  ⚠️ Na installatie controleren (Settings → Entiteiten):
 #   - template entiteiten krijgen id's als sensor.prijzen_bron_nordpool,
@@ -137,13 +139,15 @@ template:
         state: >
           {{ state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) | count > 0 }}
 
-  # ── GECOÖRDINEERD: EnergyZero corrigeert naar excl-btw zodra de btw-helper wijzigt ──
-  - triggers:
-      - trigger: homeassistant
-        event: start
-      - trigger: state
-        entity_id: input_number.prijs_btw
-    sensor:
+  # ── EnergyZero: corrigeert de uurprijs naar excl-btw (v1.5.4, review okt '26) ──
+  #    GEEN triggers-blok meer: een state-based template-sensor volgt LIVE elke
+  #    entiteit die zijn state/availability-template leest. Het oude gecoördi-
+  #    neerde blok rendert alleen bij start of btw-wijziging → de sensor bevroor
+  #    op de opstartwaarde en zag prijswijziging noch uitval.
+  #    Deler is de CONSTANT 1.21: EnergyZero-levert wettelijk altijd incl. 21%
+  #    btw; de contract-helper mag deze deler niet veranderen (met prijs_btw=0
+  #    ontstond een valse kruiscontrole-afwijking tegen NordPool/EnerPrice).
+  - sensor:
       - name: "Prijzen bron Energyzero"
         unique_id: prijzen_bron_energyzero
         unit_of_measurement: "EUR/kWh"
@@ -151,7 +155,7 @@ template:
         availability: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
         state: >
           {{ (states('sensor.energyzero_today_energy_current_hour_price') | float(0)
-              / (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}
+              / 1.21) | round(6) }}
         attributes:
           interval_min: 60   # EnergyZero-core-sensor is per uur; NordPool/EnerPrice leveren straks 15 min
           beschikbaar: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
@@ -496,6 +500,12 @@ input_text:
     max: 255
     mode: text
     icon: mdi:weather-sunset
+  prijs_notify_doel:
+    name: "Prijzen: notify-doel (zonder 'notify.'-voorvoegsel)"
+    min: 0
+    max: 255
+    mode: text
+    icon: mdi:bell-cog
 
 automation:
   - alias: "Prijzen: meld bij bronuitval of basis-onbetrouwbaar"
@@ -516,7 +526,7 @@ automation:
         for: "00:05:00"
     conditions: []
     actions:
-      - action: notify.mobile_app_telefoon_jan
+      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
         data:
           title: "⚡ Stroomprijs-basis verstoord"
           message: >
@@ -543,7 +553,7 @@ automation:
         entity_id: binary_sensor.prijzen_morgen_beschikbaar
         state: "off"
     actions:
-      - action: notify.mobile_app_telefoon_jan
+      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
         data:
           title: "⚠ Morgenprijzen nog niet binnen"
           message: >

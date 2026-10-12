@@ -46,16 +46,23 @@ class EnergyprijsConfigFlow(ConfigFlow, domain=DOMAIN):
         try:
             from pathlib import Path
 
-            from .installer import _packages_status_sync, sync_package_if_changed
+            from .installer import (_config_dir, _packages_status_sync,
+                                     sync_package_if_changed)
 
             pkg_changed = await sync_package_if_changed(self.hass)
             status, note = await self.hass.async_add_executor_job(
-                _packages_status_sync, Path(self.hass.config.path("configuration.yaml"))
+                _packages_status_sync, _config_dir(self.hass) / "configuration.yaml"
             )
             _LOGGER.info(
                 "energyprijs config-flow: package_bijgewerkt=%s | cfg=%s | %s",
                 pkg_changed, status, note,
             )
+            # v1.5.4 (review okt '26): 'handmatig' mocht de flow niet stilzwijgend
+            # laten eindigen op 'success' — het repair-issue toont de plak-
+            # instructie in Instellingen → Reparaties.
+            if status == "handmatig":
+                from .installer import _create_packages_handmatig_issue
+                await _create_packages_handmatig_issue(self.hass, note)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("energyprijs: installeren mislukt")
             return self.async_abort(reason="install_failed")

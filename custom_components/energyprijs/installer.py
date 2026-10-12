@@ -63,6 +63,15 @@ HELPERS_DEFAULTS: dict[str, float] = {
     # reserve-contract (v1.4.0): startpunt 20%; Jans eigen 86-kWh-accu maakt hem
     # bij eerste installatie dus 17 kWh — hij verhoogt 'm naar zin (storing-cijfer).
     "accu_reserve_pct": 20.0,
+    # ── shadow: modelconstanten (v1.5.4; was 'initial:' in shadow.yaml — dat
+    #    zette bij elke HA-herstart de tactiekwaarde terug over eigen keuzes) ──
+    "shadow_eta": 0.83,
+    "shadow_w": 0.025,
+    "shadow_m": 0.015,
+    "shadow_n_top": 12,
+    "shadow_capaciteit": 92,
+    "shadow_soc_min": 20,
+    "shadow_hysteresis": 0.005,
 }
 
 # Helpers die in eerdere versies zijn meegeleverd maar niet meer door het package
@@ -175,6 +184,26 @@ def _sync_shadow_package_sync(hass: HomeAssistant) -> bool:
     target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     _LOGGER.info("energyprijs: shadow-package bijgewerkt op disk — HERSTART vereist om het te laden")
     return True
+
+
+async def _create_packages_handmatig_issue(hass: HomeAssistant, toelichting: str) -> None:
+    """Repair-issue: packages-include ontbreekt → sensoren/dashboard laden niet."""
+    try:
+        ir.async_create_issue(
+            hass, DOMAIN, "packages_include_handmatig",
+            is_fixable=False, severity=ir.IssueSeverity.ERROR,
+            translation_key="packages_include_handmatig",
+            translation_placeholders={"toelichting": toelichting},
+        )
+    except Exception:  # noqa: BLE001 — issue is behulpzaam, niet kritiek
+        _LOGGER.debug("energyprijs: handmatig-issue aanmaken mislukt", exc_info=True)
+
+
+async def _resolve_packages_handmatig_issue(hass: HomeAssistant) -> None:
+    try:
+        ir.async_delete_issue(hass, DOMAIN, "packages_include_handmatig")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def _create_restart_issue(hass: HomeAssistant) -> None:
@@ -804,6 +833,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
         # 2) configuration.yaml CONTROLEREN (nooit schrijven)
         status, note = await hass.async_add_executor_job(_packages_status_sync, cfg_file)
 
+        # 2b) 'handmatig' was tot v1.5.3 een dood spoor in de UI: alleen de
+        #     service-response noemde het. Zet nu een repair-issue met de exact
+        #     te plakken regels; bij 'ok' ruimen we het zelf op.
+        if status == "handmatig":
+            await _create_packages_handmatig_issue(hass, note)
+        else:
+            await _resolve_packages_handmatig_issue(hass)
+
         # 3) status bepalen
         result = {
             "package_bijgewerkt": pkg_changed,
@@ -887,6 +924,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
         cfg_file = _config_dir(hass) / CONFIG_FILENAME
         pkg_file = _config_dir(hass) / "packages" / PACKAGE_FILENAME
         status, note = await hass.async_add_executor_job(_packages_status_sync, cfg_file)
+        if status == "handmatig":
+            await _create_packages_handmatig_issue(hass, note)
+        else:
+            await _resolve_packages_handmatig_issue(hass)
         gelijk = await hass.async_add_executor_job(_package_gelijk_sync, hass)
         return {
             "configuration_yaml_bestaat": cfg_file.exists(),

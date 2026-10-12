@@ -19,6 +19,21 @@ async def _setup_shadow(hass):
     from datetime import datetime, timedelta, timezone
     pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
     assert await async_setup_component(hass, "input_number", {"input_number": pkg["input_number"]})
+    # v1.5.4: 'initial:' is uit het package (zou elke HA-herstart tactiekwaarden
+    # resetten). In productie zet de installer de startwaarden éénmalig via
+    # HELPERS_DEFAULTS — maar die route is contract- én IsDone-bewakend en hoort
+    # niet in een geïsoleerde package-test (andere tests delen dezelfde store).
+    # Daarom bootst deze fixture hier alleen het *resultaat* na: de waarden die
+    # HELPERS_DEFAULTS noemt, gezet op de zojuist geladen helpers. De assertie
+    # boven bewijst dat shadow.yaml zelf géén initial meer bevat.
+    import custom_components.energyprijs.installer as inst
+    for key, value in inst.HELPERS_DEFAULTS.items():
+        if not key.startswith("shadow_"):
+            continue
+        if hass.states.get(f"input_number.{key}") is not None:
+            await hass.services.async_call(
+                "input_number", "set_value",
+                {"entity_id": f"input_number.{key}", "value": value}, blocking=True)
     assert await async_setup_component(hass, "template", {"template": pkg["template"]})
     # sun.sun zaaien na setup: zonvenster dekt de test-data rond 'nu'
     now = datetime.now(timezone.utc)

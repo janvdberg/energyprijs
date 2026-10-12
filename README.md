@@ -67,7 +67,9 @@ De package gebruikt sensoren van integraties die al geïnstalleerd moeten zijn �
 - **Nord Pool** (core-integratie)
 - **EnerPrice** (HACS: `LenFaki/home-assistant-nl-day-ahead-prices`) — zet *extended attributes* aan in de opties (aanbevolen)
 - **EnergyZero** (core-integratie)
-- Een notify-service genaamd `notify.home` (anders de naam in het package aanpassen)
+- Een notify-service (mobiele app, Telegram, `persistent_notification`). Vul diens
+  naam in zonder `notify.`-voorvoegsel in `input_text.prijs_notify_doel`; leeg =
+  persistent notification, dus niets faalt als je dit overslaat
 
 > De basisprijs vereist **twee** verse bronnen (kruiscontrole); met één bron
 > blijft de daglijst beschikbaar maar wordt de basis unavailable. Heb je alleen
@@ -365,6 +367,7 @@ weghalen + herstart. configuration.yaml raakt de integratie níet meer aan
 
 | Versie | Wijziging |
 |---|---|
+| 1.5.4 | **Reviewpunten okt '26 (5 fixes)**: (1) het EnergyZero-bronblok had een triggers-blok dat alleen bij HA-start en btw-wijziging rendert — de sensor bevroor dus op de opstartwaarde en zag geen prijswijziging of uitval; nu state-based (live, geen triggers). (2) Dezelfde blok deelde door `(1 + input_number.prijs_btw)`; EnergyZero-prijzen bevatten wettelijk altíjd 21% btw, dus die helper gaf met 0 een valse kruiscontrole-afwijking — deler is nu constante 1.21. (3) `shadow.yaml` had `initial:` op de modelconstanten: elke HA-herstart zette je tactiekwaarden terug naar fabriek. Defaults draaien nu éénmalig via HELPERS_DEFAULTS (IsDone-bewakend), exact zoals het hoofdpackage. (4) Notify-doel was hardcoded (`mobile_app_telefoon_jan`); nieuw instelveld `input_text.prijs_notify_doel` (leeg → persistent_notification, niets faalt). (5) Packages-status 'handmatig' gaf alleen in de service-response een hint — nu een repair-issue (installer én config-flow) met de exact te plakken regels. Extra: shadowkaart toont de excl-btw-kruiscontrole per bron (EZ/NP/EP) |
 | 1.5.0 | **Shadow-mode accu-handel**: nieuw optioneel package `shadow/energyprijs_shadow.yaml` dat de regime-vrije regel uit `stroomhandel_tactiek.md` (revisie 3) berekent naast de bestaande G1–G4-logica — 6 sensoren (doel-SOC, V, herlaadkosten, verkoop-eis, ruimte R, status in de vijf bestaande labels) + log-automation. Schrijft NOOIT naar de omvormer. Zes modelconstanten als instelbare helpers (η=0,83, w=0,025, m=0,015, N=12, C=92, grens=20%). Minimaal 2 weken shadow vóór overname. ||
 | 1.4.3 | **Verkooplijn volgt de salderingschakelaar direct** (structureel): de grafiekkaart heeft géén `update_interval` meer — apexcharts v2 negeert zolang die key gezet is elke statuswijziging van de sensor en tekent alleen op de timer. Zonder die sleutel ververst de kaart ~1,5 s na elke sensor-update. De verkoopserie leest weer gewoon het daglijst-attribuut `e.uit`; de formule staat maar op één plek (package.yaml), dat blok herberekent al direct op elke helper-toggle. Nieuwe `time_pattern` (/5 min) houdt de sensor-state en dus de "nu"-markering in beweging. ||
 | 1.4.2 | **Verkooplĳn volgt saldering direct**: de lijn herberekent per interval live vanuit de contract-helpers (btw, energiebelasting, leveringopslag, salderings-schakelaar) in plaats van het cached `uit`-attribuut van de sensor te lezen. Toggle je saldering om, dan beweegt de rode lijn meteen mee ||

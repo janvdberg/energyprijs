@@ -11,13 +11,16 @@
 
 input_number:
   # ── modelconstanten (instelbaar zonder code) ──
+  #    OPLET: geen 'initial' hier — initial zet bij ELKE HA-herstart de
+  #    tactiekwaarde terug over eigen instellingen heen. De installer zet deze
+  #    startwaarden éénmalig via HELPERS_DEFAULTS (IsDone-bewakend), exact zoals
+  #    het hoofdpackage dat doet (zie package.yaml r.385).
   shadow_eta:
     name: "Shadow η — verwervingrendement AC→accu→AC"
     min: 0.50
     max: 1.00
     step: 0.01
     unit_of_measurement: "×"
-    initial: 0.83
     icon: mdi:lightning-bolt
   shadow_w:
     name: "Shadow w — slijtage €/kWh"
@@ -25,7 +28,6 @@ input_number:
     max: 0.10
     step: 0.005
     unit_of_measurement: "€/kWh"
-    initial: 0.025
     icon: mdi:tune
   shadow_m:
     name: "Shadow m — marge €/kWh"
@@ -33,14 +35,12 @@ input_number:
     max: 0.10
     step: 0.005
     unit_of_measurement: "€/kWh"
-    initial: 0.015
     icon: mdi:percent
   shadow_n_top:
     name: "Shadow N — aantal dure kwartieren voor V"
     min: 4
     max: 96
     step: 1
-    initial: 12
     icon: mdi:counter
   shadow_capaciteit:
     name: "Shadow C — batterijcapaciteit bruikbaar"
@@ -48,7 +48,6 @@ input_number:
     max: 150
     step: 1
     unit_of_measurement: "kWh"
-    initial: 92
     icon: mdi:battery-high
   shadow_soc_min:
     name: "Shadow SOC-ondergrens (huisreserve)"
@@ -56,7 +55,6 @@ input_number:
     max: 50
     step: 1
     unit_of_measurement: "%"
-    initial: 20
     icon: mdi:battery-low
   shadow_hysteresis:
     name: "Shadow hysteresis — band aan de prijsgrens (€/kWh)"
@@ -64,7 +62,6 @@ input_number:
     max: 0.05
     step: 0.001
     unit_of_measurement: "€/kWh"
-    initial: 0.005
     mode: box
     icon: mdi:wave-sine
 
