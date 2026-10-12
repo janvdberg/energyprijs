@@ -4,6 +4,27 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-12 — gemeten rendement als aparte invulvelden (v1.5.5, nog niet gepubliceerd)
+
+Jan: "handelen met verlies is dom". De meting aug-okt '26 (`accu_verlies_meten.py`)
+geeft laden ~77% / ontladen ~90% → roundtrip ~70%; de solver-rekenkunde ging uit
+van 0,83 (vóór-meting-aanname).
+- Nieuwe helpers: `rendement_laad_pct` (77), `rendement_ontlaad_pct` (90),
+  `rendement_roundtrip_pct` (70). De formules in package.yaml en shadow.yaml
+  lezen deze VÓÓR `shadow_eta` via een rend_ok-check; ontbreken de helpers →
+  terugval op `shadow_eta`.
+- η per been = gemiddelde(77,90)/100 ≈ 0,835 — in de solver-formules; rt =
+  0,77×0,90 ≈ 0,70 — in de rt/rt_uit-kolommen van de daglijst (werkelijke
+  inkoop-/verkoopkosten per kWh).
+- Bewuste bevoring: `shadow_eta` blijft 0,83 tot Jan verzet; bij uitzetten van
+  de rendements-helpers valt de solver terug op het optimistische getal —
+  markeringscommentaar in installer.py en shadow.yaml wijst erop.
+- Effect op G-banden (η=0,70): break-even verkoopprijs = G1/0,70 ≈ €0,45 bij
+  G1=0,315; daaronder kruist het model en handelt het niet meer — precies de
+  gewenste "nooit met verlies"-gedrag.
+- Tests: `pytest tests/test_shadow_package.py tests/test_shadow_yaml_valid.py`
+  → 8 passed. Nog NIET op GitHub vrijgegeven (werkboom lokaal, v1.5.5).
+
 ## 2026-10-10 — daglijst pakt eerste beschikbare bron + verifiëren (v1.5.3)
 
 Jan (2 u 's nachts): "we hebben nog geen prijzen voor morgen terwijl de

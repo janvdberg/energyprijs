@@ -15,8 +15,15 @@ input_number:
   #    tactiekwaarde terug over eigen instellingen heen. De installer zet deze
   #    startwaarden éénmalig via HELPERS_DEFAULTS (IsDone-bewakend), exact zoals
   #    het hoofdpackage dat doet (zie package.yaml r.385).
+  # v1.5.5: shadow_eta is DE NOODVALLET en moet CONSISTENT blijven met de
+  # gemeten roundtrip: η = (77+90)/200 = 0,835 per been; voor een heen-en-weer
+  # transactie geldt rt = 0,77×0,90 ≈ 0,70 (veld rendement_roundtrip_pct).
+  # Vroeger stond hier 0,83 (vóór-meting-aanname); bij het uitzetten van de
+  # meet-helpers mag de solver niet terugvallen op een optimistischer getal
+  # dan zijn eigen hoofdroute. Zolang de helpers bestaan wordt deze niet
+  # gebruikt; hij telt pas als de rendements-helpers unavailable zijn.
   shadow_eta:
-    name: "Shadow η — verwervingrendement AC→accu→AC"
+    name: "Shadow η — noodvallet rendement (×)"
     min: 0.50
     max: 1.00
     step: 0.01
@@ -86,6 +93,12 @@ template:
       - trigger: state
         entity_id:
           - input_number.shadow_eta
+          - input_number.rendement_laad_pct
+          - input_number.rendement_ontlaad_pct
+          - input_number.rendement_roundtrip_pct
+          - input_number.prijs_opslag_tijdsafhankelijk
+          - input_number.prijs_dal_uren
+          - input_number.prijs_top_uren
           - input_number.shadow_w
           - input_number.shadow_m
           - input_number.shadow_n_top
@@ -125,7 +138,10 @@ template:
           {{ states('sensor.stroomprijs_daglijst') not in ['unknown','unavailable']
              and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
         state: >
-          {% set eta = states('input_number.shadow_eta') | float(0.83) %}
+          {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
+          {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
+          {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {% set eta = ((states('input_number.rendement_laad_pct') | float(77) + states('input_number.rendement_ontlaad_pct') | float(90)) / 200) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
           {% set n = states('input_number.shadow_n_top') | int(12) %}
           {% set ns = namespace(prijzen=[]) %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
@@ -206,7 +222,10 @@ template:
           {{ has_value('sensor.stroomprijs_daglijst')
              and has_value('sensor.shadow_herlaadkosten') }}
         state: >
-          {% set eta = states('input_number.shadow_eta') | float(0.83) %}
+          {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
+          {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
+          {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {% set eta = ((states('input_number.rendement_laad_pct') | float(77) + states('input_number.rendement_ontlaad_pct') | float(90)) / 200) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
           {% set w = states('input_number.shadow_w') | float(0.025) %}
           {% set m = states('input_number.shadow_m') | float(0.015) %}
           {% set h = states('sensor.shadow_herlaadkosten') | float(9) %}
@@ -235,7 +254,10 @@ template:
           {{ states('sensor.stroomprijs_daglijst') not in ['unknown','unavailable']
              and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
         state: >
-          {% set eta = states('input_number.shadow_eta') | float(0.83) %}
+          {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
+          {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
+          {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {% set eta = ((states('input_number.rendement_laad_pct') | float(77) + states('input_number.rendement_ontlaad_pct') | float(90)) / 200) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
           {% set w = states('input_number.shadow_w') | float(0.025) %}
           {% set m = states('input_number.shadow_m') | float(0.015) %}
           {% set V = states('sensor.shadow_v_waarde_opgeslagen_kwh') | float(0) %}

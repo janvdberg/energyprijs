@@ -72,6 +72,21 @@ HELPERS_DEFAULTS: dict[str, float] = {
     "shadow_capaciteit": 92,
     "shadow_soc_min": 20,
     "shadow_hysteresis": 0.005,
+    # ── gemeten accu-rendement (accu_verlies_meten.py, meetperiode aug-okt '26):
+    #    laden net->cel ~77% (zwaar AC-laden), ontladen cel->AC ~90%, roundtrip
+    #    ~70%. shadow_eta is de GEWOGEN standaard voor de solver en blijft op de
+    #    oude 0,83 tot Jan bewust verzet; de meetwaarden staan apart klaar.
+    #    LET OP: dit is een bewuste BEVORING — bij uitzetten van de rendements-
+    #    helpers valt de solver terug op 0,83 terwijl de gemeten rt 0,70 is.
+    #    Verzet dit veld naar 0,70 zodra de meting als leidend wordt erkend. ──
+    # v1.5.5: deze drie LEZEN de formules direct — η in het model is het
+    # gemiddelde van laad/ontlaad (0,835); roundtrip (0,70) zit in de rt-kolommen.
+    "rendement_laad_pct": 77.0,
+    "rendement_ontlaad_pct": 90.0,
+    "rendement_roundtrip_pct": 70.0,
+    "prijs_dal_uren": 7.0,        # nachtelijk dal (AC-klok): 00:00–tot dit uur
+    "prijs_top_uren": 17.0,       # AVP-dagtopperruimte (AC-klok): vanaf dit uur
+    "prijs_opslag_tijdsafhankelijk": 0.0,   # EUR/kWh extra bij tijdsafh. contract 2028
 }
 
 # Helpers die in eerdere versies zijn meegeleverd maar niet meer door het package

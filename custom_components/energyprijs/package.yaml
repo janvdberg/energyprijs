@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 1.2.42 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.5.5 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
@@ -10,6 +10,18 @@
 #   - 2027-bestendig: saldering weg → alleen input_number/boolean verzetten.
 #   - Kwartier-klaar: EnerPrice/Nord Pool leveren vanzelf 15-min intervallen
 #     zodra de markt overgaat; templates werken op attributes-lijsten.
+#
+#  v1.5.5 — gemeten rendement + tijdsafhankelijke tarieven (okt '26):
+#   1. Nieuwe helpers (installer HELPERS_DEFAULTS + input_number hieronder):
+#      rendement_laad_pct=77, rendement_ontlaad_pct=90, rendement_roundtrip_pct=70
+#      (P1↔Deye-meting, donkere uren), prijs_opslag_tijdsafhankelijk=0,
+#      prijs_dal_uren=7, prijs_top_uren=17.
+#   2. Daglijst-formules (vandaag/morgen) verwerken 'toel' (netto-opslag per
+#      uur via sensor.energyprijs_opslag_toeslag) in in(t)/uit(t) en de rt-/
+#      rt_uit-kolommen via rendement_roundtrip_pct. Handelen loont pas boven
+#      spread/η — η staat NOOIT meer los getypt in formules.
+#   3. Shadow: η = gemiddelde van laad/ontlaad-helpers; shadow_eta is alleen
+#      nog noodvallet als die helpers ontbreken (has_value-check).
 #
 #  v1.2.33 — twee structurele correcties (live-log 3 okt, HA 2026.9.4):
 #   1. Helpers zijn input_NUMBER met mode: box (invulvelden, geen sliders).
@@ -162,6 +174,25 @@ template:
           prices_today: "[]"
           prices_tomorrow: "[]"
 
+  # ── TARIEF-2028 HELPER (v1.5.5): tijdsafhankelijke opslag per interval.
+  #    Levert de EUR/kWh-toeslag voor het lokale uur van een UTC-geannoteerd
+  #    interval: dal = prijs_dal_uren..7 (lokaal, dus 06:00–07:00 CET is nog
+  #    dal), AVP-top = top_uren tot middernacht, rest schouder. Buiten die
+  #    vensters of als de toeslag-helper 0 is → 0 (contract nog niet zover).
+  - sensor:
+      - name: "Energyprijs opslag toeslag"
+        unique_id: energyprijs_opslag_toeslag
+        unit_of_measurement: "EUR/kWh"
+        state_class: measurement
+        availability: >-
+          {{ has_value('sensor.stroomprijs_basis') }}
+        state: >-
+          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
+          {% set dal = states('input_number.prijs_dal_uren') | int(7) %}
+          {% set top = states('input_number.prijs_top_uren') | int(17) %}
+          {% set u = now().astimezone().hour %}
+          {{ ts if (ts > 0 and (u < dal or u >= top)) else 0 | round(4) }}
+
   # ── GECOÖRDINEERD: daglijst herberekent live bij elke contractwijziging ──
   #    (state-based template-sensoren luisteren normaal NIET naar input_*;
   #     dit blok doet dat wél, zodat de rode verkoopreeks direct meeloopt.)
@@ -218,15 +249,27 @@ template:
                                  ('energyzero','sensor.prijzen_bron_energyzero')] %}
               {% if ns.eid == '' and state_attr(eid, 'prices_today') | default([], true) | count > 0 %}{% set ns.eid = eid %}{% endif %}
             {% endfor %}
+            {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
+            {% set dal_u = states('input_number.prijs_dal_uren') | int(7) %}
+            {% set top_u = states('input_number.prijs_top_uren') | int(17) %}
+            {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
             {% for i in state_attr(ns.eid, 'prices_today') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
-                {% set allin = ((p + sa + bel) * btw) | round(4) %}
+                {# ── tariefcontract 2028: toeslag per lokaal uur; vóór 1-1-2028
+                   is ts=0 en valt alles terug op de vaste contract-opslagen ── #}
+                {% set h = (i.time | as_datetime).astimezone().hour %}
+                {# rt = in/η en rt_uit = uit×η: wat de kWh werkelijk kost/oplevert na
+                   omzettingsverlies (rendement-contract); handelen loont pas boven spread/η #}
+                {% set toel = ts if (ts > 0 and (h < dal_u or h >= top_u)) else 0 %}
+                {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
                 {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
-                    'uit': (((p + sl) * btw + (bel * btw if saldering else 0)) | round(4))}] %}
+                    'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
+                    'rt': (allin / rt) | round(4),
+                    'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
               {% endif %}
             {% endfor %}
             {{ ns.out }}
@@ -242,15 +285,27 @@ template:
                                  ('energyzero','sensor.prijzen_bron_energyzero')] %}
               {% if ns.eid == '' and state_attr(eid, 'prices_tomorrow') | default([], true) | count > 0 %}{% set ns.eid = eid %}{% endif %}
             {% endfor %}
+            {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
+            {% set dal_u = states('input_number.prijs_dal_uren') | int(7) %}
+            {% set top_u = states('input_number.prijs_top_uren') | int(17) %}
+            {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
             {% for i in state_attr(ns.eid, 'prices_tomorrow') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
-                {% set allin = ((p + sa + bel) * btw) | round(4) %}
+                {# ── tariefcontract 2028: toeslag per lokaal uur; vóór 1-1-2028
+                   is ts=0 en valt alles terug op de vaste contract-opslagen ── #}
+                {% set h = (i.time | as_datetime).astimezone().hour %}
+                {# rt = in/η en rt_uit = uit×η: wat de kWh werkelijk kost/oplevert na
+                   omzettingsverlies (rendement-contract); handelen loont pas boven spread/η #}
+                {% set toel = ts if (ts > 0 and (h < dal_u or h >= top_u)) else 0 %}
+                {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
                 {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
-                    'uit': (((p + sl) * btw + (bel * btw if saldering else 0)) | round(4))}] %}
+                    'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
+                    'rt': (allin / rt) | round(4),
+                    'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
               {% endif %}
             {% endfor %}
             {{ ns.out }}
@@ -266,7 +321,17 @@ template:
           - input_number.prijs_opslag_afname
           - input_number.prijs_opslag_levering
           - input_boolean.prijs_saldering_energiebelasting_teruggave
+          # tariefcontract 2028 + rendement-contract (v1.5.5)
+          - input_number.prijs_opslag_tijdsafhankelijk
+          - input_number.prijs_dal_uren
+          - input_number.prijs_top_uren
+          - input_number.rendement_roundtrip_pct
           - sensor.stroomprijs_basis
+      # elk kwartier opnieuw kijken: de tijdsafhankelijke toeslag hangt van het
+      # lokale uur af, dus de formule moet aan de kloktijd volgen (net als de
+      # daglijst-karteer-cyclus; nu is dat 5 min — genoeg voor een op-uur-grens)
+      - trigger: time_pattern
+        minutes: "/5"
     sensor:
       # ── AFNAME all-in = (basis + opslag + energiebelasting) × (1+btw)
       - name: "Stroomprijs afname"
@@ -275,8 +340,12 @@ template:
         state_class: measurement
         availability: "{{ has_value('sensor.stroomprijs_basis') }}"
         state: >
+          {% set h = now().astimezone().hour %}
+          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
+          {% set toel = ts if (ts > 0 and (h < states('input_number.prijs_dal_uren') | int(7)
+                                          or h >= states('input_number.prijs_top_uren') | int(17))) else 0 %}
           {{ ((states('sensor.stroomprijs_basis') | float(0)
-               + states('input_number.prijs_opslag_afname') | float(0)
+               + states('input_number.prijs_opslag_afname') | float(0) + toel
                + states('input_number.prijs_energiebelasting') | float(0))
               * (1 + states('input_number.prijs_btw') | float(0.21))) | round(6) }}
 
@@ -291,7 +360,11 @@ template:
           {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
           {% set basis = states('sensor.stroomprijs_basis') | float(0) %}
           {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
-          {{ ((basis + states('input_number.prijs_opslag_levering') | float(0)) * btw
+          {% set h = now().astimezone().hour %}
+          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
+          {% set toel = ts if (ts > 0 and (h < states('input_number.prijs_dal_uren') | int(7)
+                                          or h >= states('input_number.prijs_top_uren') | int(17))) else 0 %}
+          {{ ((basis + states('input_number.prijs_opslag_levering') | float(0) + toel) * btw
               + (states('input_number.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
 
   # ── ACCU-CONTRACT: sensor.energyprijs_accu_percentage = vaste, botsingvrije naam.
@@ -473,6 +546,66 @@ input_number:
     step: 1
     mode: box
     icon: mdi:battery-alert-variant-outline
+  # ── RENDEMENT-CONTRACT (v1.5.5): gemeten omzettingsrendementen uit eigen HA-data
+  #    (accu_verlies_meten.py, periode aug→okt '26; AC-zijde = P1 + Deye load).
+  #    Eén bron van waarheid: formules en shadow lezen deze helpers, geen
+  #    hardcoded η. Startwaarden via HELPERS_DEFAULTS (installer.py).
+  rendement_laad_pct:
+    name: "Rendement: laden net→cel (%)"
+    unit_of_measurement: "%"
+    min: 0
+    max: 100
+    step: 0.5
+    mode: box
+    icon: mdi:battery-charging-high
+  rendement_ontlaad_pct:
+    name: "Rendement: ontladen cel→AC (%)"
+    unit_of_measurement: "%"
+    min: 0
+    max: 100
+    step: 0.5
+    mode: box
+    icon: mdi:battery-arrow-down-outline
+  rendement_roundtrip_pct:
+    name: "Rendement: roundtrip net→cel→net (%)"
+    unit_of_measurement: "%"
+    min: 0
+    max: 100
+    step: 0.5
+    mode: box
+    icon: mdi:sync
+  # ── TARIEFCONTRACT 2028 (v1.5.5): per 1-1-2028 worden leverancierskosten
+  #    (vaste opslag) tijdsonafhankelijk vervangen door een variabele toeslag
+  #    per uur (ACM-kamerbrief; exacte bedragen nog vast te stellen — Jan vult
+  #    ze in zodra contract/ACM ze noemt). De uren-grenzen staan in JANS lokale
+  #    klok (CEST/Winter); de daglijst-intervallen zijn UTC-geannoteerd en
+  #    worden hieromrekend. Dal = uren < dal_uren OF >= 24 (nacht); top =
+  #    dal_uren <= uur < top_uren is schouder; rest tot middernacht valt in
+  #    de AVP-topruimte vanaf top_uren.
+  prijs_dal_uren:
+    name: "Tarief 2028: dal tot (uur, lokale klok)"
+    unit_of_measurement: "u"
+    min: 0
+    max: 24
+    step: 1
+    mode: box
+    icon: mdi:weather-night
+  prijs_top_uren:
+    name: "Tarief 2028: AVP-top vanaf (uur, lokale klok)"
+    unit_of_measurement: "u"
+    min: 0
+    max: 24
+    step: 1
+    mode: box
+    icon: mdi:weather-sunset-up
+  prijs_opslag_tijdsafhankelijk:
+    name: "Tarief 2028: tijdsafhankelijke opslag (EUR/kWh)"
+    unit_of_measurement: "EUR/kWh"
+    min: 0
+    max: 1
+    step: 0.0001
+    mode: box
+    icon: mdi:clock-alert-outline
 
 input_boolean:
   prijs_saldering_energiebelasting_teruggave:
