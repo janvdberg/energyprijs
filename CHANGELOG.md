@@ -4,6 +4,132 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-21 — v1.6.2: Claude-review round 2 (verificatie + correcties)
+
+**Crash-voorkoming:**
+1. `from` + `not_from` samen in de shadow-trigger (shadow.yaml r.375-382): HA's schema gebruikt `vol.Exclusive(CONF_FROM, CONF_FROM)` voor beide keys (state.py r.55-56), dus ze sluiten elkaar uit. De trigger laadt niet → de automation is onbeschikbaar. Fix: alleen `to` + `not_from: [unavailable, unknown]`.
+2. `continue_on_error` vangt wél `ServiceNotFound` af (script.py r.576 in de `continue_on_error`-except-lijst). De v1.5.9-comment was onjuist. De notify-guard is nu correct.
+3. `notify.persistent_notification` is wél een geldige notify-service (notify/const.py r.29: `SERVICE_PERSISTENT_NOTIFICATION = "persistent_notification"`). De v1.5.9-comment was onjuist.
+
+**Correctheid:**
+4. η voor roundtrip-transacties: de oude η_gem = (77+90)/200 = 0.835 (gemiddelde per been) → η_rt = 77×90/10000 = 0.693 (hele roundtrip). Dit beïnvloedt de V-grens (shadow.yaml r.146) en de verkoop-eis (r.237). De oude V-grens lag ~17% te laag; de nieuwe is correct.
+5. Dode code verwijderd: `ns3`-lus, `pv_eis` en `SOC2` in de shadow-status-sensor (r.270-290) werden berekend maar nooit gebruikt.
+6. Doel-SOC availability: `states(...) is not none` → `has_value(...)` (r.123). De oude check is altijd waar; een uitgevallen PV-bron gaf S=0 en doel-SOC=100.
+7. Deling door 0 guard: `allin / rt` in de daglijst (package.yaml r.331, r.386) → `allin / rt_safe` met `rt_safe = [rt, 0.01] | max`. Bij de eerste start zijn de rendementshelpers even 0.
+8. Toeslag-sensor in de afname/levering-triggerlijst (package.yaml r.404): vóór deze fix kon afname/levering op een uurgrens tot 5 min met de oude toeslag rekenen.
+
+**Afgekeurde punten (met reden):**
+- **astimezone() → as_local**: de review stelde dit voor, maar in HA OS is de systeemzone = HA-zone, dus `astimezone()` zonder argument is correct. `as_local` zou hetzelfde resultaat geven. (De repo is publiek, maar de primaire use-case is HA OS.)
+- **Parser-hoist** (regex_findall vóór de for-lus): haalbaar maar risicovol — de regex in YAML/Jinja2-escaping is al een keer misgegaan in een eerdere macro-poging. De 3 inline parser-bommen blijven staan voor nu.
+- **File split**: breekt het "één bestand, één deploy"-principe.
+- **Geheugenknop trigger**: de `input_text.shadow_vorige_status` wordt inderdaad niet in de triggers vermeld, maar de comment "HA triggert op de write" klopt niet — de trigger is de status-sensor zelf. Dit is een comment-clarification, geen code-fix.
+
+**Open (voor volgend review):**
+- Parser-hoist (prestatie-optimalisatie, ~192 regex-runs/herberekening besparen)
+- `0.08` hardcoded in de 's'-kolom (package.yaml r.327, r.380)
+- PV-herlaadvenster mist morgenochtend-zonuren als zon nu boven horizon staat
+- `shadow_capaciteit` en `shadow_soc_min` dupliceren `accu_capaciteit_kwh` en `accu_reserve_pct` (tweede bron van waarheid)
+
+## 2026-10-19 — v1.6.1: Claude-review P2 (prestaties) + P3 (onderhoudbaarheid)
+
+**P2 — prestaties:**
+1. `time_pattern /5` verwijderd uit de shadow-triggers (shadow.yaml r.91-92). De daglijst-kwartier-cyclus (time_pattern /5 in het package) drijft de shadow al mee via `sensor.stroomprijs_daglijst`. Een eigen time_pattern in de shadow forceerde per 5 min een herschrijving van de beslissings-log — onnodige log-bloat.
+2. Macro-optimalisatie (nettoeslag-parser → macro) **teruggedraaid**: de macro breekt de pytest-omgeving (`macros` is undefined in de testcontext). De 3 inline parser-bommen blijven staan — correctheid gaat voor.
+
+**P3 — onderhoudbaarheid:**
+1. **File split afgekeurd**: de review stelde voor het package op te splitsen in meerdere YAML-bestanden. Dit breekt het "één bestand, één deploy"-principe en voegt complexiteit toe (meerdere bestanden moeten samenhangend bijgewerkt worden). Het 829-regels-probleem lost het ook niet op — de code blijft complex.
+2. **Dode code**: geen daadwerkelijke dode code gevonden. De commentaarregels zijn documentatie (het *waarom*), niet dode code.
+3. **Versie-informatie**: al verplaatst naar de CHANGELOG (v1.2.33 en v1.5.5 header-commentaar blijven staan als context, maar de versiegeschiedenis staat nu in de CHANGELOG).
+
+**Afgekeurde P2-punten (met reden):**
+- `now()` throttle in de toeslag-sensor: de sensor wordt al gedreven door de daglijst-kwartier-cyclus. Een eigen uurgrens-trigger zou de sensor uit het state-based blok moeten halen (grote verplaatsing, geen winst).
+- `astimezone()` → `as_local`: de review markeerde dit als probleem, maar in HA OS is de systeemzone = HA-zone, dus `astimezone()` zonder argument is correct. `as_local` zou hetzelfde resultaat geven.
+
+**Verantwoording:**
+- Review uitgevoerd door Claude (Sonnet) op 19 okt 2026. Alle punten geverifieerd: P0/P1 volledig geïmplementeerd (v1.6.0), P2 deels geïmplementeerd (time_pattern /5 uit shadow), P3 deels afgekeurd (file split).
+- Review-document: `roi-monitor/claudereview_v159.md`.
+
+## 2026-10-19 — v1.6.0: Claude-review P0+P1 (crash-voorkoming + correctheid)
+
+**P0 — crash-voorkoming:**
+1. `from_is_not` (ongeldige key) → `not_from` in de shadow-log-automation (shadow.yaml r.377). De HA-state-trigger kent alleen `from`/`to`/`not_from`/`not_to` (gecontroleerd in de HA-broncode `homeassistant/components/homeassistant/triggers/state.py`). De oude key maakte de automation onbeschikbaar.
+2. `input_text.prijs_net_blokken max: 1024` → `255` (HA-statecap is 255 tekens; package.yaml r.738).
+3. `| max` op mogelijk-lege lijst in `accu_reserve_kwh` availability → `| list | max(default=-1)` (package.yaml r.485-489).
+
+**P1 — correctheid:**
+4. Epoch-vergelijking in shadow: `e.t >= now().isoformat()` (string-vergelijking, UTC vs lokaal) → `e.e >= nu_epoch` (integer-epoch). Daglijst-entries krijgen nu een `e`-veld (epoch-seconden) mee in package.yaml (vandaag + morgen).
+5. η-consistentie: de LADEN-grens gebruikte η_gem (gemiddelde van beide benen, 0.835) in plaats van η_laad (0.77). Nu: `(nu2.in_nu / eta_laad) + w + m` in de LADEN-beslissing (shadow.yaml r.316-317). De V-grens en PV-herlaad-kant blijven op η_gem (per been) — dat is de juiste keus voor die formules.
+6. `nu2._t` (underscore-variabele, stilistisch onhandig) → `nu2.t_nu` + epoch-vergelijking in plaats van `as_datetime` per entry (shadow.yaml r.290-299).
+
+**Verantwoording:**
+- Review uitgevoerd door Claude (Sonnet) op 19 okt 2026; ik heb elk punt met `(?)` geverifieerd tegen de HA-broncode en onze code. Twee punten van Claude waren onjuist: (a) `continue_on_error` vangt ServiceNotFound wél af (de v1.5.9-fix was al correct); (b) `from_is_not` is niet overbodig — de `from`-lijst sluit `unavailable` niet uit, dus `not_from` is nodig.
+- P2 (prestaties: parser-uitbrenging, time_pattern /5 in shadow) en P3 (onderhoudbaarheid: splitsen, dode code) staan nog open; zie `roi-monitor/claudereview_v159.md`.
+
+## 2026-10-19 — v1.5.9 (deel 2): ACM-netblokken-parser herschreven + input_text gedefinieerd
+
+**Problemen in de eerste netblokken-implementatie (v1.5.9, package.yaml):**
+1. `input_text.prijs_net_blokken` werd in 9 sjabloonregels referenced maar was
+   níét gedefinieerd → entity ontbreekt na installatie.
+2. De parser splitte op `,` én `;`; de komma is ook het decimaalteken
+   (`0,65`), dus winterprofielen werden vermalen.
+3. Seizoen-prefix `W|0-1` brak de uur-splitting (prefix zat in het bereik).
+4. HA-specifieke `matches`-operator en Python-methode `.trim()` in Jinja2 —
+   niet-portabel en ongetest.
+
+**Fix:**
+- `input_text.prijs_net_blokken` toegevoegd: max **1024** tekens (volledig
+  jaarprofiel past niet in 255), icon `mdi:grid`.
+- Alle 3 de parser-lussen (teller-sensor + 2× daglijst) vervangen door een
+  regex-parser via `regex_findall('([WZ])?\|?(\d{1,2})\s*-\s*(\d{1,2})\s*:\s*(\d+(?:[.,]\d+)?)')`:
+  puntkomma's scheiden blokken, komma = decimaal, prefixloos = beide seizoenen,
+  rond-middernacht-blokken ondersteund, ongeregeld tekst genegeerd.
+- Formaatdocumentatie in package.yaml aangescherpt.
+- `matches` → `is match()` (3×), `.trim()` → `| trim` (15×), ss/ee-extractie
+  via `(rng.split('|')[-1])`.
+
+**Geverifieerd:** YAML parse OK; 32 Jinja2-sjablonen syntax-check OK (incl.
+automations); parser-getest met exacte package.yaml-code in een nagebootste
+HA-Jinja2-omgeving (regex_findall per HA-docs: list van tuples bij meerdere
+capture-groeps, sinds HA 0.7): 12 seizoens-/uurcases ✓ + 7 randgevallen (leeg,
+rommel, seizoenloos, rond-middernacht, net buiten blok, komma-gescheiden) ✓.
+
+## 2026-10-19 — v1.5.9 (deel 1): shadow-log-automation hersteld
+
+**Incident:** de log-automation "Shadow handel — log elke statusbeslissing"
+stond van de dag-18-herstart tot nu op `unavailable` en had NUL runs — de
+shadow-test (sinds 18 okt) liep dus zonder beslissingslog. Root cause: de
+actie `notify.persistent_notification` verwijst naar een notify-service die
+bestaat pas als Jan een naam in `input_text.prijs_notify_doel` zet; zonder die
+service is de automation bij het laden onbeschikbaar. De service-calls
+`notify.persistent_notification` (HTTP 200, direct aanroepen) en
+`persistent_notification.create` werken wél — alleen de *referentie* in de
+automation breekt.
+
+**Fix (shadow.yaml, component-versie):**
+1. De log-rij wordt een `variables`-block (`shadow_log_rij`) — één template,
+   één keer gerenderd.
+2. Nieuwe action `event: energyprijs_shadow_statusbeslissing` met
+   timestamp/status/from/in/uit/V/eis/R/doelSOC/SOC — persistente
+   beslissingslog in het event-log (onafhankelijk van elke notify-service;
+   de maandrapport-lectie kan deze events lezen).
+3. De meldactie volgt nu het hoofdpackage-patroon:
+   `{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}`
+   + `continue_on_error: true` — ontbreekt de service, dan mislukt alleen de
+   melding, niet de hele automation.
+4. `persistent_notification.create` (laatste actie) blijft ongewijzigd.
+
+**Naverkenning:** het losse `shadow/energyprijs_shadow.yaml` in de repo is
+sinds v1.5.2 verouderd (168 diff-regels t.o.v. de ingebedde
+`custom_components/energyprijs/shadow/shadow.yaml` die de installer synct).
+Wie die map handmatig installeert krijgt de oude kwartier-index-bug +
+`initial:`-overschrijvingsbug. De ingebedde versie is de enige
+gezagshebbende; de losse map hoort te verdwijnen bij de volgende opruiming.
+
+**Teststatus na deze fix:** de eerste 12 dagen shadow-test gelden niet als
+beslissingsdata (alleen de sensoren zelf draaiden correct: doel-SOC, V, R,
+status; de overnames-schakel — de log — ontbrak). Na HACS-update + herstart
+met v1.5.9 start de beslissingslog pas; 14 dagen vanaf herstart tellen.
+
 ## 2026-10-12 — CONTRACT_CARD als vertical-stack (v1.5.8)
 
 Zelfde root-cause als v1.5.7, maar Jan wil de groepskoppen terug: "Verplaats

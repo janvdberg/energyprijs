@@ -312,6 +312,10 @@ CONTRACT_CARD = {
                 {"entity": "input_number.prijs_opslag_tijdsafhankelijk",
                  "name": "Tijdsafh. opslag (€/kWh) — 0 = contract nog "
                          "niet zover"},
+                {"entity": "input_text.prijs_net_blokken",
+                 "name": "Blokfactoren (Z/W|uur-uur:factor) — leeg = dal/top-schema"},
+                {"entity": "binary_sensor.energyprijs_nettoeslag_blokken_ontbreken",
+                 "name": "Blokfactoren ontbreken"},
             ],
         },
     ],
