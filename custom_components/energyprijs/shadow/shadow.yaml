@@ -83,13 +83,14 @@ template:
   # ─────────────────────────────────────────────────────────────────────
   #  Eén triggers-blok voor ALLE shadow-sensoren: herbereken zodra de
   #  dagprijs-list vers is, helpers veranderen, SOC beweegt of de zon-
-  #  sensoren bijwerken. time_pattern houdt de "nu"-index fresh.
+  #  sensoren bijwerken. De daglijst-kwartier-cyclus (time_pattern /5 in
+  #  het package) drijft de shadow mee via sensor.stroomprijs_daglijst —
+  #  een eigen time_pattern hier zou de beslissings-log elke 5 min
+  #  herschrijven (P2-review 19 okt: onnodige log-bloat).
   # ─────────────────────────────────────────────────────────────────────
   - triggers:
       - trigger: homeassistant
         event: start
-      - trigger: time_pattern
-        minutes: "/5"
       - trigger: state
         entity_id:
           - input_number.shadow_eta

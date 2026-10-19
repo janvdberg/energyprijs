@@ -4,6 +4,20 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-19 — v1.6.1: Claude-review P2 (prestaties)
+
+**P2 — prestaties:**
+1. `time_pattern /5` verwijderd uit de shadow-triggers (shadow.yaml r.91-92). De daglijst-kwartier-cyclus (time_pattern /5 in het package) drijft de shadow al mee via `sensor.stroomprijs_daglijst`. Een eigen time_pattern in de shadow forceerde per 5 min een herschrijving van de beslissings-log — onnodige log-bloat.
+2. Macro-optimalisatie (nettoeslag-parser → macro) **teruggedraaid**: de macro breekt de pytest-omgeving (`macros` is undefined in de testcontext). De 3 inline parser-bommen blijven staan — correctheid gaat voor.
+
+**Afgekeurde P2-punten (met reden):**
+- `now()` throttle in de toeslag-sensor: de sensor wordt al gedreven door de daglijst-kwartier-cyclus. Een eigen uurgrens-trigger zou de sensor uit het state-based blok moeten halen (grote verplaatsing, geen winst).
+- `astimezone()` → `as_local`: de review markeerde dit als probleem, maar in HA OS is de systeemzone = HA-zone, dus `astimezone()` zonder argument is correct. `as_local` zou hetzelfde resultaat geven.
+
+**Verantwoording:**
+- Review uitgevoerd door Claude (Sonnet) op 19 okt 2026. P2-punten geverifieerd; 1 echte winst (time_pattern /5 uit shadow), 1 teruggedraaid (macro), 2 afgekeurd (toeslag-throttle, astimezone).
+- P3 (onderhoudbaarheid) staat nog open; zie `roi-monitor/claudereview_v159.md`.
+
 ## 2026-10-19 — v1.6.0: Claude-review P0+P1 (crash-voorkoming + correctheid)
 
 **P0 — crash-voorkoming:**
