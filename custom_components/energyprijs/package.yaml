@@ -710,25 +710,21 @@ input_boolean:
 
 input_text:
   accu_bron_entity:
-    name: "Accu: bron-entity percentage"
     min: 0
     max: 255
     mode: text
     icon: mdi:source-branch
   pv_bron_vandaag:
-    name: "PV: bron-entity verwachting vandaag"
     min: 0
     max: 255
     mode: text
     icon: mdi:weather-sunny
   pv_bron_morgen:
-    name: "PV: bron-entity verwachting morgen"
     min: 0
     max: 255
     mode: text
     icon: mdi:weather-sunset
   prijs_notify_doel:
-    name: "Prijzen: notify-doel (zonder 'notify.'-voorvoegsel)"
     min: 0
     max: 255
     mode: text
@@ -740,7 +736,6 @@ input_text:
   #    komma decimaal, prefixloze blokken gelden voor beide seizoenen. LEEG +
   #    toeslag-helper >0 → opslag_toeslag unavailable + notificatie.
   prijs_net_blokken:
-    name: "Nettoeslag: blokfactoren (Z/W|uur-uur:factor)"
     min: 0
     max: 255
     mode: text
