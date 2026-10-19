@@ -141,16 +141,20 @@ template:
           {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
           {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
           {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
-          {% set eta = ((states('input_number.rendement_laad_pct') | float(77) + states('input_number.rendement_ontlaad_pct') | float(90)) / 200) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
+          {# v1.6.0: η_split = η_laad × η_ontlaad (rt) voor de LADEN-grens; de V-grens blijft op η_gem (per been) #}
+          {% set eta_gem = ((states('input_number.rendement_laad_pct') | float(77) + states('input_number.rendement_ontlaad_pct') | float(90)) / 200) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
+          {% set eta_laad = states('input_number.rendement_laad_pct') | float(77) / 100 %}
+          {% set eta_ontl = states('input_number.rendement_ontlaad_pct') | float(90) / 100 %}
           {% set n = states('input_number.shadow_n_top') | int(12) %}
+          {% set nu_epoch = now() | as_timestamp | round(0) | int %}
           {% set ns = namespace(prijzen=[]) %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
-            {% if e.t is defined and e.in is defined and e.t >= now().isoformat() %}
+            {% if e.e is defined and e.in is defined and e.e >= nu_epoch %}
               {% set ns.prijzen = ns.prijzen + [e.in | float(-1)] %}
             {% endif %}
           {% endfor %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) %}
-            {% if e.t is defined and e.in is defined %}
+            {% if e.e is defined and e.in is defined %}
               {% set ns.prijzen = ns.prijzen + [e.in | float(-1)] %}
             {% endif %}
           {% endfor %}
@@ -160,7 +164,7 @@ template:
             {% if top.aantal < n %}{% set top.som = top.som + pr %}{% set top.aantal = top.aantal + 1 %}{% endif %}
           {% endfor %}
           {% if top.aantal == 0 %}unavailable{% else %}
-            {{ (eta * (top.som / top.aantal)) | round(4) }}
+            {{ (eta_gem * (top.som / top.aantal)) | round(4) }}
           {% endif %}
 
       # ═══ STAP 6 — herlaadkosten over venster t+24u (net vs PV) ═══
@@ -258,6 +262,7 @@ template:
           {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
           {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
           {% set eta = ((states('input_number.rendement_laad_pct') | float(77) + states('input_number.rendement_ontlaad_pct') | float(90)) / 200) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
+          {% set eta_laad = states('input_number.rendement_laad_pct') | float(77) / 100 %}
           {% set w = states('input_number.shadow_w') | float(0.025) %}
           {% set m = states('input_number.shadow_m') | float(0.015) %}
           {% set V = states('sensor.shadow_v_waarde_opgeslagen_kwh') | float(0) %}
@@ -285,14 +290,13 @@ template:
           {# HUIDIGE KWARTIERPRIJS v1.5.2: nu = laatste entry met t <= nu
              (vorige formule ts <= nu < ts+15m rendeert leeg net voor het
              kwartierpunt; zie CHANGELOG). #}
-          {% set nu2 = namespace(in_nu=none, uit_nu=none) %}
+          {% set nu2 = namespace(in_nu=none, uit_nu=none, t_nu=none) %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
-            {% if e.t is defined and e.in is defined %}
-              {% set ts = e.t | as_datetime %}
-              {% if ts <= now() and (nu2.in_nu is none or ts > (nu2._t | as_datetime if nu2._t else now() - timedelta(hours=48))) %}
+            {% if e.e is defined and e.in is defined %}
+              {% if e.e <= (now() | as_timestamp | round(0) | int) and (nu2.t_nu is none or e.e > nu2.t_nu) %}
                 {% set nu2.in_nu = e.in | float(none) %}
                 {% set nu2.uit_nu = e.uit | float(none) %}
-                {% set nu2._t = e.t %}
+                {% set nu2.t_nu = e.e %}
               {% endif %}
             {% endif %}
           {% endfor %}
@@ -311,8 +315,8 @@ template:
             {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in %}{% set besluit.s = 'COMFORT' %}
             {%- elif prev == 'SPAAR' and R2 >= 0 %}{% set besluit.s = 'SPAAR' %}
             {%- elif R2 > 0 %}{% set besluit.s = 'SPAAR' %}
-            {%- elif prev == 'LADEN' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'LADEN' %}
-            {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'LADEN' %}
+            {%- elif prev == 'LADEN' and (nu2.in_nu / eta_laad) + w + m < g_laden_uit %}{% set besluit.s = 'LADEN' %}
+            {%- elif (nu2.in_nu / eta_laad) + w + m < g_laden %}{% set besluit.s = 'LADEN' %}
             {%- elif prev == 'NEUTRAAL' and nu2.in_nu <= g_laden_uit %}{% set besluit.s = 'NEUTRAAL' %}
             {%- elif nu2.in_nu <= g_laden %}{% set besluit.s = 'NEUTRAAL' %}
             {%- else %}{% set besluit.s = 'OP HET NET' %}{% endif %}
@@ -374,7 +378,7 @@ automation:
           - SPAAR
           - COMFORT
           - COMFORT (curtail)
-        from_is_not: "unavailable"
+        not_from: "unavailable"
     actions:
       # v1.5.2: de geheugenknop eerst zetten — de status-sensor leest deze
       # (via states() tijdens renderen) en HA triggert op de write, dus de

@@ -45,9 +45,9 @@ async def test_shadow_template_valid(hass):
 
 
 def test_shadow_automation_trigger_vennige():
-    """v1.5.2: de log-automation moet from/to/fan_is_not combineren.
+    """v1.5.2: de log-automation moet from/to/not_from combineren.
 
-    HA 2026.x: `not` is deprecated; de combinatie from + to + from_is_not
+    HA 2026.x: `not` is deprecated; de combinatie from + to + not_from
     is de correcte vorm. De oude `not: "unavailable"`-vorm telde óók
     onbekend→bekend-overgangen mee (het kwartier-index-gap-probleem).
     """
@@ -57,11 +57,11 @@ def test_shadow_automation_trigger_vennige():
                     if a.get("id") == "energyprijs_shadow_log")
     trig = log_auto["triggers"][0]
     assert trig.get("trigger") == "state"
-    # De nieuwe vorm: from + to + from_is_not, géén oude `not`-key
+    # De nieuwe vorm: from + to + not_from, géén oude `not`-key
     assert "from" in trig and "to" in trig, (
         "log-automation moet from+to gebruiken (v1.5.2), "
         f"got keys: {list(trig.keys())}")
-    assert trig.get("from_is_not") == "unavailable"
+    assert trig.get("not_from") == "unavailable"
     assert "not" not in trig, "oude `not`-key is deprecated — weg ermee"
 
 

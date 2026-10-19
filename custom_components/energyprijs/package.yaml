@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 1.5.5 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.6.0 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
@@ -322,7 +322,7 @@ template:
                 {% set toel = (ts * nsb.f) if (ts > 0 and nsb.f is not none) else 0 %}
                 {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
                 {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
-                {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
+                {% set ns.out = ns.out + [{'t': i.time, 'e': (i.time | as_datetime).timestamp() | round(0) | int, 'p': p | round(5),
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
@@ -375,7 +375,7 @@ template:
                 {% set toel = (ts * nsb.f) if (ts > 0 and nsb.f is not none) else 0 %}
                 {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
                 {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
-                {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
+                {% set ns.out = ns.out + [{'t': i.time, 'e': (i.time | as_datetime).timestamp() | round(0) | int, 'p': p | round(5),
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
@@ -485,7 +485,7 @@ template:
           {% set cap = states('input_number.accu_capaciteit_kwh') | float(-1) %}
           {% set soc = [states('sensor.energyprijs_accu_percentage'),
                         states('sensor.accu_percentage')]
-                       | map('float', -1) | select('ge', 0) | max %}
+                       | map('float', -1) | select('ge', 0) | list | max(default=-1) %}
           {{ res > 0 and cap > 0 and soc >= 0 }}
         state: >-
           {% set res = states('input_number.accu_reserve_pct') | float(0) %}
@@ -735,7 +735,7 @@ input_text:
   prijs_net_blokken:
     name: "Nettoeslag: blokfactoren (Z/W|uur-uur:factor)"
     min: 0
-    max: 1024
+    max: 255
     mode: text
     icon: mdi:grid
 

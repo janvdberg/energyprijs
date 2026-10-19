@@ -4,6 +4,22 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-19 — v1.6.0: Claude-review P0+P1 (crash-voorkoming + correctheid)
+
+**P0 — crash-voorkoming:**
+1. `from_is_not` (ongeldige key) → `not_from` in de shadow-log-automation (shadow.yaml r.377). De HA-state-trigger kent alleen `from`/`to`/`not_from`/`not_to` (gecontroleerd in de HA-broncode `homeassistant/components/homeassistant/triggers/state.py`). De oude key maakte de automation onbeschikbaar.
+2. `input_text.prijs_net_blokken max: 1024` → `255` (HA-statecap is 255 tekens; package.yaml r.738).
+3. `| max` op mogelijk-lege lijst in `accu_reserve_kwh` availability → `| list | max(default=-1)` (package.yaml r.485-489).
+
+**P1 — correctheid:**
+4. Epoch-vergelijking in shadow: `e.t >= now().isoformat()` (string-vergelijking, UTC vs lokaal) → `e.e >= nu_epoch` (integer-epoch). Daglijst-entries krijgen nu een `e`-veld (epoch-seconden) mee in package.yaml (vandaag + morgen).
+5. η-consistentie: de LADEN-grens gebruikte η_gem (gemiddelde van beide benen, 0.835) in plaats van η_laad (0.77). Nu: `(nu2.in_nu / eta_laad) + w + m` in de LADEN-beslissing (shadow.yaml r.316-317). De V-grens en PV-herlaad-kant blijven op η_gem (per been) — dat is de juiste keus voor die formules.
+6. `nu2._t` (underscore-variabele, stilistisch onhandig) → `nu2.t_nu` + epoch-vergelijking in plaats van `as_datetime` per entry (shadow.yaml r.290-299).
+
+**Verantwoording:**
+- Review uitgevoerd door Claude (Sonnet) op 19 okt 2026; ik heb elk punt met `(?)` geverifieerd tegen de HA-broncode en onze code. Twee punten van Claude waren onjuist: (a) `continue_on_error` vangt ServiceNotFound wél af (de v1.5.9-fix was al correct); (b) `from_is_not` is niet overbodig — de `from`-lijst sluit `unavailable` niet uit, dus `not_from` is nodig.
+- P2 (prestaties: parser-uitbrenging, time_pattern /5 in shadow) en P3 (onderhoudbaarheid: splitsen, dode code) staan nog open; zie `roi-monitor/claudereview_v159.md`.
+
 ## 2026-10-19 — v1.5.9 (deel 2): ACM-netblokken-parser herschreven + input_text gedefinieerd
 
 **Problemen in de eerste netblokken-implementatie (v1.5.9, package.yaml):**
