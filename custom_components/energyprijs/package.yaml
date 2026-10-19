@@ -208,24 +208,14 @@ template:
           {% set m = now().astimezone().month %}
           {% set ns = namespace(f=None) %}
           {% if txt != '' %}
-            {% for deel in txt.split(';') %}
-              {% set d = deel.trim() %}
-              {% if ':' in d and '-' in d.split(':')[0] %}
-                {% set ln = d.split(':') %}
-                {% set rng = ln[0].trim() %}
-                {% set fc = ln[1].trim().replace(',', '.') %}
-                {% if fc matches '^[0-9]+([.][0-9]+)?$' %}
-                  {% set s = rng.split('-')[0].trim() %}
-                  {% set e = rng.split('-')[1].trim() %}
-                  {% if s matches '^[0-9]+$' and e matches '^[0-9]+$' %}
-                    {% set ss = s | int %} {% set ee = e | int %}
-                    {% set naam = (ln[0].split('|')[0] if '|' in ln[0] else '') | trim | upper %}
-                    {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= m <= 9) or (naam == 'W' and not (4 <= m <= 9)) %}
-                    {% if ok_seis and (ss <= u < ee or (ee <= ss and (u >= ss or u < ee))) %}
-                      {% set ns.f = fc | float %}
-                    {% endif %}
-                  {% endif %}
-                {% endif %}
+            {% for mm in txt | regex_findall('([WZ])?\|?(\d{1,2})\s*-\s*(\d{1,2})\s*:\s*(\d+(?:[.,]\d+)?)') %}
+              {% set naam = (mm[0] | upper) if mm[0] else '' %}
+              {% set ss = mm[1] | int(-1) %}
+              {% set ee = mm[2] | int(-1) %}
+              {% set fc = mm[3] | replace(',', '.') | float(-1) %}
+              {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= m <= 9) or (naam == 'W' and not (4 <= m <= 9)) %}
+              {% if ok_seis and ss >= 0 and ee >= 0 and fc >= 0 and (ss <= u < ee or (ee <= ss and (u >= ss or u < ee))) %}
+                {% set ns.f = fc %}
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -316,21 +306,14 @@ template:
                 {% set mnd = (i.time | as_datetime).astimezone().month %}
                 {% set nsb = namespace(f=None) %}
                 {% if ftext != '' %}
-                  {% for deel in ftext.split(';') %}
-                    {% set d = deel.trim() %}
-                    {% if ':' in d and '-' in d.split(':')[0] %}
-                      {% set ln = d.split(':') %}
-                      {% set rng = ln[0].trim() %}
-                      {% set fc = ln[1].trim().replace(',', '.') %}
-                      {% if fc matches '^[0-9]+([.][0-9]+)?$' %}
-                        {% set ss = rng.split('-')[0].trim() | int(-1) %}
-                        {% set ee = rng.split('-')[1].trim() | int(-1) %}
-                        {% set naam = (ln[0].split('|')[0] if '|' in ln[0] else '') | trim | upper %}
-                        {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= mnd <= 9) or (naam == 'W' and not (4 <= mnd <= 9)) %}
-                        {% if ok_seis and ss >= 0 and ee >= 0 and (ss <= h < ee or (ee <= ss and (h >= ss or h < ee))) %}
-                          {% set nsb.f = fc | float %}
-                        {% endif %}
-                      {% endif %}
+                  {% for mm in ftext | regex_findall('([WZ])?\|?(\d{1,2})\s*-\s*(\d{1,2})\s*:\s*(\d+(?:[.,]\d+)?)') %}
+                    {% set naam = (mm[0] | upper) if mm[0] else '' %}
+                    {% set ss = mm[1] | int(-1) %}
+                    {% set ee = mm[2] | int(-1) %}
+                    {% set fc = mm[3] | replace(',', '.') | float(-1) %}
+                    {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= mnd <= 9) or (naam == 'W' and not (4 <= mnd <= 9)) %}
+                    {% if ok_seis and ss >= 0 and ee >= 0 and fc >= 0 and (ss <= h < ee or (ee <= ss and (h >= ss or h < ee))) %}
+                      {% set nsb.f = fc %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
@@ -376,21 +359,14 @@ template:
                 {% set mnd = (i.time | as_datetime).astimezone().month %}
                 {% set nsb = namespace(f=None) %}
                 {% if ftext != '' %}
-                  {% for deel in ftext.split(';') %}
-                    {% set d = deel.trim() %}
-                    {% if ':' in d and '-' in d.split(':')[0] %}
-                      {% set ln = d.split(':') %}
-                      {% set rng = ln[0].trim() %}
-                      {% set fc = ln[1].trim().replace(',', '.') %}
-                      {% if fc matches '^[0-9]+([.][0-9]+)?$' %}
-                        {% set ss = rng.split('-')[0].trim() | int(-1) %}
-                        {% set ee = rng.split('-')[1].trim() | int(-1) %}
-                        {% set naam = (ln[0].split('|')[0] if '|' in ln[0] else '') | trim | upper %}
-                        {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= mnd <= 9) or (naam == 'W' and not (4 <= mnd <= 9)) %}
-                        {% if ok_seis and ss >= 0 and ee >= 0 and (ss <= h < ee or (ee <= ss and (h >= ss or h < ee))) %}
-                          {% set nsb.f = fc | float %}
-                        {% endif %}
-                      {% endif %}
+                  {% for mm in ftext | regex_findall('([WZ])?\|?(\d{1,2})\s*-\s*(\d{1,2})\s*:\s*(\d+(?:[.,]\d+)?)') %}
+                    {% set naam = (mm[0] | upper) if mm[0] else '' %}
+                    {% set ss = mm[1] | int(-1) %}
+                    {% set ee = mm[2] | int(-1) %}
+                    {% set fc = mm[3] | replace(',', '.') | float(-1) %}
+                    {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= mnd <= 9) or (naam == 'W' and not (4 <= mnd <= 9)) %}
+                    {% if ok_seis and ss >= 0 and ee >= 0 and fc >= 0 and (ss <= h < ee or (ee <= ss and (h >= ss or h < ee))) %}
+                      {% set nsb.f = fc %}
                     {% endif %}
                   {% endfor %}
                 {% else %}
@@ -752,13 +728,14 @@ input_text:
     icon: mdi:bell-cog
   # ── NETTOESLAG PER TIJDSBLOK (v1.5.9): factoren per uur conform ACM-
   #    codewijziging BR-2026-2242 bijlage 5 (5 blokken/dag; april t/m sept
-  #    = zomerprofiel, anders winterprofiel). Formaat: 'Z|3-10:0,3;...' of
-  #    zonder voorvoegsel voor beide seizoenen; komma decimaal. LEEG +
+  #    = zomerprofiel, anders winterprofiel). Formaat: blokken gescheiden door
+  #    PUNTKOMMA's, seizoen-prefix optioneel ('W|0-1:0,65;W|1-15:0,48;...'),
+  #    komma decimaal, prefixloze blokken gelden voor beide seizoenen. LEEG +
   #    toeslag-helper >0 → opslag_toeslag unavailable + notificatie.
   prijs_net_blokken:
     name: "Nettoeslag: blokfactoren (Z/W|uur-uur:factor)"
     min: 0
-    max: 255
+    max: 1024
     mode: text
     icon: mdi:grid
 

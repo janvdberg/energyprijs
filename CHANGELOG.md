@@ -4,6 +4,34 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-19 — ACM-netblokken-parser herschreven + input_text gedefinieerd
+
+**Problemen in de eerste netblokken-implementatie (v1.5.9, package.yaml):**
+1. `input_text.prijs_net_blokken` werd in 9 sjabloonregels referenced maar was
+   níét gedefinieerd → entity ontbreekt na installatie.
+2. De parser splitte op `,` én `;`; de komma is ook het decimaalteken
+   (`0,65`), dus winterprofielen werden vermalen.
+3. Seizoen-prefix `W|0-1` brak de uur-splitting (prefix zat in het bereik).
+4. HA-specifieke `matches`-operator en Python-methode `.trim()` in Jinja2 —
+   niet-portabel en ongetest.
+
+**Fix:**
+- `input_text.prijs_net_blokken` toegevoegd: max **1024** tekens (volledig
+  jaarprofiel past niet in 255), icon `mdi:grid`.
+- Alle 3 de parser-lussen (teller-sensor + 2× daglijst) vervangen door een
+  regex-parser via `regex_findall('([WZ])?\|?(\d{1,2})\s*-\s*(\d{1,2})\s*:\s*(\d+(?:[.,]\d+)?)')`:
+  puntkomma's scheiden blokken, komma = decimaal, prefixloos = beide seizoenen,
+  rond-middernacht-blokken ondersteund, ongeregeld tekst genegeerd.
+- Formaatdocumentatie in package.yaml aangescherpt.
+- `matches` → `is match()` (3×), `.trim()` → `| trim` (15×), ss/ee-extractie
+  via `(rng.split('|')[-1])`.
+
+**Geverifieerd:** YAML parse OK; 32 Jinja2-sjablonen syntax-check OK (incl.
+automations); parser-getest met exacte package.yaml-code in een nagebootste
+HA-Jinja2-omgeving (regex_findall per HA-docs: list van tuples bij meerdere
+capture-groeps, sinds HA 0.7): 12 seizoens-/uurcases ✓ + 7 randgevallen (leeg,
+rommel, seizoenloos, rond-middernacht, net buiten blok, komma-gescheiden) ✓.
+
 ## 2026-10-19 — shadow-log-automation hersteld (v1.5.9)
 
 **Incident:** de log-automation "Shadow handel — log elke statusbeslissing"
