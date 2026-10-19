@@ -4,7 +4,7 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
-## 2026-10-19 — ACM-netblokken-parser herschreven + input_text gedefinieerd
+## 2026-10-19 — v1.5.9 (deel 2): ACM-netblokken-parser herschreven + input_text gedefinieerd
 
 **Problemen in de eerste netblokken-implementatie (v1.5.9, package.yaml):**
 1. `input_text.prijs_net_blokken` werd in 9 sjabloonregels referenced maar was
@@ -32,7 +32,7 @@ HA-Jinja2-omgeving (regex_findall per HA-docs: list van tuples bij meerdere
 capture-groeps, sinds HA 0.7): 12 seizoens-/uurcases ✓ + 7 randgevallen (leeg,
 rommel, seizoenloos, rond-middernacht, net buiten blok, komma-gescheiden) ✓.
 
-## 2026-10-19 — shadow-log-automation hersteld (v1.5.9)
+## 2026-10-19 — v1.5.9 (deel 1): shadow-log-automation hersteld
 
 **Incident:** de log-automation "Shadow handel — log elke statusbeslissing"
 stond van de dag-18-herstart tot nu op `unavailable` en had NUL runs — de
