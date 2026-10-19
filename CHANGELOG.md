@@ -4,6 +4,32 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-21 — v1.6.2: Claude-review round 2 (verificatie + correcties)
+
+**Crash-voorkoming:**
+1. `from` + `not_from` samen in de shadow-trigger (shadow.yaml r.375-382): HA's schema gebruikt `vol.Exclusive(CONF_FROM, CONF_FROM)` voor beide keys (state.py r.55-56), dus ze sluiten elkaar uit. De trigger laadt niet → de automation is onbeschikbaar. Fix: alleen `to` + `not_from: [unavailable, unknown]`.
+2. `continue_on_error` vangt wél `ServiceNotFound` af (script.py r.576 in de `continue_on_error`-except-lijst). De v1.5.9-comment was onjuist. De notify-guard is nu correct.
+3. `notify.persistent_notification` is wél een geldige notify-service (notify/const.py r.29: `SERVICE_PERSISTENT_NOTIFICATION = "persistent_notification"`). De v1.5.9-comment was onjuist.
+
+**Correctheid:**
+4. η voor roundtrip-transacties: de oude η_gem = (77+90)/200 = 0.835 (gemiddelde per been) → η_rt = 77×90/10000 = 0.693 (hele roundtrip). Dit beïnvloedt de V-grens (shadow.yaml r.146) en de verkoop-eis (r.237). De oude V-grens lag ~17% te laag; de nieuwe is correct.
+5. Dode code verwijderd: `ns3`-lus, `pv_eis` en `SOC2` in de shadow-status-sensor (r.270-290) werden berekend maar nooit gebruikt.
+6. Doel-SOC availability: `states(...) is not none` → `has_value(...)` (r.123). De oude check is altijd waar; een uitgevallen PV-bron gaf S=0 en doel-SOC=100.
+7. Deling door 0 guard: `allin / rt` in de daglijst (package.yaml r.331, r.386) → `allin / rt_safe` met `rt_safe = [rt, 0.01] | max`. Bij de eerste start zijn de rendementshelpers even 0.
+8. Toeslag-sensor in de afname/levering-triggerlijst (package.yaml r.404): vóór deze fix kon afname/levering op een uurgrens tot 5 min met de oude toeslag rekenen.
+
+**Afgekeurde punten (met reden):**
+- **astimezone() → as_local**: de review stelde dit voor, maar in HA OS is de systeemzone = HA-zone, dus `astimezone()` zonder argument is correct. `as_local` zou hetzelfde resultaat geven. (De repo is publiek, maar de primaire use-case is HA OS.)
+- **Parser-hoist** (regex_findall vóór de for-lus): haalbaar maar risicovol — de regex in YAML/Jinja2-escaping is al een keer misgegaan in een eerdere macro-poging. De 3 inline parser-bommen blijven staan voor nu.
+- **File split**: breekt het "één bestand, één deploy"-principe.
+- **Geheugenknop trigger**: de `input_text.shadow_vorige_status` wordt inderdaad niet in de triggers vermeld, maar de comment "HA triggert op de write" klopt niet — de trigger is de status-sensor zelf. Dit is een comment-clarification, geen code-fix.
+
+**Open (voor volgend review):**
+- Parser-hoist (prestatie-optimalisatie, ~192 regex-runs/herberekening besparen)
+- `0.08` hardcoded in de 's'-kolom (package.yaml r.327, r.380)
+- PV-herlaadvenster mist morgenochtend-zonuren als zon nu boven horizon staat
+- `shadow_capaciteit` en `shadow_soc_min` dupliceren `accu_capaciteit_kwh` en `accu_reserve_pct` (tweede bron van waarheid)
+
 ## 2026-10-19 — v1.6.1: Claude-review P2 (prestaties) + P3 (onderhoudbaarheid)
 
 **P2 — prestaties:**

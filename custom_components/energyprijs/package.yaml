@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 1.6.1 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.6.2 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
@@ -295,6 +295,8 @@ template:
             {% set top_u = states('input_number.prijs_top_uren') | int(17) %}
             {% set ftext = states('input_text.prijs_net_blokken') | default('', true) | trim %}
             {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
+            {# v1.6.2: guard tegen deling door 0 (eerste start: helpers even 0) #}
+            {% set rt_safe = [rt, 0.01] | max %}
             {% for i in state_attr(ns.eid, 'prices_today') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
@@ -326,7 +328,7 @@ template:
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
-                    'rt': (allin / rt) | round(4),
+                    'rt': (allin / rt_safe) | round(4),
                     'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
               {% endif %}
             {% endfor %}
@@ -348,6 +350,8 @@ template:
             {% set top_u = states('input_number.prijs_top_uren') | int(17) %}
             {% set ftext = states('input_text.prijs_net_blokken') | default('', true) | trim %}
             {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
+            {# v1.6.2: guard tegen deling door 0 (eerste start: helpers even 0) #}
+            {% set rt_safe = [rt, 0.01] | max %}
             {% for i in state_attr(ns.eid, 'prices_tomorrow') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set p = i.price | float(0) %}
@@ -379,7 +383,7 @@ template:
                     'in': allin,
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
-                    'rt': (allin / rt) | round(4),
+                    'rt': (allin / rt_safe) | round(4),
                     'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
               {% endif %}
             {% endfor %}
@@ -402,6 +406,9 @@ template:
           - input_number.prijs_top_uren
           - input_text.prijs_net_blokken
           - input_number.rendement_roundtrip_pct
+          # v1.6.2: de toeslag-sensor zelf in de triggers — vóór deze fix kon
+          # afname/levering op een uurgrens tot 5 min met de oude toeslag rekenen
+          - sensor.energyprijs_opslag_toeslag
           - sensor.stroomprijs_basis
       # elk kwartier opnieuw kijken: de tijdsafhankelijke toeslag hangt van het
       # lokale uur af, dus de formule moet aan de kloktijd volgen (net als de
