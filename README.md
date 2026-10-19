@@ -1,6 +1,6 @@
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.x-blue?logo=homeassistant)
 ![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-orange?logo=hackthebox)
-![versie](https://img.shields.io/badge/versie-1.5.1-brightgreen)
+![versie](https://img.shields.io/badge/versie-1.5.9-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 # ⚡ Energyprijs
