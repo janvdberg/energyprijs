@@ -63,3 +63,46 @@ def test_shadow_automation_trigger_vennige():
         f"got keys: {list(trig.keys())}")
     assert trig.get("from_is_not") == "unavailable"
     assert "not" not in trig, "oude `not`-key is deprecated — weg ermee"
+
+
+def test_shadow_automation_geen_foutieve_notify_referentie():
+    """v1.5.9: een HARDCODEDE `notify.<x>`-actie verwijst naar een service
+    die bestaat pas als Jan die naam in input_text.prijs_notify_doel zet —
+    zonder die service is de HEELE automation onbeschikbaar (12 dagen
+    shadow-test liep zonder beslissingslog).
+
+    Regel: een action-mag alleen een templated notify-doel
+    ({{ 'notify.' ~ (states('input_text.prijs_notify_doel') or ...) }}) of
+    geen notify-action. `notify.persistent_notification` als hardcoded
+    action-string is verboden.
+    """
+    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
+    log_auto = next(a for a in pkg["automation"]
+                    if a.get("id") == "energyprijs_shadow_log")
+    for act in log_auto["actions"]:
+        if not isinstance(act, dict):
+            continue
+        action = act.get("action")
+        if isinstance(action, str) and action.startswith("notify."):
+            assert "{{" in action, (
+                f"hardcoded notify-doel {action!r} maakt de automation "
+                "onbeschikbaar zonder die service — gebruik het "
+                "prijs_notify_doel-templatepatroon")
+
+
+def test_shadow_automation_event_log_actie():
+    """v1.5.9: de beslissingslog loopt via event:
+    energyprijs_shadow_statusbeslissing — onafhankelijk van elke
+    notify-service, persistent in het event-log voor de maandrapport-lectie.
+    """
+    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
+    log_auto = next(a for a in pkg["automation"]
+                    if a.get("id") == "energyprijs_shadow_log")
+    ev = [a for a in log_auto["actions"]
+          if isinstance(a, dict) and a.get("action") == "event"]
+    assert ev, "log-automation mist de event-actie (beslissingslog)"
+    assert ev[0]["event_type"] == "energyprijs_shadow_statusbeslissing"
+    data = ev[0].get("event_data", {})
+    for key in ("timestamp", "status", "from", "in_nu", "uit_nu",
+                "v", "verkoop_eis", "r", "doel_soc", "soc"):
+        assert key in data, f"event_data mist {key}"

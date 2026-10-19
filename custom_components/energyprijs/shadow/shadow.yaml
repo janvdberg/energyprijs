@@ -385,14 +385,36 @@ automation:
           entity_id: input_text.shadow_vorige_status
         data:
           value: "{{ trigger.to_state.state }}"
-      - action: notify.persistent_notification
-        data_template:
-          title: "Shadow handel — statuswijziging"
-          message: >
+      # v1.5.9: notify.persistent_notification is GEEN notify-service (die
+      # bestaat pas als Jan hem in input_text.prijs_notify_doel zet) — deze
+      # actie deed de hele automation onbeschikbaar maken (oct '26: 12 dagen
+      # shadow-test liep zonder beslissingslog). Nu: template-renderen +
+      # event_fired (persistent in het event-log) + optionele notify.
+      - variables:
+          shadow_log_rij: >
             {{ states('sensor.shadow_status') }} | in={{ state_attr('sensor.shadow_status','in_nu') }}
             uit={{ state_attr('sensor.shadow_status','uit_nu') }} V={{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}
             eis={{ states('sensor.shadow_verkoop_eis') }} R={{ states('sensor.shadow_ruimtegebrek_r') }}
             doelSOC={{ states('sensor.shadow_doel_soc') }}% SOC={{ states('sensor.accu_percentage') }}%
+      - action: event
+        event_type: energyprijs_shadow_statusbeslissing
+        event_data:
+          timestamp: "{{ now().isoformat() }}"
+          status: "{{ trigger.to_state.state }}"
+          from: "{{ trigger.from_state.state if trigger.from_state else 'onbekend' }}"
+          in_nu: "{{ state_attr('sensor.shadow_status','in_nu') }}"
+          uit_nu: "{{ state_attr('sensor.shadow_status','uit_nu') }}"
+          v: "{{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}"
+          verkoop_eis: "{{ states('sensor.shadow_verkoop_eis') }}"
+          r: "{{ states('sensor.shadow_ruimtegebrek_r') }}"
+          doel_soc: "{{ states('sensor.shadow_doel_soc') }}"
+          soc: "{{ states('sensor.accu_percentage') }}"
+          rij: "{{ shadow_log_rij }}"
+      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+        data:
+          title: "Shadow handel — statuswijziging"
+          message: "{{ shadow_log_rij }}"
+        continue_on_error: true
       - action: persistent_notification.create
         data:
           notification_id: energyprijs_shadow_wijziging

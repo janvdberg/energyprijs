@@ -174,24 +174,75 @@ template:
           prices_today: "[]"
           prices_tomorrow: "[]"
 
-  # ── TARIEF-2028 HELPER (v1.5.5): tijdsafhankelijke opslag per interval.
-  #    Levert de EUR/kWh-toeslag voor het lokale uur van een UTC-geannoteerd
-  #    interval: dal = prijs_dal_uren..7 (lokaal, dus 06:00–07:00 CET is nog
-  #    dal), AVP-top = top_uren tot middernacht, rest schouder. Buiten die
-  #    vensters of als de toeslag-helper 0 is → 0 (contract nog niet zover).
+  # ── TARIEF-2028 HELPER (v1.5.9): nettarief per TIJDSBLOK (ACM-codewijziging
+  #    BR-2026-2242, bijlage 5: 5 blokken/dag per seizoen, factoren 0,0–1,0).
+  #    Bron van de factoren = input_text.prijs_net_blokken:
+  #      'Z|0-3:0,5;3-10:0,3;...'  — Zomer en/of Winter, gescheiden puntkomma's;
+  #      komma = decimaalteken (Jan-tikvast); lege startnaam = beide seizoenen.
+  #    Voorbeeld = ONTWERPBESLUIT ACM 8-10-2026 (ACM/UIT/683604), bijlage 5,
+  #    tabel 'Toepassing wegingsfactoren' — alle 24 rijen × 12 maanden bewezen
+  #    geparset (script: roi-monitor/acm_parse.py; rij N = periode N:00–N+1:00).
+  #    [start,eind)-blokken. Inwerkingtreding beoogd 1-1-2029; definitief
+  #    besluit verwacht eind 2026 — vóór die tijd is dit nog ONTWERP, dus ts
+  #    (prijs_opslag_tijdsafhankelijk) blijft 0 en doet dit model pas mee.
+  #      W|0-1:0,65;1-15:0,48;15-17:0,65;17-22:1,0;22-24:0,65
+  #      Z|0-3:0,48;3-10:0,31;10-17:0,0;17-19:0,31;19-24:0,65
+  #    Seizoenskeuze: april t/m september = zomer, anders winter.
+  #    Veld leeg ONDANKS ts>0 → unavailable + notificatie (regel 1: nooit
+  #    rekenen met onvolledige data — hier valt níét terug op 0).
+  #    Leeg veld én ts=0 → 0 (contract nog niet zover). Zonder bloktekst
+  #    werkt het oude dal/top-model (prijs_dal_uren/prijs_top_uren) door.
   - sensor:
       - name: "Energyprijs opslag toeslag"
         unique_id: energyprijs_opslag_toeslag
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
         availability: >-
-          {{ has_value('sensor.stroomprijs_basis') }}
+          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
+          {% set txt = states('input_text.prijs_net_blokken') | default('', true) | trim %}
+          {{ has_value('sensor.stroomprijs_basis') and (ts <= 0 or txt != '') }}
         state: >-
           {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
-          {% set dal = states('input_number.prijs_dal_uren') | int(7) %}
-          {% set top = states('input_number.prijs_top_uren') | int(17) %}
+          {% set txt = states('input_text.prijs_net_blokken') | default('', true) | trim %}
           {% set u = now().astimezone().hour %}
-          {{ ts if (ts > 0 and (u < dal or u >= top)) else 0 | round(4) }}
+          {% set m = now().astimezone().month %}
+          {% set ns = namespace(f=None) %}
+          {% if txt != '' %}
+            {% for deel in txt.split(';') %}
+              {% set d = deel.trim() %}
+              {% if ':' in d and '-' in d.split(':')[0] %}
+                {% set ln = d.split(':') %}
+                {% set rng = ln[0].trim() %}
+                {% set fc = ln[1].trim().replace(',', '.') %}
+                {% if fc matches '^[0-9]+([.][0-9]+)?$' %}
+                  {% set s = rng.split('-')[0].trim() %}
+                  {% set e = rng.split('-')[1].trim() %}
+                  {% if s matches '^[0-9]+$' and e matches '^[0-9]+$' %}
+                    {% set ss = s | int %} {% set ee = e | int %}
+                    {% set naam = (ln[0].split('|')[0] if '|' in ln[0] else '') | trim | upper %}
+                    {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= m <= 9) or (naam == 'W' and not (4 <= m <= 9)) %}
+                    {% if ok_seis and (ss <= u < ee or (ee <= ss and (u >= ss or u < ee))) %}
+                      {% set ns.f = fc | float %}
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          {% if ns.f is none and txt == '' %}
+            {% set dal = states('input_number.prijs_dal_uren') | int(7) %}
+            {% set top = states('input_number.prijs_top_uren') | int(17) %}
+            {% set ns.f = 1.0 if (u < dal or u >= top) else 0.0 %}
+          {% endif %}
+          {% if ts <= 0 %}
+            {{ 0 }}
+          {% elif txt != '' and ns.f is none %}
+            {{ none }}
+          {% elif txt == '' %}
+            {{ (ts * ns.f) | round(4) if ns.f is not none else none }}
+          {% else %}
+            {{ (ts * ns.f) | round(4) }}
+          {% endif %}
 
   # ── GECOÖRDINEERD: daglijst herberekent live bij elke contractwijziging ──
   #    (state-based template-sensoren luisteren normaal NIET naar input_*;
@@ -252,6 +303,7 @@ template:
             {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
             {% set dal_u = states('input_number.prijs_dal_uren') | int(7) %}
             {% set top_u = states('input_number.prijs_top_uren') | int(17) %}
+            {% set ftext = states('input_text.prijs_net_blokken') | default('', true) | trim %}
             {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
             {% for i in state_attr(ns.eid, 'prices_today') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
@@ -261,7 +313,30 @@ template:
                 {% set h = (i.time | as_datetime).astimezone().hour %}
                 {# rt = in/η en rt_uit = uit×η: wat de kWh werkelijk kost/oplevert na
                    omzettingsverlies (rendement-contract); handelen loont pas boven spread/η #}
-                {% set toel = ts if (ts > 0 and (h < dal_u or h >= top_u)) else 0 %}
+                {% set mnd = (i.time | as_datetime).astimezone().month %}
+                {% set nsb = namespace(f=None) %}
+                {% if ftext != '' %}
+                  {% for deel in ftext.split(';') %}
+                    {% set d = deel.trim() %}
+                    {% if ':' in d and '-' in d.split(':')[0] %}
+                      {% set ln = d.split(':') %}
+                      {% set rng = ln[0].trim() %}
+                      {% set fc = ln[1].trim().replace(',', '.') %}
+                      {% if fc matches '^[0-9]+([.][0-9]+)?$' %}
+                        {% set ss = rng.split('-')[0].trim() | int(-1) %}
+                        {% set ee = rng.split('-')[1].trim() | int(-1) %}
+                        {% set naam = (ln[0].split('|')[0] if '|' in ln[0] else '') | trim | upper %}
+                        {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= mnd <= 9) or (naam == 'W' and not (4 <= mnd <= 9)) %}
+                        {% if ok_seis and ss >= 0 and ee >= 0 and (ss <= h < ee or (ee <= ss and (h >= ss or h < ee))) %}
+                          {% set nsb.f = fc | float %}
+                        {% endif %}
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  {% set nsb.f = 1.0 if (h < dal_u or h >= top_u) else 0.0 %}
+                {% endif %}
+                {% set toel = (ts * nsb.f) if (ts > 0 and nsb.f is not none) else 0 %}
                 {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
                 {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
@@ -288,6 +363,7 @@ template:
             {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
             {% set dal_u = states('input_number.prijs_dal_uren') | int(7) %}
             {% set top_u = states('input_number.prijs_top_uren') | int(17) %}
+            {% set ftext = states('input_text.prijs_net_blokken') | default('', true) | trim %}
             {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
             {% for i in state_attr(ns.eid, 'prices_tomorrow') | default([], true) %}
               {% if i.time is defined and i.price is defined %}
@@ -297,7 +373,30 @@ template:
                 {% set h = (i.time | as_datetime).astimezone().hour %}
                 {# rt = in/η en rt_uit = uit×η: wat de kWh werkelijk kost/oplevert na
                    omzettingsverlies (rendement-contract); handelen loont pas boven spread/η #}
-                {% set toel = ts if (ts > 0 and (h < dal_u or h >= top_u)) else 0 %}
+                {% set mnd = (i.time | as_datetime).astimezone().month %}
+                {% set nsb = namespace(f=None) %}
+                {% if ftext != '' %}
+                  {% for deel in ftext.split(';') %}
+                    {% set d = deel.trim() %}
+                    {% if ':' in d and '-' in d.split(':')[0] %}
+                      {% set ln = d.split(':') %}
+                      {% set rng = ln[0].trim() %}
+                      {% set fc = ln[1].trim().replace(',', '.') %}
+                      {% if fc matches '^[0-9]+([.][0-9]+)?$' %}
+                        {% set ss = rng.split('-')[0].trim() | int(-1) %}
+                        {% set ee = rng.split('-')[1].trim() | int(-1) %}
+                        {% set naam = (ln[0].split('|')[0] if '|' in ln[0] else '') | trim | upper %}
+                        {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= mnd <= 9) or (naam == 'W' and not (4 <= mnd <= 9)) %}
+                        {% if ok_seis and ss >= 0 and ee >= 0 and (ss <= h < ee or (ee <= ss and (h >= ss or h < ee))) %}
+                          {% set nsb.f = fc | float %}
+                        {% endif %}
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  {% set nsb.f = 1.0 if (h < dal_u or h >= top_u) else 0.0 %}
+                {% endif %}
+                {% set toel = (ts * nsb.f) if (ts > 0 and nsb.f is not none) else 0 %}
                 {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
                 {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'p': p | round(5),
@@ -325,6 +424,7 @@ template:
           - input_number.prijs_opslag_tijdsafhankelijk
           - input_number.prijs_dal_uren
           - input_number.prijs_top_uren
+          - input_text.prijs_net_blokken
           - input_number.rendement_roundtrip_pct
           - sensor.stroomprijs_basis
       # elk kwartier opnieuw kijken: de tijdsafhankelijke toeslag hangt van het
@@ -338,12 +438,12 @@ template:
         unique_id: stroomprijs_afname
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
-        availability: "{{ has_value('sensor.stroomprijs_basis') }}"
+        availability: >-
+          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) | default(0, true) %}
+          {{ has_value('sensor.stroomprijs_basis')
+             and (ts <= 0 or has_value('sensor.energyprijs_opslag_toeslag')) }}
         state: >
-          {% set h = now().astimezone().hour %}
-          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
-          {% set toel = ts if (ts > 0 and (h < states('input_number.prijs_dal_uren') | int(7)
-                                          or h >= states('input_number.prijs_top_uren') | int(17))) else 0 %}
+          {% set toel = states('sensor.energyprijs_opslag_toeslag') | float(0) %}
           {{ ((states('sensor.stroomprijs_basis') | float(0)
                + states('input_number.prijs_opslag_afname') | float(0) + toel
                + states('input_number.prijs_energiebelasting') | float(0))
@@ -355,15 +455,15 @@ template:
         unique_id: stroomprijs_levering
         unit_of_measurement: "EUR/kWh"
         state_class: measurement
-        availability: "{{ has_value('sensor.stroomprijs_basis') }}"
+        availability: >-
+          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) | default(0, true) %}
+          {{ has_value('sensor.stroomprijs_basis')
+             and (ts <= 0 or has_value('sensor.energyprijs_opslag_toeslag')) }}
         state: >
           {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
           {% set basis = states('sensor.stroomprijs_basis') | float(0) %}
           {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
-          {% set h = now().astimezone().hour %}
-          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
-          {% set toel = ts if (ts > 0 and (h < states('input_number.prijs_dal_uren') | int(7)
-                                          or h >= states('input_number.prijs_top_uren') | int(17))) else 0 %}
+          {% set toel = states('sensor.energyprijs_opslag_toeslag') | float(0) %}
           {{ ((basis + states('input_number.prijs_opslag_levering') | float(0) + toel) * btw
               + (states('input_number.prijs_energiebelasting') | float(0) * btw if saldering else 0)) | round(6) }}
 
@@ -458,6 +558,17 @@ template:
             none
           {% endif %}
 
+  # ── v1.5.9: waarschuwing als het blokmodel aanstaat (ts>0) maar de
+  #    blokfactoren-tekst leeg is → opslag_toeslag is dan unavailable.
+  - binary_sensor:
+      - name: "Energyprijs nettoeslag blokken ontbreken"
+        unique_id: energyprijs_nettoeslag_blokken_ontbreken
+        delay_on: "00:02:00"
+        device_class: problem
+        state: >-
+          {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) | default(0, true) %}
+          {% set txt = states('input_text.prijs_net_blokken') | default('', true) | trim %}
+          {{ ts > 0 and txt == '' }}
 
 input_number:
   # OPLET: geen 'initial' hier. initial zet de waarde bij ELKE herstart terug
@@ -639,6 +750,17 @@ input_text:
     max: 255
     mode: text
     icon: mdi:bell-cog
+  # ── NETTOESLAG PER TIJDSBLOK (v1.5.9): factoren per uur conform ACM-
+  #    codewijziging BR-2026-2242 bijlage 5 (5 blokken/dag; april t/m sept
+  #    = zomerprofiel, anders winterprofiel). Formaat: 'Z|3-10:0,3;...' of
+  #    zonder voorvoegsel voor beide seizoenen; komma decimaal. LEEG +
+  #    toeslag-helper >0 → opslag_toeslag unavailable + notificatie.
+  prijs_net_blokken:
+    name: "Nettoeslag: blokfactoren (Z/W|uur-uur:factor)"
+    min: 0
+    max: 255
+    mode: text
+    icon: mdi:grid
 
 automation:
   - alias: "Prijzen: meld bij bronuitval of basis-onbetrouwbaar"
@@ -695,6 +817,27 @@ automation:
             Actieve momentprijs-bronnen:
             {{ state_attr('sensor.stroomprijs_basis','bronnen_actief') | default(['geen'], true) | join(', ') }}.
             Planning vanmiddag niet uitvoeren tot ze binnen zijn.
+
+  # v1.5.9: blokmodel aan (ts>0) maar geen blokfactoren ingevuld → melding.
+  - alias: "Prijzen: meld ontbrekende nettoeslag-blokfactoren"
+    id: prijzen_meld_nettoeslag_blokken
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.energyprijs_nettoeslag_blokken_ontbreken
+        to: "on"
+        for: "00:05:00"
+    conditions: []
+    actions:
+      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+        data:
+          title: "⚠ Nettoeslag: blokfactoren leeg"
+          message: >
+            Tijdsafhankelijke opslag staat op
+            {{ states('input_number.prijs_opslag_tijdsafhankelijk') }} EUR/kWh,
+            maar input_text.prijs_net_blokken is leeg — de toeslag-sensor is
+            unavailable en prijscalculaties pauzeren. Vul de blokfactoren in
+            (formaat 'W|0-1:0,7;...' of laat ts op 0 voor het vaste contract).
 # ── RECORDER: sensor.stroomprijs_daglijst draagt ±2×96 kwartieren in attributes ──
 #    (±10 KB per state). Dat overschrijdt de 16 KB-limiet van recorder/state_change.
 #    Dus uitgesloten van de history-opslag; de grafiek leest de LIVE-attributes,

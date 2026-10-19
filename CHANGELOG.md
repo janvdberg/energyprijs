@@ -4,6 +4,43 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-19 — shadow-log-automation hersteld (v1.5.9)
+
+**Incident:** de log-automation "Shadow handel — log elke statusbeslissing"
+stond van de dag-18-herstart tot nu op `unavailable` en had NUL runs — de
+shadow-test (sinds 18 okt) liep dus zonder beslissingslog. Root cause: de
+actie `notify.persistent_notification` verwijst naar een notify-service die
+bestaat pas als Jan een naam in `input_text.prijs_notify_doel` zet; zonder die
+service is de automation bij het laden onbeschikbaar. De service-calls
+`notify.persistent_notification` (HTTP 200, direct aanroepen) en
+`persistent_notification.create` werken wél — alleen de *referentie* in de
+automation breekt.
+
+**Fix (shadow.yaml, component-versie):**
+1. De log-rij wordt een `variables`-block (`shadow_log_rij`) — één template,
+   één keer gerenderd.
+2. Nieuwe action `event: energyprijs_shadow_statusbeslissing` met
+   timestamp/status/from/in/uit/V/eis/R/doelSOC/SOC — persistente
+   beslissingslog in het event-log (onafhankelijk van elke notify-service;
+   de maandrapport-lectie kan deze events lezen).
+3. De meldactie volgt nu het hoofdpackage-patroon:
+   `{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}`
+   + `continue_on_error: true` — ontbreekt de service, dan mislukt alleen de
+   melding, niet de hele automation.
+4. `persistent_notification.create` (laatste actie) blijft ongewijzigd.
+
+**Naverkenning:** het losse `shadow/energyprijs_shadow.yaml` in de repo is
+sinds v1.5.2 verouderd (168 diff-regels t.o.v. de ingebedde
+`custom_components/energyprijs/shadow/shadow.yaml` die de installer synct).
+Wie die map handmatig installeert krijgt de oude kwartier-index-bug +
+`initial:`-overschrijvingsbug. De ingebedde versie is de enige
+gezagshebbende; de losse map hoort te verdwijnen bij de volgende opruiming.
+
+**Teststatus na deze fix:** de eerste 12 dagen shadow-test gelden niet als
+beslissingsdata (alleen de sensoren zelf draaiden correct: doel-SOC, V, R,
+status; de overnames-schakel — de log — ontbrak). Na HACS-update + herstart
+met v1.5.9 start de beslissingslog pas; 14 dagen vanaf herstart tellen.
+
 ## 2026-10-12 — CONTRACT_CARD als vertical-stack (v1.5.8)
 
 Zelfde root-cause als v1.5.7, maar Jan wil de groepskoppen terug: "Verplaats
