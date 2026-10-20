@@ -56,6 +56,53 @@
 # ═══════════════════════════════════════════════════════════════
 
 template:
+  # ── v1.7.0 VOORSPELLINGSBRON (uurgegeven): stroomvoorspeller.nl forecast.json
+  #    vult morgen-balken in het EPEX-gat (±00:00–14:10). INFORMATIEF — voedt
+  #    NOOIT shadowPIES-beslissingen. CC-BY-vermelding in de kaarttitel.
+  #    EUR/MWh → ÷1000 → onze formules (btw/opslag/toeslag) in de daglijst.
+  - sensor:
+      - name: "Prijzen bron Voorspelling"
+        unique_id: prijzen_bron_voorspelling
+        unit_of_measurement: "EUR/kWh"
+        icon: mdi:weather-cloudy-clock
+        availability: >
+          {% set f = state_attr('sensor.prijzen_bron_voorspelling_raw', 'forecast') %}
+          {{ f is sequence and f | count > 0 }}
+        state: >
+          {% set f = state_attr('sensor.prijzen_bron_voorspelling_raw', 'forecast')
+                     | default([], true) %}
+          {{ (((f[0].predicted | default(f[0].price, true)) | float(0)) / 1000
+             | round(5)) if f | count > 0 else 0 }}
+        attributes:
+          prices_tomorrow: >
+            {% set ns = namespace(out=[]) %}
+            {% for i in state_attr('sensor.prijzen_bron_voorspelling_raw', 'forecast')
+                       | default([], true) %}
+              {% set p = i.predicted | default(i.price | default(none), true) %}
+              {% if i.time is defined and p is not none %}
+                {% set ns.out = ns.out + [{'time': i.time,
+                                           'price': (p | float(0)) / 1000}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.out }}
+          licentie: "Prognose: stroomvoorspeller.nl (CC-BY)"
+          # voorspelling is bij definitie morgen-prijzen; vandaag blijft leeg
+          # (de keten in de daglijst vraagt per lijst, niet per bron).
+          prices_today: "{{ [] }}"
+
+  # ── RAW-RUIMER: aanjaagbare HTTP-bron van de voorspelling (v1.7.0) ──
+  #    fetch-methode (python_script/command_line/rest) wordt live bepaald —
+  #    deze placeholder houdt de entity-id vast en maakt de keten toetsbaar.
+  - sensor:
+      - name: "Prijzen bron Voorspelling raw"
+        unique_id: prijzen_bron_voorspelling_raw
+        icon: mdi:cloud-refresh-outline
+        state: "{{ 'aangevraagd' }}"
+        attributes:
+          # leeg-list sjabloon; de fetch-automatisering overschrijft dit met
+          # de echte punten (state->attributes is write-only in HA, geen race)
+          forecast: "{{ [] }}"
+
   # ── STATE-BASED: bron-nabootsing + basis; luisteren automatisch naar hun inputs ──
   - sensor:
       # ── BRON 1: Nord Pool, ruw (excl. btw). GEEN daglijst in attributes —
@@ -148,8 +195,13 @@ template:
 
       - name: "Prijzen morgen beschikbaar"
         unique_id: prijzen_morgen_beschikbaar
+        # v1.7.0: telt alleen ECHTE (niet-voorspelde) prijzen — de 15:15-melding
+        # moet doorgaan zolang er alleen grije prognose-balken staan.
         state: >
-          {{ state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) | count > 0 }}
+          {% set m = state_attr('sensor.stroomprijs_daglijst', 'morgen')
+                     | default([], true) %}
+          {{ m | selectattr('v', 'defined') | selectattr('v') | list | count
+             != m | count }}
 
   # ── EnergyZero: corrigeert de uurprijs naar excl-btw (v1.5.4, review okt '26) ──
   #    GEEN triggers-blok meer: een state-based template-sensor volgt LIVE elke
@@ -256,6 +308,13 @@ template:
       # een gemiste prijzendruppel pakt hij binnen 5 min op (review 7 okt '26).
       - trigger: time_pattern
         minutes: "/5"
+      # v1.7.0: prognose-vulling van 'morgen' (informatief). Deze trigger duwt
+      # ALLEEN de herberekening aan — geen state/attributes op de daglijst zelf,
+      # anders wordt de 15:15-melding weggegeten zodra het EPEX-gat zich vult.
+      # shadowPIES leest noch 'morgen', noch de 'v'-vlag.
+      - trigger: state
+        entity_id: sensor.prijzen_bron_voorspelling
+        attribute: prices_tomorrow
       - trigger: state
         entity_id:
           - input_number.prijs_btw
@@ -273,11 +332,16 @@ template:
           {{ now().strftime('%H:%M') }}
         attributes:
           # v1.5.3: eerste bron (vaste volgorde) met een levende daglijst.
+          # v1.7.0: voorspelling telt NIET mee voor 'bron' — die blijft leeg in
+          # het EPEX-gat; alleen 'morgen' vult aan met prognose-uren ('v': true).
           bron: >
-            {% if state_attr('sensor.prijzen_bron_enerprice', 'prices_today') | default([], true) | count > 0 %}enerprice
-            {% elif state_attr('sensor.prijzen_bron_nordpool', 'prices_today') | default([], true) | count > 0 %}nordpool
-            {% elif state_attr('sensor.prijzen_bron_energyzero', 'prices_today') | default([], true) | count > 0 %}energyzero
-            {% endif %}
+            {% set b = namespace(x='') %}
+            {% for naam, eid in [('enerprice','sensor.prijzen_bron_enerprice'),
+                                 ('nordpool','sensor.prijzen_bron_nordpool'),
+                                 ('energyzero','sensor.prijzen_bron_energyzero')] %}
+              {% if b.x == '' and state_attr(eid, 'prices_today') | default([], true) | count > 0 %}{% set b.x = naam %}{% endif %}
+            {% endfor %}
+            {{ b.x }}
           vandaag: >
             {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
             {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
@@ -329,7 +393,8 @@ template:
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
                     'rt': (allin / rt_safe) | round(4),
-                    'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
+                    'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4),
+                    'v': ns.eid == 'sensor.prijzen_bron_voorspelling'}] %}
               {% endif %}
             {% endfor %}
             {{ ns.out }}
@@ -342,7 +407,8 @@ template:
             {% set ns = namespace(out=[], eid='') %}
             {% for naam, eid in [('enerprice','sensor.prijzen_bron_enerprice'),
                                  ('nordpool','sensor.prijzen_bron_nordpool'),
-                                 ('energyzero','sensor.prijzen_bron_energyzero')] %}
+                                 ('energyzero','sensor.prijzen_bron_energyzero'),
+                                 ('voorspelling','sensor.prijzen_bron_voorspelling')] %}
               {% if ns.eid == '' and state_attr(eid, 'prices_tomorrow') | default([], true) | count > 0 %}{% set ns.eid = eid %}{% endif %}
             {% endfor %}
             {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
@@ -384,7 +450,8 @@ template:
                     's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
                     'rt': (allin / rt_safe) | round(4),
-                    'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
+                    'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4),
+                    'v': ns.eid == 'sensor.prijzen_bron_voorspelling'}] %}
               {% endif %}
             {% endfor %}
             {{ ns.out }}

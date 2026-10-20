@@ -36,7 +36,7 @@ GRAFIEK_CARD = {
     "now": {"show": True, "label": "nu"},
     "header": {
         "show": True,
-        "title": "Stroomprijs — vandaag + morgen",
+        "title": "Stroomprijs — vandaag + morgen (prognose: stroomvoorspeller.nl, CC-BY)",
         "show_states": False,
         "colorize_states": False,
     },
@@ -76,6 +76,22 @@ GRAFIEK_CARD = {
             "data_generator": (
                 "return entity.attributes.vandaag.concat(entity.attributes.morgen)"
                 ".map((e) => [new Date(e.t).getTime() + 450000, e.uit]);"
+            ),
+            "float_precision": 3,
+            "show": {"in_header": False},
+        },
+        {
+            # v1.7.0: grijs balken voor de VOORSPELLING van morgen (EPEX-gat
+            # ±00:00–14:10). Filtert op daglijst-vlag 'v' — verdwijnt zodra
+            # echte D+1-prijzen binnenkomen (~15:15) omdat dan 'v' overal false is.
+            "entity": "sensor.stroomprijs_daglijst",
+            "name": "voorspelling",
+            "type": "column",
+            "yaxis_id": "prijzen",
+            "color": "#9e9e9e",
+            "data_generator": (
+                "return entity.attributes.morgen.filter((e) => e.v === true)"
+                ".map((e) => [new Date(e.t).getTime() + 450000, e.in]);"
             ),
             "float_precision": 3,
             "show": {"in_header": False},

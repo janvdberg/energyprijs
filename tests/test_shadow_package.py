@@ -34,6 +34,12 @@ async def _setup_shadow(hass):
             await hass.services.async_call(
                 "input_number", "set_value",
                 {"entity_id": f"input_number.{key}", "value": value}, blocking=True)
+    # v1.6.x: de status-template leest input_text.shadow_vorige_status voor de
+    # hysterese-prev. Zonder die helper rendert states() als 'unknown' en valt
+    # elke hysterese-tak stil weg (prev == 'LADEN' matcht nooit). Setup dus
+    # eerst de input_text-helpers uit het package, vóór de template.
+    if pkg.get("input_text"):
+        assert await async_setup_component(hass, "input_text", {"input_text": pkg["input_text"]})
     assert await async_setup_component(hass, "template", {"template": pkg["template"]})
     # sun.sun zaaien na setup: zonvenster dekt de test-data rond 'nu'
     now = datetime.now(timezone.utc)
@@ -65,9 +71,17 @@ def _daglijst_attr(in_lagere, in_dure, uit_lagere, uit_dure):
     out = []
     for i, (p_in, p_uit) in enumerate([(in_lagere, uit_lagere), (in_lagere, uit_lagere),
                                        (in_dure, uit_dure), (in_dure, uit_dure)]):
-        t = (now - timedelta(minutes=30) + timedelta(minutes=15 * i)).isoformat()
-        out.append({"t": t, "p": 0.2, "in": p_in, "uit": p_uit})
+        dt = now - timedelta(minutes=30) + timedelta(minutes=15 * i)
+        out.append({"t": dt.isoformat(), "e": int(dt.timestamp()), "p": 0.2, "in": p_in, "uit": p_uit})
     return out
+
+
+def _met_epoch(entries):
+    """v1.6.2: de V-sensor filtert op e.e >= nu_epoch — fixtures moeten het
+    epoch-veld dus bevatten, precies zoals de echte daglijst-template."""
+    for e in entries:
+        e["e"] = int(datetime.fromisoformat(e["t"]).timestamp())
+    return entries
 
 
 def _daglijst_voortgang(in_lagere, in_dure, uit_lagere, uit_dure):
@@ -78,7 +92,7 @@ def _daglijst_voortgang(in_lagere, in_dure, uit_lagere, uit_dure):
     for i, (p_in, p_uit) in enumerate([(in_lagere, uit_lagere), (in_lagere, uit_lagere),
                                        (in_dure, uit_dure), (in_dure, uit_dure)]):
         t = (now - timedelta(seconds=7.5) + timedelta(minutes=15 * i)).isoformat()
-        out.append({"t": t, "p": 0.2, "in": p_in, "uit": p_uit})
+        out.append({"t": t, "e": int(now.timestamp()) + (-7.5 + 900 * i), "p": 0.2, "in": p_in, "uit": p_uit})
     return out
 
 
@@ -87,9 +101,10 @@ def _daglijst_piek_met_pv(in_piek, uit_piek, in_pv, uit_pv):
     kwartier 2 = straks binnen het zonvenster (goedkoop PV-herlaadmoment)."""
     from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
+    base = int(now.timestamp())
     return [
-        {"t": (now - timedelta(seconds=7.5)).isoformat(), "p": 0.2, "in": in_piek, "uit": uit_piek},
-        {"t": (now + timedelta(minutes=14)).isoformat(), "p": 0.2, "in": in_pv, "uit": uit_pv},
+        {"t": (now - timedelta(seconds=7.5)).isoformat(), "e": base - 7, "p": 0.2, "in": in_piek, "uit": uit_piek},
+        {"t": (now + timedelta(minutes=14)).isoformat(), "e": base + 840, "p": 0.2, "in": in_pv, "uit": uit_pv},
     ]
 
 
@@ -217,10 +232,10 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
         from datetime import datetime as _dt, timedelta as _td
         now = _dt.now(_dt.now().astimezone().tzinfo)
         daglijst = [
-            {"t": (now - _td(minutes=30)).isoformat(), "p": 0.2, "in": in_p, "uit": uit_p},
-            {"t": (now - _td(minutes=15)).isoformat(), "p": 0.2, "in": in_p, "uit": uit_p},
-            {"t": (now + _td(minutes=15)).isoformat(), "p": 0.2, "in": 0.40, "uit": 0.38},
-            {"t": (now + _td(minutes=30)).isoformat(), "p": 0.2, "in": 0.40, "uit": 0.38},
+            {"t": (now - _td(minutes=30)).isoformat(), "e": int((now - _td(minutes=30)).timestamp()), "p": 0.2, "in": in_p, "uit": uit_p},
+            {"t": (now - _td(minutes=15)).isoformat(), "e": int((now - _td(minutes=15)).timestamp()), "p": 0.2, "in": in_p, "uit": uit_p},
+            {"t": (now + _td(minutes=15)).isoformat(), "e": int((now + _td(minutes=15)).timestamp()), "p": 0.2, "in": 0.40, "uit": 0.38},
+            {"t": (now + _td(minutes=30)).isoformat(), "e": int((now + _td(minutes=30)).timestamp()), "p": 0.2, "in": 0.40, "uit": 0.38},
         ]
         kq = 0
         while True:
@@ -273,9 +288,9 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
     now = _dt.now(_dt.now().astimezone().tzinfo)
     # Entry die 20 min geleden begon, dus al 5 min voorbij zijn start:
     daglijst = [
-        {"t": (now - _td(minutes=20)).isoformat(), "p": 0.2, "in": 0.25, "uit": 0.24},
-        {"t": (now - _td(minutes=5)).isoformat(), "p": 0.2, "in": 0.26, "uit": 0.25},
-        {"t": (now + _td(minutes=10)).isoformat(), "p": 0.2, "in": 0.40, "uit": 0.38},
+        {"t": (now - _td(minutes=20)).isoformat(), "e": int((now - _td(minutes=20)).timestamp()), "p": 0.2, "in": 0.25, "uit": 0.24},
+        {"t": (now - _td(minutes=5)).isoformat(), "e": int((now - _td(minutes=5)).timestamp()), "p": 0.2, "in": 0.26, "uit": 0.25},
+        {"t": (now + _td(minutes=10)).isoformat(), "e": int((now + _td(minutes=10)).timestamp()), "p": 0.2, "in": 0.40, "uit": 0.38},
     ]
     val = now.strftime("%H:%M:%S")
     prev = hass.states.get("sensor.stroomprijs_daglijst")
