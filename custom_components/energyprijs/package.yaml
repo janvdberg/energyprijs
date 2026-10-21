@@ -455,7 +455,10 @@ template:
                        | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set dt = i.time | as_datetime %}
-                {# Alleen renderen als de datum van het punt == morgen (lokaal) #}
+                {# Ruwe datum van het punt (offset behouden — as_datetime
+                   slaat HA's lokale tz af) vergelijken met de lokaal-berekende
+                   morgen. .astimezone() mag hier NIET: die convert naar HA's
+                   lokale tz en sloop in NL de eerste/laatste uurtjes weg. #}
                 {% if dt.date() != morgen_datum %}{% continue %}{% endif %}
                 {% set p = i.price | float(0) %}
                 {% set h = dt.hour %}

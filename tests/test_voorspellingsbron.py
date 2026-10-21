@@ -124,6 +124,7 @@ async def test_morgen_leeg_zonder_voorspelling(hass):
 async def test_voorspelling_vult_morgen_prognose(hass):
     """Prognose available + echte bronnen leeg → morgen_prognose gevuld;
     'morgen' EN 'bron' blijven leeg; binary blijft off (15:15-melding doorgaat)."""
+    await hass.config.async_set_time_zone("Europe/Amsterdam")
     await _setup(hass)
     now = datetime.now(timezone.utc)
     morgen = (now + timedelta(days=1)).date()
