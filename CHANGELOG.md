@@ -4,6 +4,30 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-21 — v1.7.2: placeholder-bronnen droegen string '[]' → morgen_prognose leeg
+
+Symptoom (live, 21 okt '26): de grijze prognose-reeks in de stroomprijs-kaart
+bleef leeg terwijl `sensor.prijzen_bron_voorspelling.prices_tomorrow` 24
+geldige punten voor morgen had.
+
+Oorzaak: de placeholder-bronnen Nordpool en EnergyZero definieerden
+`prices_today`/`prices_tomorrow` als de YAML-string `"[]"`. In Jinja is `[]`
+een sequence van 2 tekens, dus `state_attr(eid, 'prices_tomorrow') |
+default([], true) | count > 0` was waar (count=2). De echte-morgen-check in
+`morgen_prognose` vond daardoor een 'echte' bron en rendert `{{ [] }}` — de
+grijze balken kwamen nooit.
+
+Fix (minimaal, repo-versie — installer.py schrijft het package bij een
+update terug):
+1. `prices_today: "{{ [] }}"` / `prices_tomorrow: "{{ [] }}"` bij Nordpool
+   en EnergyZero (renderen een echte lege lijst).
+2. Robuuster: de echte-morgen-check is nu lijst-bewust
+   (`is sequence and is not string and count > 0`), dus ook een string-'[]'
+   zou niet meer door de check slippen.
+3. Regresie-test `tests/test_pkg_placeholders.py`: de attribute-templates
+   renderen een lege lijst + geen string-'[]' meer in het package + de
+   lijst-bewuste check staat er.
+
 ## 2026-10-21 — v1.6.2: Claude-review round 2 (verificatie + correcties)
 
 **Crash-voorkoming:**

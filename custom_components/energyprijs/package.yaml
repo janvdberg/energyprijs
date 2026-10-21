@@ -77,8 +77,8 @@ template:
           {{ states('sensor.nord_pool_nl_current_price') }}
         attributes:
           beschikbaar: "{{ has_value('sensor.nord_pool_nl_current_price') }}"
-          prices_today: "[]"
-          prices_tomorrow: "[]"
+          prices_today: "{{ [] }}"
+          prices_tomorrow: "{{ [] }}"
 
       # ── BRON 2: EnerPrice market (excl. btw), incl. diens provider/cache-status.
       #    EXACTE attribute-namen conform repo-broncode (models.py as_attribute → {time, price}):
@@ -185,8 +185,8 @@ template:
         attributes:
           interval_min: 60   # EnergyZero-core-sensor is per uur; NordPool/EnerPrice leveren straks 15 min
           beschikbaar: "{{ has_value('sensor.energyzero_today_energy_current_hour_price') }}"
-          prices_today: "[]"
-          prices_tomorrow: "[]"
+          prices_today: "{{ [] }}"
+          prices_tomorrow: "{{ [] }}"
 
   # ── TARIEF-2028 HELPER (v1.5.9): nettarief per TIJDSBLOK (ACM-codewijziging
   #    BR-2026-2242, bijlage 5: 5 blokken/dag per seizoen, factoren 0,0–1,0).
@@ -439,10 +439,16 @@ template:
             {# "Is er al echte morgen?" — check de ECHTE bronnen direct, niet
                het eigen 'morgen'-attribuut (dat zou 1-5 min vertraging geven). #}
             {% set echte_ns = namespace(echte_eid='') %}
+            {# v1.7.2: lijst-bewuste check — de placeholder-bronnen (Nordpool/
+               EnergyZero) droegen de STRING '[]' als attribute; die is een
+               sequence van 2 tekens, dus | count > 0 was waar → echte-eid
+               vond de string-bron, morgen_prognose rendert '[]'. is sequence
+               + not string sloopt de string-check. #}
             {% for naam, eid in [('enerprice','sensor.prijzen_bron_enerprice'),
                                  ('nordpool','sensor.prijzen_bron_nordpool'),
                                  ('energyzero','sensor.prijzen_bron_energyzero')] %}
-              {% if echte_ns.echte_eid == '' and state_attr(eid, 'prices_tomorrow') | default([], true) | count > 0 %}{% set echte_ns.echte_eid = eid %}{% endif %}
+              {% set pt = state_attr(eid, 'prices_tomorrow') | default([], true) %}
+              {% if echte_ns.echte_eid == '' and pt is sequence and pt is not string and pt | count > 0 %}{% set echte_ns.echte_eid = eid %}{% endif %}
             {% endfor %}
             {% if echte_ns.echte_eid != '' %}
             {{ [] }}
