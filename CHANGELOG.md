@@ -4,6 +4,24 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-21 — v1.7.3: status COMFORT was misleidend → 'COMFORT (verkoop)'
+
+Symptoom (live, 21 okt '26): de user zag status COMFORT terwijl de accu
+verkoopt, en vond de naam misleidend. We hadden op 2026-10-05 de
+statusnamen alvast voor het *eigen* systeem vastgesteld
+(`/opt/data/roi-monitor/accu_statusnamen.md`): daar heet de verkoop-band
+'Ontladen' en is 'Comfort' óf 'Neutraal' of 'Spaar' — nooit verkoop.
+ShadowPIES' COMFORT = verkoop (uit > verkoop-eis) klopt dus functioneel,
+maar de naam overlap met het oude Comfort-gebruik misleidt.
+
+Fix (minimaal, repo-versie): card-text in `cards.py` (SHADOW_CARD):
+`COMFORT (verkoop) — accu → net, prijs boven verkoop-eis` + commentaar in
+`shadow.yaml`. De state-waarde 'COMFORT' blijft (veranderd = alle
+toetreden/hysteresis-logica opnieuw testen); alleen de weergave verandert.
+Overtoelassing naar de eigen banden + de openstaande eis-formule
+(h/η_rt i.p.v. h/η_laad → eis €0,3632 i.p.v. €0,3309) staat in
+`/opt/data/roi-monitor/shadow_statusnamen.md`.
+
 ## 2026-10-21 — v1.7.2: placeholder-bronnen droegen string '[]' → morgen_prognose leeg
 
 Symptoom (live, 21 okt '26): de grijze prognose-reeks in de stroomprijs-kaart

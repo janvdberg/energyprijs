@@ -248,7 +248,8 @@ template:
           {{ (soc - doel) | round(1) }}
 
       # ═══ BESLISSING — de zes stappen teruggebracht tot de vijf statussen ═══
-      #   COMFORT = verkopen (eis bereikt) · SPAAR = ontladen naar huis (ruimte-tak)
+      #   COMFORT = verkopen (eis bereikt; staat 'verkoop' in de card) ·
+      #   SPAAR = ontladen naar huis (ruimte-tak)
       #   LADEN = laden als in+w+m < V · OP HET NET / NEUTRAAL = rust
       #   curtail (negatieve uit) is geen status maar een export-limiet → attribute
       - name: "Shadow status"

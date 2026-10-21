@@ -242,7 +242,7 @@ SHADOW_CARD = {
         "{% elif s == 'NEUTRAAL' %}⚪ **NEUTRAAL** — geen actie, prijzen te dicht bij elkaar"
         "{% elif s == 'OP HET NET' %}🟠 **OP HET NET** — huisverbruik direct van het net"
         "{% elif s == 'SPAAR' %}🟢 **SPAAR** — ontladen naar huis; ruimte maken voor de zon"
-        "{% elif s == 'COMFORT' %}🔴 **COMFORT** — verkopen aan het net (boven verkoop-eis)"
+        "{% elif s == 'COMFORT' %}🔴 **COMFORT (verkoop)** — accu → net, prijs boven verkoop-eis"
         "{% elif s == 'COMFORT (curtail)' %}🔴 **COMFORT (curtail)** — negatieve prijs, export stoppen"
         "{% else %}❓ {{ s }}{% endif %}"
         "\n\nin {{ state_attr('sensor.shadow_status','in_nu') }} · "
