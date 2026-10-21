@@ -57,11 +57,14 @@ def test_shadow_automation_trigger_vennige():
                     if a.get("id") == "energyprijs_shadow_log")
     trig = log_auto["triggers"][0]
     assert trig.get("trigger") == "state"
-    # De nieuwe vorm: from + to + not_from, géén oude `not`-key
-    assert "from" in trig and "to" in trig, (
-        "log-automation moet from+to gebruiken (v1.5.2), "
+    # De nieuwe vorm: to + not_from (lijst), géén oude `not`-key.
+    # from is optioneel — zonder from betekent "van elke vorige status".
+    assert "to" in trig, (
+        "log-automation moet een to-lijst hebben (v1.5.2), "
         f"got keys: {list(trig.keys())}")
-    assert trig.get("not_from") == "unavailable"
+    assert isinstance(trig.get("not_from"), list) and \
+        "unavailable" in trig["not_from"] and "unknown" in trig["not_from"], (
+        f"not_from moet ['unavailable','unknown'] zijn, got {trig.get('not_from')}")
     assert "not" not in trig, "oude `not`-key is deprecated — weg ermee"
 
 

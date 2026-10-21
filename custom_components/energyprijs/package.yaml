@@ -56,6 +56,14 @@
 # ═══════════════════════════════════════════════════════════════
 
 template:
+  # ── v1.7.0 VOORSPELLINGSBRON: stroomvoorspeller.nl (CC-BY) ──
+  #    De entiteit sensor.prijzen_bron_voorspelling komt NU uit de eigen
+  #    integration (custom_components/energyprijs/sensor.py + voorspelling.py),
+  #    niet uit dit template-blok. Directe async HTTP, geen /tmp, geen
+  #    python_script, geen shell. Dag+1-filter + /1000-conversie zitten in
+  #    voorspelling.py. Attribute 'prices_tomorrow' = [{time, price}] (EUR/kWh).
+  #    INFORMATIEF: shadowPIES en de 15:15-melding lezen dit NOOIT.
+
   # ── STATE-BASED: bron-nabootsing + basis; luisteren automatisch naar hun inputs ──
   - sensor:
       # ── BRON 1: Nord Pool, ruw (excl. btw). GEEN daglijst in attributes —
@@ -148,8 +156,14 @@ template:
 
       - name: "Prijzen morgen beschikbaar"
         unique_id: prijzen_morgen_beschikbaar
+        # v1.7.0: 'morgen' bevat per definitie alleen ECHTE prijzen (prognose
+        # leeft in het aparte 'morgen_prognose'), dus here count>0 volstaat.
+        # Herberekent automatisch zodra sensor.stroomprijs_daglijst verandert
+        # (state-attr-referentie in de template).
         state: >
-          {{ state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) | count > 0 }}
+          {% set m = state_attr('sensor.stroomprijs_daglijst', 'morgen')
+                     | default([], true) %}
+          {{ m | count > 0 }}
 
   # ── EnergyZero: corrigeert de uurprijs naar excl-btw (v1.5.4, review okt '26) ──
   #    GEEN triggers-blok meer: een state-based template-sensor volgt LIVE elke
@@ -265,6 +279,7 @@ template:
           - input_number.prijs_laad_drempel
           - input_boolean.prijs_saldering_energiebelasting_teruggave
           - sensor.prijzen_bron_enerprice
+          - sensor.prijzen_bron_voorspelling
     sensor:
       # ── DAGLIJST voor ApexCharts: [{t, p}] bruto, vandaag + morgen.
       - name: "Stroomprijs daglijst"
@@ -273,11 +288,18 @@ template:
           {{ now().strftime('%H:%M') }}
         attributes:
           # v1.5.3: eerste bron (vaste volgorde) met een levende daglijst.
+          # v1.7.0: voorspelling telt NIET mee voor 'bron' — die blijft leeg in
+          # het EPEX-gat; de grijze reeks leeft in het aparte attribuut
+          # 'morgen_prognose', dus 'morgen' (en alle lezers daarvan) blijft
+          # puur op echte prijzen.
           bron: >
-            {% if state_attr('sensor.prijzen_bron_enerprice', 'prices_today') | default([], true) | count > 0 %}enerprice
-            {% elif state_attr('sensor.prijzen_bron_nordpool', 'prices_today') | default([], true) | count > 0 %}nordpool
-            {% elif state_attr('sensor.prijzen_bron_energyzero', 'prices_today') | default([], true) | count > 0 %}energyzero
-            {% endif %}
+            {% set b = namespace(x='') %}
+            {% for naam, eid in [('enerprice','sensor.prijzen_bron_enerprice'),
+                                 ('nordpool','sensor.prijzen_bron_nordpool'),
+                                 ('energyzero','sensor.prijzen_bron_energyzero')] %}
+              {% if b.x == '' and state_attr(eid, 'prices_today') | default([], true) | count > 0 %}{% set b.x = naam %}{% endif %}
+            {% endfor %}
+            {{ b.x }}
           vandaag: >
             {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
             {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
@@ -388,6 +410,83 @@ template:
               {% endif %}
             {% endfor %}
             {{ ns.out }}
+          # ── v1.7.0 MORGEN_PROGNOSE: INFORMATIEFE vervanger voor het EPEX-gat ──
+          #    (±00:00–14:10). Bewust een APART attribuut: 'morgen' blijft alleen
+          #    echte prijzen, dus elke beslissingslezer (shadowPIES) en de
+          #    15:15-melding blijven blind voor de prognose. Formules identiek aan
+          #    'morgen'; bron = de ECHTE bron-sensoren (EnerPrice/NordPool/
+          #    EnergyZero), zelfstandig herberekend — géén eigen 'morgen'-attribuut
+          #    (dat zou een 1-5 min vertraging geven rond 15:15). Leeg als er al
+          #    echte morgenprijzen zijn → de kaart tekent dan geen grijze balken.
+          morgen_prognose: >
+            {# v1.7.0 (review pass 2): lees de VOORSPELLING-bron (prognose),
+               niet de eigen 'morgen'-attribuut. De "is er al echte morgen?"
+               test checkt de ECHTE bronnen (EnerPrice/NordPool/EnergyZero)
+               zelfstandig — géén 1-5 min overlap rond 15:15. Als een echte
+               bron AL morgen-prijzen heeft → leeg (geen grijze balken). #}
+            {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
+            {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
+            {% set sa = states('input_number.prijs_opslag_afname') | float(0) %}
+            {% set sl = states('input_number.prijs_opslag_levering') | float(0) %}
+            {% set saldering = states('input_boolean.prijs_saldering_energiebelasting_teruggave') == 'on' %}
+            {% set ts = states('input_number.prijs_opslag_tijdsafhankelijk') | float(0) %}
+            {% set dal_u = states('input_number.prijs_dal_uren') | int(7) %}
+            {% set top_u = states('input_number.prijs_top_uren') | int(17) %}
+            {% set ftext = states('input_text.prijs_net_blokken') | default('', true) | trim %}
+            {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
+            {% set rt_safe = [rt, 0.01] | max %}
+            {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
+            {# "Is er al echte morgen?" — check de ECHTE bronnen direct, niet
+               het eigen 'morgen'-attribuut (dat zou 1-5 min vertraging geven). #}
+            {% set echte_ns = namespace(echte_eid='') %}
+            {% for naam, eid in [('enerprice','sensor.prijzen_bron_enerprice'),
+                                 ('nordpool','sensor.prijzen_bron_nordpool'),
+                                 ('energyzero','sensor.prijzen_bron_energyzero')] %}
+              {% if echte_ns.echte_eid == '' and state_attr(eid, 'prices_tomorrow') | default([], true) | count > 0 %}{% set echte_ns.echte_eid = eid %}{% endif %}
+            {% endfor %}
+            {% if echte_ns.echte_eid != '' %}
+            {{ [] }}
+            {% else %}
+            {% set ns = namespace(out=[]) %}
+            {# v1.7.0 datumfilter: alleen punten van MORGEN (lokaal) renderen —
+               voorkomt dat een oude dag's prognose onder "vandaag" wordt getekend. #}
+            {% set morgen_datum = (now() + timedelta(days=1)).date() %}
+            {% for i in state_attr('sensor.prijzen_bron_voorspelling', 'prices_tomorrow')
+                       | default([], true) %}
+              {% if i.time is defined and i.price is defined %}
+                {% set dt = i.time | as_datetime %}
+                {# Alleen renderen als de datum van het punt == morgen (lokaal) #}
+                {% if dt.date() != morgen_datum %}{% continue %}{% endif %}
+                {% set p = i.price | float(0) %}
+                {% set h = dt.hour %}
+                {% set mnd = dt.month %}
+                {% set nsb = namespace(f=None) %}
+                {% if ftext != '' %}
+                  {% for mm in ftext | regex_findall('([WZ])?\|?(\d{1,2})\s*-\s*(\d{1,2})\s*:\s*(\d+(?:[.,]\d+)?)') %}
+                    {% set naam = (mm[0] | upper) if mm[0] else '' %}
+                    {% set ss = mm[1] | int(-1) %}
+                    {% set ee = mm[2] | int(-1) %}
+                    {% set fc = mm[3] | replace(',', '.') | float(-1) %}
+                    {% set ok_seis = (naam == '') or (naam == 'Z' and 4 <= mnd <= 9) or (naam == 'W' and not (4 <= mnd <= 9)) %}
+                    {% if ok_seis and ss >= 0 and ee >= 0 and fc >= 0 and (ss <= h < ee or (ee <= ss and (h >= ss or h < ee))) %}
+                      {% set nsb.f = fc %}
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  {% set nsb.f = 1.0 if (h < dal_u or h >= top_u) else 0.0 %}
+                {% endif %}
+                {% set toel = (ts * nsb.f) if (ts > 0 and nsb.f is not none) else 0 %}
+                {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
+                {% set ns.out = ns.out + [{'t': i.time, 'e': dt.timestamp() | round(0) | int, 'p': p | round(5),
+                    'in': allin,
+                    's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
+                    'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
+                    'rt': (allin / rt_safe) | round(4),
+                    'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.out }}
+            {% endif %}
 
   # ── GECOÖRDINEERD: afname/levering all-in, herbereken bij contractwijziging ──
   - triggers:
@@ -710,25 +809,21 @@ input_boolean:
 
 input_text:
   accu_bron_entity:
-    name: "Accu: bron-entity percentage"
     min: 0
     max: 255
     mode: text
     icon: mdi:source-branch
   pv_bron_vandaag:
-    name: "PV: bron-entity verwachting vandaag"
     min: 0
     max: 255
     mode: text
     icon: mdi:weather-sunny
   pv_bron_morgen:
-    name: "PV: bron-entity verwachting morgen"
     min: 0
     max: 255
     mode: text
     icon: mdi:weather-sunset
   prijs_notify_doel:
-    name: "Prijzen: notify-doel (zonder 'notify.'-voorvoegsel)"
     min: 0
     max: 255
     mode: text
@@ -740,7 +835,6 @@ input_text:
   #    komma decimaal, prefixloze blokken gelden voor beide seizoenen. LEEG +
   #    toeslag-helper >0 → opslag_toeslag unavailable + notificatie.
   prijs_net_blokken:
-    name: "Nettoeslag: blokfactoren (Z/W|uur-uur:factor)"
     min: 0
     max: 255
     mode: text
@@ -834,3 +928,8 @@ recorder:
   exclude:
     entities:
       - sensor.stroomprijs_daglijst
+      # v1.7.0: de prognose-sensor is informatief; 15-min history zou de DB
+      # onnodig zwaar maken. (sensor.prijzen_voorspelling_raw bestaat niet meer;
+      # de entiteit komt nu uit de integration en heet prijzen_bron_voorspelling.)
+      - sensor.prijzen_bron_voorspelling
+
