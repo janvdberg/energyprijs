@@ -166,10 +166,11 @@ async def test_opbouwcheck_vervangt_oude_koppen(hass):
                for s in new_graf["series"] if isinstance(s, dict))
 
 
-async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
-    """Taak-test 7 okt '26 (v1.4.1): legenda blijft verborgen; de grafiek toont
-    NU twee series — inkoop als gekleurde balkjes (e.in) en verkoop als dunne
-    rode lijn (e.uit) eronder. Beide delen één y-as via yaxis_id 'prijzen'.
+async def test_grafiekkaart_legenda_weg_en_series(hass):
+    """Legenda blijft verborgen; de grafiek toont DRIE series: inkoop als
+    gekleurde balkjes (e.in), verkoop als dunne rode lijn (e.uit), en sinds
+    v1.7.0 een grijze voorspelling-balk (morgen_prognose). Alle drie delen
+    één y-as via yaxis_id 'prijzen'.
     """
     from custom_components.energyprijs.cards import GRAFIEK_CARD
 
@@ -178,8 +179,8 @@ async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
     assert "min" in GRAFIEK_CARD["apex_config"]["xaxis"]
     assert "max" in GRAFIEK_CARD["apex_config"]["xaxis"]
 
-    assert len(GRAFIEK_CARD["series"]) == 2
-    balk, lijn = GRAFIEK_CARD["series"]
+    assert len(GRAFIEK_CARD["series"]) == 3
+    balk, lijn, prognose = GRAFIEK_CARD["series"]
     assert balk["name"] == "inkoop" and balk["type"] == "column"
     assert balk["entity"] == "sensor.stroomprijs_daglijst"
     assert ".map((e) => [new Date(e.t).getTime() + 450000, e.in]);" in balk["data_generator"]
@@ -197,6 +198,10 @@ async def test_grafiekkaart_legenda_weg_en_éénSerie(hass):
     # één gedeelde as: geen losse yas-configs (v2-safe, zónder eigen schaal per reeks)
     assert balk["yaxis_id"] == lijn["yaxis_id"] == "prijzen"
     assert len(GRAFIEK_CARD["yaxis"]) == 1
+    # v1.7.0: de grijze voorspelling-balk (CC-BY stroomvoorspeller.nl)
+    assert prognose["name"] == "voorspelling" and prognose["type"] == "column"
+    assert "morgen_prognose" in prognose["data_generator"]
+    assert prognose["yaxis_id"] == "prijzen"
 
 
 def test_daglijst_triggers_time_pattern_en_helpers():

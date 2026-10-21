@@ -15,12 +15,11 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.helpers import issue_registry as ir
 
 from datetime import timedelta
 
 from pathlib import Path
-
-from homeassistant.helpers import issue_registry as ir
 
 from .const import DOMAIN, PACKAGE_FILENAME, VERSION as _VERSION
 from .installer import (
@@ -344,7 +343,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # de startup-check te vroeg draaide.
     unsub2 = async_track_time_interval(hass, _auto_dashboard, timedelta(minutes=5))
     entry.async_on_unload(lambda: unsub2() if unsub2 else None)
+
+    # Platform-forwarding: de voorspelling-sensor komt uit sensor.py.
+    # Await direct — een losse task faalt bij unload (entry al in FAILED_UNLOAD).
+    # In de test-harness (geen volledige loader) mag dit mislukken; in
+    # productie is een forward-fout een ECHTE fout → warning, niet debug.
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "energyprijs: sensor-platform forward mislukt", exc_info=True,
+        )
     return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Los de eigen platforms (sensor) op."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    if unload_ok:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    return unload_ok
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -396,7 +414,3 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     except Exception:  # noqa: BLE001
         pass
 
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Nothing to unload — we own no platforms."""
-    return True

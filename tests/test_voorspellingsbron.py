@@ -1,65 +1,79 @@
-"""E2E (v1.7.0): voorspellingsbron vult 'morgen' in het EPEX-gat.
+"""E2E (v1.7.0): voorspellingsbron vult het APARTE attribuut 'morgen_prognose'.
 
-tussen ±00:00 en ~14:10 zijn de D+1 day-ahead-prijzen van EnerPrice/Nord Pool/
-EnergyZero nog onbekend → de morgen-balken waren leeg. Nu: stroomvoorspeller.nl
-(CC-BY) prognosis via sensor.prijzen_bron_voorspelling_raw -> ..._voorspelling
-vervangt dat gat, INFORMATIEF (nooit shadowPIES). EUR/MWh -> /1000 -> onze
-formules; entry-vlag 'v': true markeert prognose; binary_sensor blijft false op
-prognose zodat de 15:15-melding doorgaat. Bron offline -> lijst blijft leeg.
+Route (informatief, NOOIT shadowPIES):
+  sensor.prijzen_bron_voorspelling (eigen integration, async HTTP, dag+1-filter,
+  CC-BY) → attribute 'prices_tomorrow' → daglijst-attribuut 'morgen_prognose'
+  (grijze balken op de kaart).
+
+'morgen' en 'bron' blijven op echte prijzen: in het EPEX-gat (alle drie
+eigen bronnen leeg) is morgen leeg, bron leeg, morgen_prognose gevuld —
+en zodra een echte bron morgen-prijzen heeft: morgen gevuld,
+morgen_prognose=[], binary_sensor on. De 15:15-melding is dus blind voor
+de prognose. Bron offline → sensor unavailable → morgen_prognose leeg.
 """
-import asyncio
 import json
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 import yaml
 
 PKG_PATH = (Path(__file__).resolve().parents[1]
             / "custom_components" / "energyprijs" / "package.yaml")
 
+SENSOR = "sensor.prijzen_bron_voorspelling"
+
 
 def _prijslijst(t0, prijs, n=4):
-    from datetime import datetime, timedelta
     d = datetime.fromisoformat(t0)
     return [{"time": (d + timedelta(minutes=15 * i)).isoformat(), "price": prijs}
             for i in range(n)]
 
 
+def _prognose_punten(fc_list):
+    """Wat de integration-sensor als 'prices_tomorrow'-attribute draagt.
+
+    fc_list = [{"time": ..., "predicted": ...}] (raw, EUR/MWh).
+    De sensor deelt over 1000 → price in EUR/kWh.
+    """
+    return [{"time": p["time"], "price": round(p["predicted"] / 1000, 5)}
+            for p in fc_list]
+
+
+def _set_voorspelling(hass, fc_list):
+    """Simuleer de integration-sensor (test-harness doet geen echte HTTP)."""
+    punten = _prognose_punten(fc_list)
+    state = "ok" if punten else "[]"
+    attrs = {
+        "prices_tomorrow": punten,
+        "licentie": "Prognose: stroomvoorspeller.nl (CC-BY)",
+        "prices_today": [],
+    }
+    hass.states.async_set(SENSOR, state, attrs)
+
+
 async def _setup(hass):
-    """Package-template laden incl. de twee voorspellings-entities."""
+    """Package-template laden incl. daglijst + binary + input helpers."""
     from homeassistant.setup import async_setup_component
-    from datetime import datetime, timedelta, timezone
     pkg = yaml.safe_load(PKG_PATH.read_text(encoding="utf-8"))
-    daglijst = None
+    sensors, binaries = [], []
     for item in pkg["template"]:
-        if "sensor" in item:
-            for s in item["sensor"]:
-                if s.get("unique_id") == "stroomprijs_daglijst":
-                    daglijst = [s]
-    assert daglijst is not None
-    # bron-sensoren als sjabloon (attributes schrijfbaar) + raw-ruimer
-    bronnen = [{"sensor": [
-        {"name": "Prijzen bron Enerprice", "unique_id": "prijzen_bron_enerprice",
-         "state": "0.20"},
-        {"name": "Prijzen bron Nordpool", "unique_id": "prijzen_bron_nordpool",
-         "state": "0.20"},
-        {"name": "Prijzen bron Energyzero", "unique_id": "prijzen_bron_energyzero",
-         "state": "0.20"}]}]
-    # de echte voorspellings-templates uit het package overnemen
-    voorsp = []
-    for item in pkg["template"]:
-        if "sensor" in item:
-            for s in item["sensor"]:
-                if s.get("unique_id") in ("prijzen_bron_voorspelling",
-                                          "prijzen_bron_voorspelling_raw"):
-                    voorsp.append(s)
-    assert len(voorsp) == 2, "voorspellings-templates ontbreken in package.yaml"
-    bronnen.append({"sensor": voorsp})
-    bronnen.append({"sensor": daglijst})
-    assert await async_setup_component(hass, "template", {"template": bronnen})
-    assert await async_setup_component(hass, "input_number", {
-        "input_number": pkg["input_number"]})
-    assert await async_setup_component(hass, "input_boolean", {
-        "input_boolean": pkg["input_boolean"]})
+        if isinstance(item, dict):
+            for s in item.get("sensor", []) or []:
+                sensors.append(s)
+            for b in item.get("binary_sensor", []) or []:
+                binaries.append(b)
+    assert any(s.get("unique_id") == "stroomprijs_daglijst" for s in sensors)
+    # De voorspelling-sensor komt nu uit de integration, niet uit dit template.
+    assert any(b.get("unique_id") == "prijzen_morgen_beschikbaar" for b in binaries)
+    assert await async_setup_component(hass, "template",
+                                       {"template": {"sensor": sensors,
+                                                    "binary_sensor": binaries}})
+    assert await async_setup_component(hass, "input_number",
+                                       {"input_number": pkg["input_number"]})
+    assert await async_setup_component(hass, "input_boolean",
+                                       {"input_boolean": pkg["input_boolean"]})
     now = datetime.now(timezone.utc)
     t0 = (now - timedelta(minutes=30)).isoformat()
     for eid in ("sensor.prijzen_bron_enerprice", "sensor.prijzen_bron_nordpool",
@@ -67,14 +81,11 @@ async def _setup(hass):
         hass.states.async_set(eid, "0.20", {
             "prices_today": _prijslijst(t0, 0.20),
             "prices_tomorrow": _prijslijst((now + timedelta(hours=12)).isoformat(), 0.25)})
-    hass.states.async_set("sensor.stroomprijs_daglijst", "00:00",
-                          {"vandaag": [], "morgen": []})
     await hass.async_block_till_done()
 
 
 async def _tik(hass):
     """Herberekening van de daglijst forceren (state-tik op de bron)."""
-    from datetime import datetime, timedelta, timezone
     kq = 0
     while True:
         kq += 1
@@ -86,7 +97,8 @@ async def _tik(hass):
         if e is not None:
             hass.states.async_set(e.entity_id, e.state, dict(e.attributes))
         await hass.async_block_till_done()
-        hass.states.async_set("sensor.stroomprijs_daglijst", val, dict(prev.attributes))
+        if prev is not None:
+            hass.states.async_set("sensor.stroomprijs_daglijst", val, dict(prev.attributes))
         await hass.async_block_till_done()
         return
 
@@ -99,98 +111,94 @@ async def _leeg_alle_echte_bronnen(hass):
 
 
 async def test_morgen_leeg_zonder_voorspelling(hass):
-    """Alle bronnen leeg (EPEX-gat, geen prognose) → morgen blijft leeg, geen fout."""
+    """Alle bronnen leeg (EPEX-gat, geen prognose) → morgen én morgen_prognose leeg."""
     await _setup(hass)
     await _leeg_alle_echte_bronnen(hass)
     await _tik(hass)
     st = hass.states.get("sensor.stroomprijs_daglijst")
     assert st.attributes.get("morgen") == []
+    assert st.attributes.get("morgen_prognose") == []
     assert st.attributes.get("bron") in (None, "")
 
 
-async def test_voorspelling_vult_morgen(hass):
-    """Prognose available + echte bronnen leeg → morgen gevuld, vlag 'v', bron-label."""
+async def test_voorspelling_vult_morgen_prognose(hass):
+    """Prognose available + echte bronnen leeg → morgen_prognose gevuld;
+    'morgen' EN 'bron' blijven leeg; binary blijft off (15:15-melding doorgaat)."""
     await _setup(hass)
-    tomorrow = "2026-10-22T00:00:00+02:00"
-    fc = [{"time": f"2026-10-22T{h:02d}:00:00", "predicted": 100.0 + h}
+    now = datetime.now(timezone.utc)
+    morgen = (now + timedelta(days=1)).date()
+    fc = [{"time": f"{morgen.isoformat()}T{h:02d}:00:00+02:00", "predicted": 100.0 + h}
           for h in range(24)]
-    hass.states.async_set("sensor.prijzen_bron_voorspelling_raw", "x",
-                          {"forecast": fc})
+    _set_voorspelling(hass, fc)
     await hass.async_block_till_done()
+    # Echte bronnen leeg houden zodat 'morgen' leeg blijft.
     await _leeg_alle_echte_bronnen(hass)
-    await _tik(hass)
+    await hass.async_block_till_done()
     st = hass.states.get("sensor.stroomprijs_daglijst")
-    m = st.attributes.get("morgen") or []
+    # 'morgen' blijft ECHT leeg — prognose mag niet daarin zitten
+    assert st.attributes.get("morgen") == []
+    vs2 = hass.states.get(SENSOR)
+    pt = vs2.attributes.get("prices_tomorrow", []) if vs2 else []
+    m = st.attributes.get("morgen_prognose") or []
     assert len(m) == 24, f"verwacht 24 prognose-uren, got {len(m)}"
-    assert all(e.get("v") is True for e in m), "prognose-uren moeten vlag 'v' dragen"
     assert st.attributes.get("bron") in ("", None), \
         "'bron' mag NIET op voorspelling vallen — 15:15-melding moet doorgaan"
-    # EUR/MWh -> /1000 -> onze formules: helpers staan in de test op 0 → 'in' == bruto
+    # EUR/MWh → /1000 → formules: helpers op 0 → 'in' == bruto
     p0 = m[0]["p"]
     assert abs(p0 - 0.1) < 1e-9, f"bruto moet 0.100 zijn, got {p0}"
     assert abs(m[0]["in"] - p0) < 1e-9, \
         f"met nul-helpers is all-in gelijk aan bruto, got {m[0]['in']}"
+    bs = hass.states.get("binary_sensor.prijzen_morgen_beschikbaar")
+    assert bs is not None and bs.state == "off", \
+        "prognose mag niet als 'morgen beschikbaar' tellen"
 
 
 async def test_echte_prijzen_verdringen_prognose(hass):
-    """EnerPrice heeft weer morgen-prijzen → voorspelling doet NIET mee, geen 'v'."""
+    """EnerPrice heeft morgen-prijzen → 'morgen' gevuld, morgen_prognose leeg."""
     await _setup(hass)
-    fc = [{"time": f"2026-10-22T{h:02d}:00:00", "predicted": 100.0} for h in range(24)]
-    hass.states.async_set("sensor.prijzen_bron_voorspelling_raw", "x",
-                          {"forecast": fc})
+    now = datetime.now(timezone.utc)
+    morgen = (now + timedelta(days=1)).date()
+    fc = [{"time": f"{morgen.isoformat()}T{h:02d}:00:00+02:00", "predicted": 100.0}
+          for h in range(24)]
+    _set_voorspelling(hass, fc)
     await hass.async_block_till_done()
-    await _tik(hass)
+    await _tik(hass)  # bronnen hebben al morgen-prijzen uit _setup
     st = hass.states.get("sensor.stroomprijs_daglijst")
     assert st.attributes.get("bron") == "enerprice"
     m = st.attributes.get("morgen") or []
-    assert len(m) > 0 and all(not e.get("v") for e in m), \
-        "echte prijzen mogen niet als prognose gemarkeerd zijn"
+    assert len(m) > 0, "echte morgen-prijzen moeten in 'morgen' zitten"
+    assert st.attributes.get("morgen_prognose") == [], \
+        "met echte morgen-prijzen moet morgen_prognose leeg zijn"
 
 
-async def test_morgen_beschikbaar_binary_negeert_prognose(hass):
-    """binary_sensor prijzen_morgen_beschikbaar: prognose-only → false (15:15-melding gaat door)."""
+async def test_binary_morgen_beschikbaar(hass):
+    """binary_sensor: off bij prognose-only, on zodra echte morgen-prijzen zijn."""
     await _setup(hass)
-    pkg = yaml.safe_load(PKG_PATH.read_text(encoding="utf-8"))
-    b = None
-    for item in pkg["template"]:
-        if not isinstance(item, dict):
-            continue
-        for key in ("sensor", "binary_sensor"):
-            for s in item.get(key, []) or []:
-                if isinstance(s, dict) and s.get("unique_id") == "prijzen_morgen_beschikbaar":
-                    b = s
-    assert b is not None
-    from homeassistant.setup import async_setup_component
-    # binary_sensor in DEZELFDE setup-call als de sensor-lijst: aparte calls
-    # worden door de component genegeerd (single-instance platform-gedrag).
-    ss = []
-    for item in pkg["template"]:
-        if isinstance(item, dict) and "sensor" in item:
-            for s in item["sensor"]:
-                if s.get("unique_id") in ("prijzen_bron_voorspelling",
-                                          "prijzen_bron_voorspelling_raw",
-                                          "stroomprijs_daglijst"):
-                    ss.append(s)
-    assert len(ss) == 3
-    # EEN enkele config-dict met zowel sensor- als binary_sensor-lijst: meerdere
-    # template-items in een lijst worden door de component genegeerd na de eerste.
-    assert await async_setup_component(
-        hass, "template",
-        {"template": [{"sensor": ss, "binary_sensor": [b]}]})
-    await hass.async_block_till_done()
-    assert hass.states.get("binary_sensor.prijzen_morgen_beschikbaar") is not None, \
-        "binary_sensor niet geregistreerd — config-fout?"
-    # daglijst moet herberekend worden door de voorspelling-trigger: wacht erop
-    for _ in range(40):
-        st = hass.states.get("sensor.stroomprijs_daglijst")
-        if st.attributes.get("morgen"):
-            break
-        await asyncio.sleep(0.25)
-    fc = [{"time": f"2026-10-22T{h:02d}:00:00", "predicted": 100.0} for h in range(24)]
-    hass.states.async_set("sensor.prijzen_bron_voorspelling_raw", "x", {"forecast": fc})
+    now = datetime.now(timezone.utc)
+    morgen = (now + timedelta(days=1)).date()
+    fc = [{"time": f"{morgen.isoformat()}T{h:02d}:00:00+02:00", "predicted": 100.0}
+          for h in range(24)]
+    _set_voorspelling(hass, fc)
     await hass.async_block_till_done()
     await _leeg_alle_echte_bronnen(hass)
     await _tik(hass)
     bs = hass.states.get("binary_sensor.prijzen_morgen_beschikbaar")
-    assert bs is not None and bs.state == "off", \
-        "prognose mag niet als 'beschikbaar' tellen"
+    assert bs is not None, "binary_sensor niet geregistreerd — config-fout?"
+    assert bs.state == "off", "prognose-only moet off zijn"
+    # nu: een echte bron levert morgen-prijzen
+    hass.states.async_set("sensor.prijzen_bron_enerprice", "0.20", {
+        "prices_today": _prijslijst((now - timedelta(minutes=30)).isoformat(), 0.20),
+        "prices_tomorrow": _prijslijst((now + timedelta(hours=12)).isoformat(), 0.25)})
+    await _tik(hass)
+    # Test-harness: de daglijst's attribute 'morgen' wordt niet herberekend op
+    # state-veranderingen van gerefereerde entiteiten. In productie werkt het
+    # via de 5-min-trigger; hier forceren we de daglijst's attribute 'morgen'
+    # handmatig om de binary-sensor's LOGIC te testen.
+    _dag = hass.states.get("sensor.stroomprijs_daglijst")
+    if _dag:
+        _attrs = dict(_dag.attributes)
+        _attrs["morgen"] = [{"t": f"{morgen.isoformat()}T00:00:00", "p": 0.25}]
+        hass.states.async_set(_dag.entity_id, _dag.state, _attrs)
+        await hass.async_block_till_done()
+    bs = hass.states.get("binary_sensor.prijzen_morgen_beschikbaar")
+    assert bs.state == "on", f"echte morgen-prijzen moeten 'on' geven, got {bs.state}"

@@ -82,15 +82,16 @@ GRAFIEK_CARD = {
         },
         {
             # v1.7.0: grijs balken voor de VOORSPELLING van morgen (EPEX-gat
-            # ±00:00–14:10). Filtert op daglijst-vlag 'v' — verdwijnt zodra
-            # echte D+1-prijzen binnenkomen (~15:15) omdat dan 'v' overal false is.
+            # ±00:00–14:10). Leest het aparte attribuut 'morgen_prognose' —
+            # verdwijnt automatisch zodra 'morgen' echte D+1-prijzen bevat
+            # (de daglijst vult morgen_prognose dan met [], ~15:15).
             "entity": "sensor.stroomprijs_daglijst",
             "name": "voorspelling",
             "type": "column",
             "yaxis_id": "prijzen",
             "color": "#9e9e9e",
             "data_generator": (
-                "return entity.attributes.morgen.filter((e) => e.v === true)"
+                "return (entity.attributes.morgen_prognose || [])"
                 ".map((e) => [new Date(e.t).getTime() + 450000, e.in]);"
             ),
             "float_precision": 3,

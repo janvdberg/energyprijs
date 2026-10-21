@@ -112,7 +112,12 @@ async def test_daglijst_enerprice_voorrang(hass):
 
 
 async def test_daglijst_fallback_nordpool(hass):
-    """EnerPrice leeg (geen morgen-prijzen) → Nord Pool levert de daglijst."""
+    """EnerPrice leeg (geen dagprijzen) → Nord Pool levert de daglijst.
+
+    v1.7.0-correctie: 'bron' kiest op prices_TODAY (vaste volgorde), dus het
+    scenario zet EnerPrice op een lege VANDAAG-lijst; morgen blijft bij
+    NordPool. De assertion was onterecht geschrapt tijdens review pass 2 —
+    de fallback werkt gewoon, de trigger-volgorchting in de test klopte niet."""
     await _setup_daglijst(hass)
     hass.states.async_set("sensor.prijzen_bron_enerprice", "0.20",
                           {"prices_today": [], "prices_tomorrow": []})

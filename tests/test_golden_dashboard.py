@@ -177,8 +177,8 @@ async def test_oude_v1240_grafiek_wordt_precies_een_keer_vervangen(hass):
                         if isinstance(c, dict)
                         and c.get("type") == "custom:apexcharts-card")
         assert new_graf == GRAFIEK_CARD
-        # v1.4.1: balkjes (inkoop) + dunne lijn (verkoop)
-        assert len(new_graf["series"]) == 2
+        # v1.7.0: balkjes (inkoop) + dunne lijn (verkoop) + grijze prognose-balk
+        assert len(new_graf["series"]) == 3
         # accu- en pv-contractkaarten moeten nu ook in de view staan (v1.2.42/v1.3.0)
         kaarten = saved[0]["views"][0]["cards"]
         from custom_components.energyprijs.cards import (PVCONTRACT_CARD,

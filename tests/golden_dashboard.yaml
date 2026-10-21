@@ -30,7 +30,7 @@ views:
       label: nu
     header:
       show: true
-      title: Stroomprijs — vandaag + morgen
+      title: 'Stroomprijs — vandaag + morgen (prognose: stroomvoorspeller.nl, CC-BY)'
       show_states: false
       colorize_states: false
     series:
@@ -38,7 +38,8 @@ views:
       name: inkoop
       type: column
       yaxis_id: prijzen
-      data_generator: return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.in]);
+      data_generator: return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime()
+        + 450000, e.in]);
       float_precision: 3
       color_threshold:
       - value: 0
@@ -57,7 +58,17 @@ views:
       yaxis_id: prijzen
       stroke_width: 1
       color: '#d94040'
-      data_generator: return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime() + 450000, e.uit]);
+      data_generator: return entity.attributes.vandaag.concat(entity.attributes.morgen).map((e) => [new Date(e.t).getTime()
+        + 450000, e.uit]);
+      float_precision: 3
+      show:
+        in_header: false
+    - entity: sensor.stroomprijs_daglijst
+      name: voorspelling
+      type: column
+      yaxis_id: prijzen
+      color: '#9e9e9e'
+      data_generator: return (entity.attributes.morgen_prognose || []).map((e) => [new Date(e.t).getTime() + 450000, e.in]);
       float_precision: 3
       show:
         in_header: false
@@ -69,7 +80,8 @@ views:
         min: EVAL:new Date(new Date().setHours(0,0,0,0)).getTime() - 450000
         max: EVAL:new Date(new Date().setHours(0,0,0,0) + 2*86400000).getTime() + 450000
         labels:
-          formatter: EVAL:(ts) => new Date(ts).toLocaleDateString(undefined, {weekday:'short', day:'numeric'}) + ' ' + new Date(ts).toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'})
+          formatter: EVAL:(ts) => new Date(ts).toLocaleDateString(undefined, {weekday:'short', day:'numeric'}) + ' ' + new
+            Date(ts).toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'})
     yaxis:
     - decimals: 3
       min: '|-0.04|'
@@ -117,6 +129,10 @@ views:
         name: AVP-top vanaf (uur, lokale klok)
       - entity: input_number.prijs_opslag_tijdsafhankelijk
         name: Tijdsafh. opslag (€/kWh) — 0 = contract nog niet zover
+      - entity: input_text.prijs_net_blokken
+        name: Blokfactoren (Z/W|uur-uur:factor) — leeg = dal/top-schema
+      - entity: binary_sensor.energyprijs_nettoeslag_blokken_ontbreken
+        name: Blokfactoren ontbreken
   - type: markdown
     title: Accu — contract & snelkoppeling
     content: '## 🔋 Accupercentage
@@ -125,7 +141,8 @@ views:
 
       {% set src = states(''input_text.accu_bron_entity'') | trim %}
 
-      {% if src == '''' or src in (''unknown'', ''unavailable'', ''none'') %}Bron: `Geen bron ingesteld`{% else %}Bron: `{{ src }}` — **{{ states(soc_eid) }}%**{% endif %}
+      {% if src == '''' or src in (''unknown'', ''unavailable'', ''none'') %}Bron: `Geen bron ingesteld`{% else %}Bron: `{{
+      src }}` — **{{ states(soc_eid) }}%**{% endif %}
 
       {% set soc = states(soc_eid) | float(-1) %}
 
@@ -145,7 +162,8 @@ views:
 
       {% if soc >= 0 and kwh > 0 and res_pct >= 0 %}
 
-      * Boven de reserve: **{{ ((soc - res_pct) / 100 * kwh) | round(2) }} kWh** (reserve {{ res_pct | round(0) }}% = {{ (res_pct / 100 * kwh) | round(1) }} kWh)
+      * Boven de reserve: **{{ ((soc - res_pct) / 100 * kwh) | round(2) }} kWh** (reserve {{ res_pct | round(0) }}% = {{ (res_pct
+      / 100 * kwh) | round(1) }} kWh)
 
       {% endif %}
 
@@ -189,13 +207,17 @@ views:
 
       {% set prijs_levering = states(''sensor.stroomprijs_levering'') | float(0) %}
 
-      {% if src_vandaag in ('''', ''unknown'', ''unavailable'', ''none'') %}Vandaag: `Geen bron ingesteld`{% else %}Vandaag: **{{ vandaag | round(2) }} kWh** ({{ src_vandaag }}){% endif %}
+      {% if src_vandaag in ('''', ''unknown'', ''unavailable'', ''none'') %}Vandaag: `Geen bron ingesteld`{% else %}Vandaag:
+      **{{ vandaag | round(2) }} kWh** ({{ src_vandaag }}){% endif %}
 
-      {% if src_morgen in ('''', ''unknown'', ''unavailable'', ''none'') %}Morgen: `Geen bron ingesteld`{% else %}Morgen: **{{ morgen | round(2) }} kWh** ({{ src_morgen }}){% endif %}
+      {% if src_morgen in ('''', ''unknown'', ''unavailable'', ''none'') %}Morgen: `Geen bron ingesteld`{% else %}Morgen:
+      **{{ morgen | round(2) }} kWh** ({{ src_morgen }}){% endif %}
 
-      {% if vandaag >= 0 and prijs_levering > 0 %}* Vandaag → ± **{{ (vandaag * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}
+      {% if vandaag >= 0 and prijs_levering > 0 %}* Vandaag → ± **{{ (vandaag * prijs_levering) | round(2) }} €** extra verkoop
+      (all-in){% endif %}
 
-      {% if morgen >= 0 and prijs_levering > 0 %}* Morgen → ± **{{ (morgen * prijs_levering) | round(2) }} €** extra verkoop (all-in){% endif %}'
+      {% if morgen >= 0 and prijs_levering > 0 %}* Morgen → ± **{{ (morgen * prijs_levering) | round(2) }} €** extra verkoop
+      (all-in){% endif %}'
   - type: entities
     title: Zon — contractinstellingen
     show_header_toggle: false
