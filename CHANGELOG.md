@@ -4,23 +4,39 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
-## 2026-10-21 — v1.7.3: status COMFORT was misleidend → 'COMFORT (verkoop)'
+## 2026-10-21 — v1.7.4: status COMFORT → ONTLADEN (state én weergave)
 
-Symptoom (live, 21 okt '26): de user zag status COMFORT terwijl de accu
-verkoopt, en vond de naam misleidend. We hadden op 2026-10-05 de
-statusnamen alvast voor het *eigen* systeem vastgesteld
-(`/opt/data/roi-monitor/accu_statusnamen.md`): daar heet de verkoop-band
-'Ontladen' en is 'Comfort' óf 'Neutraal' of 'Spaar' — nooit verkoop.
-ShadowPIES' COMFORT = verkoop (uit > verkoop-eis) klopt dus functioneel,
-maar de naam overlap met het oude Comfort-gebruik misleidt.
+Doorloop v1.7.3 (zelfde dag): die paste alleen de *weergave*
+(`COMFORT (verkoop)`); de state-waarde 'COMFORT' bleef. Jan: prutswerk —
+de statusnaam moet OVERAL hetzelfde zijn. Vastgelegde statusnamen van
+2026-10-05 (`/opt/data/roi-monitor/accu_statusnamen.md`): de verkoop-band
+heet **Ontladen**; 'Comfort' is óf Neutraal of Spaar. Dus de state-waarde
+verandert definitief: COMFORT → ONTLADEN, COMFORT (curtail) → ONTLADEN
+(curtail).
 
-Fix (minimaal, repo-versie): card-text in `cards.py` (SHADOW_CARD):
-`COMFORT (verkoop) — accu → net, prijs boven verkoop-eis` + commentaar in
-`shadow.yaml`. De state-waarde 'COMFORT' blijft (veranderd = alle
-toetreden/hysteresis-logica opnieuw testen); alleen de weergave verandert.
-Overtoelassing naar de eigen banden + de openstaande eis-formule
-(h/η_rt i.p.v. h/η_laad → eis €0,3632 i.p.v. €0,3309) staat in
-`/opt/data/roi-monitor/shadow_statusnamen.md`.
+Veranderd:
+- `shadow/shadow.yaml`: beslislogica (3 takken), trigger-to-lijst,
+  commentaar; de hysterese-geheugenknop `input_text.shadow_vorige_status`
+  hernoemd naar `input_text.shadow_status_vorige` (name + unique_id,
+  max 32 — past 'ONTLADEN (curtail)').
+- `cards.py` SHADOW_CARD: 📕 ONTLADEN — topprijs: accu verkoopt aan het
+  net (boven verkoop-eis); NEUTRAAL-omschrijving → 'nul op de meter:
+  niets loont' (de omschrijving van 5 okt). De overige vier
+  omschrijvingen (LADEN/OP HET NET/SPAAR) kwamen al uit accu_statusnamen.md
+  en blijven.
+- `installer.py` + `__init__.py`: `STATUS_HISTOIRE` — eenmalige migratie
+  van de oude histore-waarde (COMFORT → ONTLADEN) zodat de hysterese
+  meeklinkt zonder dat er een onnodig 'statuswijziging'-event komt.
+- Tests aangepast (test_shadow_package.py, test_shadow_yaml_valid.py),
+  README, manifest 1.7.4.
+- Live-migratie (unRAID-config, buiten de repo): de YAML-sjabloon in
+  `/config/packages/energyprijs_shadow.yaml` was handmatig bewerkt —
+  daar past de auto-sync alleen het package-bestand zelf; de
+  `sensor.shadow_status`-template + log-automation + histore-entiteit
+  zijn daar bijgewerkt en de waarde gemigreerd, zonder HA-herstart.
+  Overtoelassing + openstaande eis-formule: `/opt/data/roi-monitor/shadow_statusnamen.md`.
+
+## 2026-10-21 — v1.7.3: (vervangen door v1.7.4) — weergave-only COMFORT-fix
 
 ## 2026-10-21 — v1.7.2: placeholder-bronnen droegen string '[]' → morgen_prognose leeg
 

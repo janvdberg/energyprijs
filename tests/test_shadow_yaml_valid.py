@@ -4,7 +4,7 @@ De E2E-test (test_shadow_package.py) laadt het package via HA's template-
 component — maar die accepteert óók lichte onregelmatigheden die in de
 productie-config niet doorlopen. Deze test valideert expliciet:
 - input_number-schema's (alle shadow-helpers, incl. shadow_hysteresis)
-- input_text-schema (shadow_vorige_status)
+- input_text-schema (shadow_status_vorige)
 - template-CONFIG via async_validate_config
 
 Zodra een helper de HA-validatie faalt (typo in een key, onjuiste range),

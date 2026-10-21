@@ -96,6 +96,25 @@ async def _ruim_verouderde_helpers(hass: HomeAssistant) -> None:
             reg.async_remove(eid)
             _LOGGER.info("energyprijs: verouderde helper %s verwijderd", eid)
 
+    # v1.7.4: hernoemde geheugenknop voor de status-hysterese — de waarde
+    # 'COMFORT'/'COMFORT (curtail)' wordt eenmalig vertaald naar
+    # 'ONTLADEN'/'ONTLADEN (curtail)' zodat de hysterese-takken direct na
+    # de hernoeming meeklinken.
+    from .installer import STATUS_HISTOIRE, STATUS_MIGRATIE
+    for old in STATUS_HISTOIRE:
+        st = hass.states.get(old)
+        if st is None or st.state not in STATUS_MIGRATIE:
+            continue  # nog niet geladen of al gemigreerd → laten staan
+        try:
+            await hass.services.async_call(
+                "input_text", "set_value",
+                {"entity_id": old, "value": STATUS_MIGRATIE[st.state]},
+                blocking=True)
+            _LOGGER.info("energyprijs: status-histore %s gemigreerd naar %s",
+                         old, STATUS_MIGRATIE[st.state])
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: migratie %s mislukt: %s", old, e)
+
 
 @callback
 def _link_entities(hass: HomeAssistant, entry: ConfigEntry, device_id: str) -> int:

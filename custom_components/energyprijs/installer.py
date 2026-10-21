@@ -94,6 +94,22 @@ HELPERS_DEFAULTS: dict[str, float] = {
 # een "niet meer beschikbaar"-entiteit achter.
 VEROUDERDE_HELPERS: tuple[str, ...] = ("input_number.accu_handmatig_pct",)
 
+# v1.7.4: hernoemde status-histore (COMFORT → ONTLADEN); de nieuwe
+# unique_id is in het shadow-package (input_text.shadow_status_vorige).
+# Sleutel = oude entity_id, waarde = nieuwe entity_id; de migratie in
+# __init__.py schrijft naar de OUDERLEIDING (de nieuwe entiteit bestaat
+# pas na de volgende herstart, nadat het nieuwe package geladen is).
+STATUS_HISTOIRE: dict[str, str] = {
+    "input_text.shadow_vorige_status": "input_text.shadow_status_vorige",
+}
+
+# v1.7.4: de statussen waarvoor de hysterese-geheugenknop gemigreerd moet
+# worden (COMFORT → ONTLADEN); andere waarden laten staan.
+STATUS_MIGRATIE: dict[str, str] = {
+    "COMFORT": "ONTLADEN",
+    "COMFORT (curtail)": "ONTLADEN (curtail)",
+}
+
 
 def _config_dir(hass: HomeAssistant) -> Path:
     return Path(hass.config.path())

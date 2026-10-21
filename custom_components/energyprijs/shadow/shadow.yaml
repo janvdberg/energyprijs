@@ -3,7 +3,7 @@
 #  Draait LOAST de bestaande G1–G4-logica; schrijft NOOIT naar de omvormer.
 #  Berekent per kwartier: doel-SOC, ruimtetak R, V, herlaadkosten, verkoop-eis
 #  en een SHADOW-status in de vijf bestaande labels (LADEN/OP HET NET/
-#  NEUTRAAL/SPAAR/COMFORT). Log per beslissing via notify- of logboekregel.
+#  NEUTRAAL/SPAAR/ONTLADEN). Log per beslissing via notify- of logboekregel.
 #
 #  Installatie: plaats dit bestand in /config/packages/ EN herstart HA.
 #  Bron: roi-monitor/stroomhandel_tactiek.md (revisie 3, okt '26).
@@ -73,7 +73,11 @@ input_number:
     icon: mdi:wave-sine
 
 input_text:
-  shadow_vorige_status:
+  # v1.7.4: hernoemd van shadow_vorige_status (de entiteit 'shadow_vorige_status'
+  # raakte onleesbaar nadat COMFORT → ONTLADEN ging); de installer migreert de
+  # waarde eenmalig. max 32 past 'ONTLADEN (curtail)'.
+  shadow_status_vorige:
+    name: "Shadow voorafgaande status (hysterese)"
     mode: text
     max: 32
     icon: mdi:history
@@ -248,8 +252,7 @@ template:
           {{ (soc - doel) | round(1) }}
 
       # ═══ BESLISSING — de zes stappen teruggebracht tot de vijf statussen ═══
-      #   COMFORT = verkopen (eis bereikt; staat 'verkoop' in de card) ·
-      #   SPAAR = ontladen naar huis (ruimte-tak)
+      #   ONTLADEN = verkopen (uit > verkoop-eis) · SPAAR = ontladen naar huis (ruimte-tak)
       #   LADEN = laden als in+w+m < V · OP HET NET / NEUTRAAL = rust
       #   curtail (negatieve uit) is geen status maar een export-limiet → attribute
       - name: "Shadow status"
@@ -287,16 +290,16 @@ template:
           {# v1.5.2: hysterese aan de V- en eis-grens; prev-status levert
              de uit-kant van de band (zie CHANGELOG). #}
           {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
-          {% set prev = states('input_text.shadow_vorige_status') | default('', true) | string %}
+          {% set prev = states('input_text.shadow_status_vorige') | default('', true) | string %}
           {% set g_laden = V - H %}
           {% set g_laden_uit = V + H %}
           {% set g_eis_in = v_eis + H %}
           {% set g_eis_uit = v_eis - H %}
           {% set besluit = namespace(s='unavailable') %}
           {% if nu2.in_nu is not none %}
-            {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'COMFORT (curtail)' %}
-            {%- elif prev == 'COMFORT' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit %}{% set besluit.s = 'COMFORT' %}
-            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in %}{% set besluit.s = 'COMFORT' %}
+            {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'ONTLADEN (curtail)' %}
+            {%- elif prev == 'ONTLADEN' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit %}{% set besluit.s = 'ONTLADEN' %}
+            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in %}{% set besluit.s = 'ONTLADEN' %}
             {%- elif prev == 'SPAAR' and R2 >= 0 %}{% set besluit.s = 'SPAAR' %}
             {%- elif R2 > 0 %}{% set besluit.s = 'SPAAR' %}
             {%- elif prev == 'LADEN' and (nu2.in_nu / eta_laad) + w + m < g_laden_uit %}{% set besluit.s = 'LADEN' %}
@@ -338,7 +341,7 @@ automation:
   #  v1.5.2: de trigger vereist nu een VEELEKEER veranderde status (from + to
   #  + from != to). Oude versie: elke state-set met not unavailable → telde
   #  onbekend→bekend-overgangen (kwartier-index-gap) óók mee.
-  #  De action zet óók de geheugenknop (input_text.shadow_vorige_status) die
+  #  De action zet óók de geheugenknop (input_text.shadow_status_vorige) die
   #  de status-sensor leest voor de hysterese. NOT: input_text in triggers —
   #  de sensor leest hem wel via states(), dus HA triggert op elke write.
   - alias: "Shadow handel — log elke statusbeslissing"
@@ -353,8 +356,8 @@ automation:
           - OP HET NET
           - NEUTRAAL
           - SPAAR
-          - COMFORT
-          - COMFORT (curtail)
+          - ONTLADEN
+          - ONTLADEN (curtail)
         not_from:
           - unavailable
           - unknown
@@ -365,7 +368,7 @@ automation:
       # kent de hysterese de vorige status niet.
       - action: input_text.set_value
         target:
-          entity_id: input_text.shadow_vorige_status
+          entity_id: input_text.shadow_status_vorige
         data:
           value: "{{ trigger.to_state.state }}"
       # v1.5.9: de notify-actie deed de hele automation onbeschikbaar maken

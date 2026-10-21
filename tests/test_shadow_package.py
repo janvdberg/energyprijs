@@ -4,7 +4,7 @@ template-component en de zes beslis-sensoren nameten met gekende prijzen.
 Bewijst wat een YAML-pars test niet kan: HA accepteert het package, de
 formules uit stroomhandel_tactiek.md (revisie 3) rekenen correct, en de vijf
 statuslabels verschijnen zoals bedoeld — inclusief de ruimtetak (SPAAR bij te
-vol voor aankomende zon) en curtail (COMFORT bij negatieve uit).
+vol voor aankomende zon) en curtail (ONTLADEN bij negatieve uit).
 """
 from pathlib import Path
 
@@ -34,7 +34,7 @@ async def _setup_shadow(hass):
             await hass.services.async_call(
                 "input_number", "set_value",
                 {"entity_id": f"input_number.{key}", "value": value}, blocking=True)
-    # v1.6.x: de status-template leest input_text.shadow_vorige_status voor de
+    # v1.6.x: de status-template leest input_text.shadow_status_vorige voor de
     # hysterese-prev. Zonder die helper rendert states() als 'unknown' en valt
     # elke hysterese-tak stil weg (prev == 'LADEN' matcht nooit). Setup dus
     # eerst de input_text-helpers uit het package, vóór de template.
@@ -113,7 +113,7 @@ async def _trig(hass, soc=50, val="50"):
     soc is expliciet om stale states in de test te voorkomen."""
     hass.states.async_set("sensor.accu_percentage", str(soc), {"unit_of_measurement": "%"})
     await hass.async_block_till_done()
-    # v1.5.2: de log-automation schrijft input_text.shadow_vorige_status na elke
+    # v1.5.2: de log-automation schrijft input_text.shadow_status_vorige na elke
     # statuswijziging; de template-status-sensor leest die via states() en
     # triggert op de write → de status herberekent met de nieuwe prev. In de
     # e2e-fixtures is die write een state-set; hier gewoon even wachten tot
@@ -173,7 +173,7 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
             break
 
     # 1) normale spread: in 0,30→0,40; uit 0,28→0,38; eis ≈ herlaad(0,30)/0,83+0,04 = 0,402
-    #    hoogste uit 0,38 < eis → geen COMFORT; R = 50−100 = −50 → geen SPAAR;
+    #    hoogste uit 0,38 < eis → geen ONTLADEN; R = 50−100 = −50 → geen SPAAR;
     #    V = 0,83×top-duurste(0,40)=0,332; in_nu=0,30 + w+m=0,34 > V → NEUTRAAL/OP HET NET
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.38))
     await _trig(hass, 50)
@@ -181,13 +181,13 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     assert st.state in ("NEUTRAAL", "OP HET NET"), st.state
 
     # 2) te vol voor aankomende zon (S=40 → doel 56,5; SOC 80 → R=23,5) en PV-herlaad
-    #    goedkoop (middag-uit 0,05 → pv_eis ≈ 0,096) → avondpiek 0,30 > pv_eis → COMFORT
+    #    goedkoop (middag-uit 0,05 → pv_eis ≈ 0,096) → avondpiek 0,30 > pv_eis → ONTLADEN
     hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "40.0")
     await _trig(hass, 80)   # doel-SOC = 100−40/92·100 ≈ 56,5 → R = 80−56,5 ≈ 23,5
     await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "COMFORT", f"avondpiek boven eis moet verkopen, got {st.state}"
+    assert st.state == "ONTLADEN", f"avondpiek boven eis moet verkopen, got {st.state}"
 
     # 3) te vol maar verkoop loont niet → ruimtetak: SPAAR (ontladen naar huis)
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.30))   # uit 0,30 < eis 0,402
@@ -195,11 +195,11 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "SPAAR", f"ruimtegebrek zonder marge → huis-ontlasting, got {st.state}"
 
-    # 3) negatieve uit → curtail binnen COMFORT-label
+    # 3) negatieve uit → curtail binnen ONTLADEN-label
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "COMFORT (curtail)", st.state
+    assert st.state == "ONTLADEN (curtail)", st.state
     st = hass.states.get("sensor.shadow_status")
     st = hass.states.get("sensor.shadow_status")
     st = hass.states.get("sensor.shadow_status")
@@ -264,7 +264,7 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
     # NEUTRAAL zijn, MAAR prev == 'LADEN' en 0,330 < V + H = 0,337 → blijft LADEN
     # (in productie zet de log-automation prev na elke overgang; hier
     # emuleren we die eenmalig, anders leest de sensor prev=''.)
-    hass.states.async_set("input_text.shadow_vorige_status", "LADEN")
+    hass.states.async_set("input_text.shadow_status_vorige", "LADEN")
     await hass.async_block_till_done()
     await _zet_laden(0.29)
     await _trig(hass, 50)
