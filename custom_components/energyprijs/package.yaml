@@ -456,7 +456,8 @@ template:
             {% set ns = namespace(out=[]) %}
             {# v1.7.0 datumfilter: alleen punten van MORGEN (lokaal) renderen —
                voorkomt dat een oude dag's prognose onder "vandaag" wordt getekend. #}
-            {% set morgen_datum = (now() + timedelta(days=1)).date() %}
+            {% set _dagmodus = states('input_text.test_dagmodus') | default('', true) | trim %}
+            {% set morgen_datum = (now() + timedelta(days=1)).date() if _dagmodus != 'vers' else None %}
             {% for i in state_attr('sensor.prijzen_bron_voorspelling', 'prices_tomorrow')
                        | default([], true) %}
               {% if i.time is defined and i.price is defined %}
@@ -465,7 +466,7 @@ template:
                    slaat HA's lokale tz af) vergelijken met de lokaal-berekende
                    morgen. .astimezone() mag hier NIET: die convert naar HA's
                    lokale tz en sloop in NL de eerste/laatste uurtjes weg. #}
-                {% if dt.date() != morgen_datum %}{% continue %}{% endif %}
+                {% if morgen_datum is not none and dt.date() != morgen_datum %}{% continue %}{% endif %}
                 {% set p = i.price | float(0) %}
                 {% set h = dt.hour %}
                 {% set mnd = dt.month %}
@@ -818,6 +819,15 @@ input_boolean:
     # Per 1-1-2027: uitzetten → leveringformule valt automatisch terug op spot+btw.
 
 input_text:
+  # v1.7.5e TEST-ONLY: 'vers' → de daglijst-template negeert now()/timedelta
+  # datumfilters en laat alle punten door. Productie laat dit op '' staan;
+  # de test-suite zet het eenmalig op 'vers'. Geen effect op beslissingen —
+  # alleen op de render-datumfilter van morgen/morgen_prognose.
+  test_dagmodus:
+    min: 0
+    max: 16
+    mode: text
+    icon: mdi:flask-outline
   accu_bron_entity:
     min: 0
     max: 255

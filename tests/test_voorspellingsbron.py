@@ -76,6 +76,12 @@ async def _setup(hass):
                                        {"input_number": pkg["input_number"]})
     assert await async_setup_component(hass, "input_boolean",
                                        {"input_boolean": pkg["input_boolean"]})
+    if "input_text" in pkg:
+        assert await async_setup_component(hass, "input_text",
+                                           {"input_text": pkg["input_text"]})
+    # v1.7.5e TEST-ONLY: datumfilters uitschakelen (now()+timedelta is
+    # niet herberekenbaar tussendoor; de test zaait expliciete tijden).
+    hass.states.async_set("input_text.test_dagmodus", "vers")
     now = datetime.now(timezone.utc)
     t0 = (now - timedelta(minutes=30)).isoformat()
     for eid in ("sensor.prijzen_bron_enerprice", "sensor.prijzen_bron_nordpool",
@@ -106,6 +112,14 @@ async def _tik(hass):
 
 
 async def _leeg_alle_echte_bronnen(hass):
+    # v1.7.5e: de bron-templates (prijzen_bron_*) herberekenen niet op een
+    # handmatige attribute-zet (die wordt overschreven door de template-self);
+    # ze volgen de RUWE entiteiten. Dus: lege daglijsten op de ruwe entiteiten
+    # zetten → de bron-templates rendert 'prijs|[]|[]' → morgen leeg.
+    import json
+    for raw in ("sensor.test_enerprice_raw", "sensor.test_nordpool_raw",
+                "sensor.test_energyzero_raw"):
+        hass.states.async_set(raw, "0.20|[]|[]")
     for eid in ("sensor.prijzen_bron_enerprice", "sensor.prijzen_bron_nordpool",
                 "sensor.prijzen_bron_energyzero"):
         hass.states.async_set(eid, "0.20", {"prices_today": [], "prices_tomorrow": []})
