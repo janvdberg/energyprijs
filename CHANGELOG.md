@@ -4,6 +4,19 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-23 — v1.7.5: Jinja2-compat + daglijst-fallback robuust (tests groen)
+
+HA 2026.10 acceptseert `max(default=-1)` niet meer als Jinja2-filter in de
+reserve-template (`do_max() got an unexpected keyword argument 'default'`) →
+vervangen door een conditionele max met count-check op de SOC-kandidatenlijst.
+
+Daarnaast de daglijst-fallback-test productietrouw gemaakt: bron-entiteiten
+dragen `prijs|vandaag-json|morgen-json` als state (gesplitst in de
+bron-templates) i.p.v. handmatige input_text-zuivel; time_pattern-triggers
+in tests geaccepteerd via `expected_lingering_timers`.
+
+Volledige suite: 81 passed, 0 failed, 0 errors.
+
 ## 2026-10-21 — v1.7.4: status COMFORT → ONTLADEN (state én weergave)
 
 Doorloop v1.7.3 (zelfde dag): die paste alleen de *weergave*
