@@ -221,19 +221,30 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
     await hass.async_block_till_done()
 
     # ── Hysterese: vlakke prijsspel rond V ─────────────────────────────────
-    # V = η × top-12 duurste in = 0,83 × 0,40 = 0,332.  w+m = 0,040.
-    # LADEN-grens = V − H = 0,332 − 0,005 = 0,327.
-    # P1: in_nu = 0,29 → 0,29 + 0,040 = 0,330 > 0,327 → NIET LADEN (NEUTRAAL)
-    # P2: in_nu = 0,285 → 0,285 + 0,040 = 0,325 < 0,327 → LADEN
-    # P3: in_nu = 0,29 → 0,330 > 0,327 → MAAR prev == 'LADEN' en
-    #     0,330 < V + H = 0,337 → blijft LADEN (hysterese-band)
+    # v1.7.5d: de beslis-template deelt de LADEN-grens op η_laad
+    # (in_nu/η_laad + w + m < V − H). η_laad = 0,77 → in_nu/0,77 ≈ 1,30 ×
+    # in_nu. De V-sensor filtert op e >= nu_epoch, dus verstreken entries
+    # tellen NIET mee — top-12 = alleen de 2 dure toekomstprijzen (0,40).
+    # V = 0,693 × 0,40 = 0,2772.  LADEN-grens = V − H = 0,2722.
+    # P1: in_nu = 0,20 → 0,20/0,77 + 0,040 = 0,299 > 0,2722 → NEUTRAAL
+    # P2: in_nu = 0,195 → 0,195/0,77 + 0,040 = 0,294 < 0,2722 → LADEN
+    #     MAAR: 0,294 > 0,2722!  → NEUTRAAL.  We moeten lager:
+    #     in_nu < (V−H) × η_laad − w+m × η_laad = (0,2722−0,040)×0,77 = 0,179
+    #     in_nu = 0,17 → 0,17/0,77 + 0,040 = 0,261 < 0,2722 → LADEN
+    # P3: in_nu = 0,20 → 0,299 > V−H = 0,2722, MAAR prev == 'LADEN' en
+    #     0,299 < V + H = 0,2822?  NEE, 0,299 > 0,2822.  → NEUTRAAL.
+    #     De hysterese-band is ±H op de GRENZWAARDE in/η_laad+w+m, dus de
+    #     in_nu-ruimte is η_laad × 2H = 0,77 × 0,01 = 0,0077.  Te smal voor
+    #     de test-resolutie.  P3 emuleren met in_nu = 0,175:
+    #     0,175/0,77 + 0,040 = 0,268 < 0,2822 → LADEN (binnen band).
+    # P4: in_nu = 0,19 → 0,19/0,77 + 0,040 = 0,287 > 0,2822 → uit LADEN.
     async def _zet_laden(in_p, uit_p=0.28):
-        """Daglijst: 2 kwartieren goedkoop, 2 duur (top-12 = duurste = 0,40)."""
+        """Daglijst: verstreken entry (nu−2min, in_p) + 2 dure toekomstprijzen
+        (0,40). De V-sensor telt alleen e >= nu → top = 2× 0,40 → V = 0,2772."""
         from datetime import datetime as _dt, timedelta as _td
         now = _dt.now(_dt.now().astimezone().tzinfo)
         daglijst = [
-            {"t": (now - _td(minutes=30)).isoformat(), "e": int((now - _td(minutes=30)).timestamp()), "p": 0.2, "in": in_p, "uit": uit_p},
-            {"t": (now - _td(minutes=15)).isoformat(), "e": int((now - _td(minutes=15)).timestamp()), "p": 0.2, "in": in_p, "uit": uit_p},
+            {"t": (now - _td(minutes=2)).isoformat(), "e": int((now - _td(minutes=2)).timestamp()), "p": 0.2, "in": in_p, "uit": uit_p},
             {"t": (now + _td(minutes=15)).isoformat(), "e": int((now + _td(minutes=15)).timestamp()), "p": 0.2, "in": 0.40, "uit": 0.38},
             {"t": (now + _td(minutes=30)).isoformat(), "e": int((now + _td(minutes=30)).timestamp()), "p": 0.2, "in": 0.40, "uit": 0.38},
         ]
@@ -249,36 +260,81 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
             await hass.async_block_till_done()
             break
 
-    # P1: in_nu = 0,29 → NEUTRAAL (nog net boven V−H)
-    await _zet_laden(0.29)
+    # v1.7.5d: η_rt = 0,83 (fallback, rend-helpers unknown in deze test).
+    # V = 0,83 × 0,40 = 0,332.  LADEN-grens = V − H = 0,327.
+    # Beslisregel: in_nu/η_laad + w + m < V − H
+    # η_laad = 0,77 → in_nu < (V−H−w−m) × η_laad = (0,327−0,040)×0,77 = 0,221
+    # Hysterese-band: in_nu/η_laad + w + m ∈ (V−H, V+H)
+    #   → in_nu ∈ ((V−H−w−m)×η_laad, (V+H−w−m)×η_laad) = (0,221, 0,229)
+    # P1: in_nu = 0,24 → 0,24/0,77+0,04 = 0,352 > V = 0,332 → NEUTRAAL
+    # P2: in_nu = 0,21 → 0,21/0,77+0,04 = 0,313 < V−H = 0,327 → LADEN
+    # P3: in_nu = 0,23 → 0,23/0,77+0,04 = 0,339 → > V−H, < V+H → LADEN (band)
+    # P4: in_nu = 0,25 → 0,25/0,77+0,04 = 0,365 > V+H = 0,337 → uit LADEN
+    # P1: in_nu = 0,24 → NEUTRAAL
+    await _zet_laden(0.24)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "NEUTRAAL", f"verwacht NEUTRAAL, got {st.state}"
+    assert st.state == "NEUTRAAL", f"P1: verwacht NEUTRAAL, got {st.state}"
 
-    # P2: in_nu = 0,285 → LADEN (onder V−H)
-    await _zet_laden(0.285)
+    # P2: in_nu = 0,21 → LADEN
+    await _zet_laden(0.21)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "LADEN", f"verwacht LADEN, got {st.state}"
-    # P3: in_nu = 0,29 → 0,330 > V−H = 0,327 → ZONDER hysterese zou dit
-    # NEUTRAAL zijn, MAAR prev == 'LADEN' en 0,330 < V + H = 0,337 → blijft LADEN
-    # (in productie zet de log-automation prev na elke overgang; hier
-    # emuleren we die eenmalig, anders leest de sensor prev=''.)
-    hass.states.async_set("input_text.shadow_status_vorige", "LADEN")
+    if st.state != "LADEN":
+        import time as _t
+        dag = hass.states.get("sensor.stroomprijs_daglijst")
+        vandaag = dag.attributes.get("vandaag", []) if dag else []
+        nu2 = [e for e in vandaag if e.get("e", 0) <= _t.time()]
+        in_nu = nu2[-1]["in"] if nu2 else None
+        V = float(hass.states.get("sensor.shadow_v_waarde_opgeslagen_kwh").state)
+        H = float(hass.states.get("input_number.shadow_hysteresis").state)
+        w = float(hass.states.get("input_number.shadow_w").state)
+        m = float(hass.states.get("input_number.shadow_m").state)
+        _r = hass.states.get("input_number.rendement_laad_pct")
+        eta_laad = float(_r.state) / 100 if _r else 0.77
+        prev = hass.states.get("input_text.shadow_status_vorige")
+        prev = prev.state if prev else None
+        raise AssertionError(
+            f"P2: verwacht LADEN, got {st.state}; "
+            f"in_nu={in_nu} V={V} H={H} w={w} m={m} eta_laad={eta_laad} "
+            f"prev={prev} | in/eta_laad+w+m={in_nu/eta_laad+w+m if in_nu else '?'} "
+            f"g_laden={V-H} g_laden_uit={V+H}")
+    assert st.state == "LADEN", f"P2: verwacht LADEN, got {st.state}"
+    # P3: in_nu = 0,225 → 0,225/0,77+0,04 = 0,332 → = V → binnen band → LADEN
+    await hass.services.async_call(
+        "input_text", "set_value",
+        {"entity_id": "input_text.shadow_status_vorige", "value": "LADEN"},
+        blocking=True)
     await hass.async_block_till_done()
-    await _zet_laden(0.29)
+    await _zet_laden(0.225)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
+    if st.state != "LADEN":
+        import time as _t
+        dag = hass.states.get("sensor.stroomprijs_daglijst")
+        vandaag = dag.attributes.get("vandaag", []) if dag else []
+        nu2 = [e for e in vandaag if e.get("e", 0) <= _t.time()]
+        in_nu = nu2[-1]["in"] if nu2 else None
+        V = float(hass.states.get("sensor.shadow_v_waarde_opgeslagen_kwh").state)
+        H = float(hass.states.get("input_number.shadow_hysteresis").state)
+        _r = hass.states.get("input_number.rendement_laad_pct")
+        eta_laad = float(_r.state) / 100 if _r else 0.77
+        prev = hass.states.get("input_text.shadow_status_vorige")
+        prev = prev.state if prev else None
+        val = in_nu/eta_laad + 0.025 + 0.015 if in_nu else '?'
+        raise AssertionError(
+            f"P3: verwacht LADEN, got {st.state}; "
+            f"in_nu={in_nu} V={V} H={H} eta_laad={eta_laad} "
+            f"prev={prev} | in/eta_laad+w+m={val} g_laden_uit={V+H}")
     assert st.state == "LADEN", (
-        f"hysterese faalt: 0,330 zit binnen ±H rond V=0,332, "
-        f"moet LADEN blijven, got {st.state}")
+        f"hysterese faalt, got {st.state}")
 
-    # P4: in_nu = 0,34 → 0,34 + 0,040 = 0,38 > V + H = 0,337 → NU wél uit LADEN
-    await _zet_laden(0.34)
+    # P4: in_nu = 0,25 → buiten band → uit LADEN
+    await _zet_laden(0.25)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
     assert st.state in ("NEUTRAAL", "OP HET NET"), (
-        f"0,38 > V+H moet uit LADEN, got {st.state}")
+        f"0,25/0,77+0,04=0,365 > V+H=0,337 moet uit LADEN, got {st.state}")
 
     # ── Kwartier-index: 'nu' = laatste entry met t ≤ nu ────────────────────
     # Oude index (t ≤ nu < t+15m): bij nu = t+14m zou de entry nog matchen;
