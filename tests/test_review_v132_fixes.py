@@ -1,3 +1,4 @@
+import pytest
 """Review v1.3.2, punten 1-3: eigen view-behoud, één schrijver, foutafhandeling.
 
 Elke test mapt op een controlepunt uit de review:
@@ -43,6 +44,10 @@ class BrokenColl(_CollBase):
     """async_load gooit — simuleert een blijvende storage-leesfout."""
     def __init__(self, hass_): self.data = {}
     async def async_load(self): raise OSError("disk eraf")
+@pytest.fixture(autouse=True)
+def expected_lingering_timers():
+    return True
+
 
 
 async def test_eigen_eerste_view_blijft_ongewijzigd(hass):

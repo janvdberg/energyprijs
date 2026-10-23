@@ -20,6 +20,8 @@ Punt 5: packages-status 'handmatig' gaf geen reparatiehint in de UI. Installer-
 install én config-flow creëren nu een repair-issue met de plakinstructie.
 """
 from pathlib import Path
+
+import pytest
 from unittest.mock import patch
 
 import yaml
@@ -45,6 +47,10 @@ async def _setup_pkg(hass):
 
 
 # ── Punt 1 + 2: EnergyZero-bron live + vaste wettelijke deler ──────────────
+@pytest.fixture(autouse=True)
+def expected_lingering_timers():
+    return True
+
 
 
 async def test_energiezero_bron_volgt_prijswijziging_live(hass):

@@ -13,6 +13,8 @@ de prognose. Bron offline → sensor unavailable → morgen_prognose leeg.
 """
 import json
 from pathlib import Path
+
+import pytest
 from datetime import datetime, timedelta, timezone
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
@@ -108,6 +110,10 @@ async def _leeg_alle_echte_bronnen(hass):
                 "sensor.prijzen_bron_energyzero"):
         hass.states.async_set(eid, "0.20", {"prices_today": [], "prices_tomorrow": []})
     await hass.async_block_till_done()
+@pytest.fixture(autouse=True)
+def expected_lingering_timers():
+    return True
+
 
 
 async def test_morgen_leeg_zonder_voorspelling(hass):

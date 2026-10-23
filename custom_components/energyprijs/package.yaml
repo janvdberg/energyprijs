@@ -598,13 +598,14 @@ template:
         availability: >-
           {% set res = states('input_number.accu_reserve_pct') | float(-1) %}
           {% set cap = states('input_number.accu_capaciteit_kwh') | float(-1) %}
-          {% set soc = [states('sensor.energyprijs_accu_percentage'),
-                        states('sensor.accu_percentage')]
-                       | map('float', -1) | select('ge', 0) | list | max(default=-1) %}
+          {% set _soc_list = [states('sensor.energyprijs_accu_percentage'),
+                              states('sensor.accu_percentage')]
+                             | map('float', -1) | select('ge', 0) | list %}
+          {% set soc = (_soc_list | max) if (_soc_list | count > 0) else -1 %}
           {{ res > 0 and cap > 0 and soc >= 0 }}
         state: >-
-          {% set res = states('input_number.accu_reserve_pct') | float(0) %}
-          {% set cap = states('input_number.accu_capaciteit_kwh') | float(0) %}
+          {% set res = states('input_number.accu_reserve_pct') | float(-1) %}
+          {% set cap = states('input_number.accu_capaciteit_kwh') | float(-1) %}
           {{ (res / 100 * cap) | round(2) }}
 
   # ── PV-CONTRACT (v1.3.0): twee vaste, botsingvrije contract-namen voor de

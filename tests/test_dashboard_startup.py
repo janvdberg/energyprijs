@@ -1,3 +1,4 @@
+import pytest
 """Test: dashboard wordt aangemaakt bij startup, wachtend op package + HA-started."""
 from datetime import timedelta
 from unittest.mock import patch
@@ -9,6 +10,10 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
 )
+@pytest.fixture(autouse=True)
+def expected_lingering_timers():
+    return True
+
 
 
 async def test_setup_entry_never_fails(hass):

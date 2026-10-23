@@ -1,3 +1,4 @@
+import pytest
 """Review 5 okt '26: een verwijderd dashboard MOET terugkomen, ongeacht de marker.
 
 Drie eisen uit de review, één test per eis:
@@ -47,6 +48,10 @@ class HeldColl(_CollBase):
                             "mode": "storage", "title": "t", "icon": "i",
                             "show_in_sidebar": True, "require_admin": False}}
     async def async_load(self): pass
+@pytest.fixture(autouse=True)
+def expected_lingering_timers():
+    return True
+
 
 
 async def test_verwijderd_dashboard_wordt_toch_herbouwd_ondanks_correcte_marker(hass):

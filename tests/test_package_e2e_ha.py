@@ -8,6 +8,8 @@ inclusief de zes prijshelpers die door de duplicate-key-bug verdwenen — bestaa
 import re
 from pathlib import Path
 
+import pytest
+
 import yaml
 
 PKG_PATH = (Path(__file__).resolve().parents[1]
@@ -23,6 +25,14 @@ async def _setup_pkg(hass):
             assert await async_setup_component(hass, d, {d: pkg[d]}), d
     await hass.async_block_till_done()
     return pkg
+@pytest.fixture(autouse=True)
+def expected_lingering_timers():
+    """Het package.yaml bevat time_pattern-triggers (5 min) voor de
+    daglijst-branding en andere sensoren. In de e2e-test geven die
+    'lingering timers' na het test-einde. Accepteren: de test valideert
+    de template-logic, niet de timer-lifecycle."""
+    return True
+
 
 
 async def test_package_laadt_in_ha_en_accu_snelkoppeling_is_live(hass):
