@@ -456,8 +456,7 @@ template:
             {% set ns = namespace(out=[]) %}
             {# v1.7.0 datumfilter: alleen punten van MORGEN (lokaal) renderen —
                voorkomt dat een oude dag's prognose onder "vandaag" wordt getekend. #}
-            {% set _dagmodus = states('input_text.test_dagmodus') | default('', true) | trim %}
-            {% set morgen_datum = (now() + timedelta(days=1)).date() if _dagmodus != 'vers' else None %}
+            {% set morgen_datum = (now() + timedelta(days=1)).date() %}
             {% for i in state_attr('sensor.prijzen_bron_voorspelling', 'prices_tomorrow')
                        | default([], true) %}
               {% if i.time is defined and i.price is defined %}
@@ -819,15 +818,6 @@ input_boolean:
     # Per 1-1-2027: uitzetten → leveringformule valt automatisch terug op spot+btw.
 
 input_text:
-  # v1.7.5e TEST-ONLY: 'vers' → de daglijst-template negeert now()/timedelta
-  # datumfilters en laat alle punten door. Productie laat dit op '' staan;
-  # de test-suite zet het eenmalig op 'vers'. Geen effect op beslissingen —
-  # alleen op de render-datumfilter van morgen/morgen_prognose.
-  test_dagmodus:
-    min: 0
-    max: 16
-    mode: text
-    icon: mdi:flask-outline
   accu_bron_entity:
     min: 0
     max: 255

@@ -21,6 +21,10 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 import yaml
 
+from freezegun import freeze_time as _freeze_time
+
+_VASTE_NOW = datetime(2026, 10, 24, 14, 30, tzinfo=timezone.utc)  # vaste "nu" voor datumfilters
+
 PKG_PATH = (Path(__file__).resolve().parents[1]
             / "custom_components" / "energyprijs" / "package.yaml")
 
@@ -55,7 +59,16 @@ def _set_voorspelling(hass, fc_list):
     hass.states.async_set(SENSOR, state, attrs)
 
 
-async def _setup(hass):
+@pytest.fixture(autouse=True)
+def _klok_stil():
+    """Bevries de klok op _VASTE_NOW zodat now()/timedelta-filters in de
+    daglijst-template deterministisch zijn (geen test-helper nodig)."""
+    with _freeze_time(_VASTE_NOW):
+        yield
+
+
+async def _setup(
+hass):
     """Package-template laden incl. daglijst + binary + input helpers."""
     from homeassistant.setup import async_setup_component
     pkg = yaml.safe_load(PKG_PATH.read_text(encoding="utf-8"))
@@ -76,13 +89,12 @@ async def _setup(hass):
                                        {"input_number": pkg["input_number"]})
     assert await async_setup_component(hass, "input_boolean",
                                        {"input_boolean": pkg["input_boolean"]})
-    if "input_text" in pkg:
+    if "input_text" in pkg and pkg["input_text"]:
         assert await async_setup_component(hass, "input_text",
                                            {"input_text": pkg["input_text"]})
-    # v1.7.5e TEST-ONLY: datumfilters uitschakelen (now()+timedelta is
-    # niet herberekenbaar tussendoor; de test zaait expliciete tijden).
-    hass.states.async_set("input_text.test_dagmodus", "vers")
-    now = datetime.now(timezone.utc)
+    # v1.6.3: geen test-helper meer — de klok staat stil via _VASTE_NOW
+    # (freezegun in elke test), dus now()+timedelta(days=1) is deterministisch.
+    now = _VASTE_NOW
     t0 = (now - timedelta(minutes=30)).isoformat()
     for eid in ("sensor.prijzen_bron_enerprice", "sensor.prijzen_bron_nordpool",
                 "sensor.prijzen_bron_energyzero"):

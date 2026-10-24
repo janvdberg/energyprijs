@@ -108,6 +108,23 @@ def _daglijst_piek_met_pv(in_piek, uit_piek, in_pv, uit_pv):
     ]
 
 
+async def _zet_daglijst(hass, daglijst):
+    """state-waarde per kwartier laten tikken (net als de echte template-sensor
+    met strftime), dus elke zet is gegarandeerd een state-change voor alle templates."""
+    from datetime import datetime as _dt, timedelta as _td
+    kq = 0
+    while True:
+        kq += 1
+        val = (_dt.now() - _td(seconds=kq)).strftime("%H:%M:%S")
+        prev = hass.states.get("sensor.stroomprijs_daglijst")
+        if prev is not None and val == prev.state:
+            continue
+        hass.states.async_set("sensor.stroomprijs_daglijst", val,
+                              {"vandaag": daglijst, "morgen": []})
+        await hass.async_block_till_done()
+        break
+
+
 async def _trig(hass, soc=50, val="50"):
     """Zet SOC + een trigger-entiteit → template herberekent; wacht tot gesetteld.
     soc is expliciet om stale states in de test te voorkomen."""
@@ -157,20 +174,8 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     await hass.async_block_till_done()
 
     async def zet(daglijst):
-        # state-waarde per kwartier laten tikken (net als de echte template-sensor met
-        # strftime), dus elke zet is gegarandeerd een state-change voor alle templates.
-        from datetime import datetime as _dt, timedelta as _td
-        kq = 0
-        while True:
-            kq += 1
-            val = (_dt.now() - _td(seconds=kq)).strftime("%H:%M:%S")
-            prev = hass.states.get("sensor.stroomprijs_daglijst")
-            if prev is not None and val == prev.state:
-                continue
-            hass.states.async_set("sensor.stroomprijs_daglijst", val,
-                                  {"vandaag": daglijst, "morgen": []})
-            await hass.async_block_till_done()
-            break
+        await _zet_daglijst(hass, daglijst)
+
 
     # 1) normale spread: in 0,30→0,40; uit 0,28→0,38; eis ≈ herlaad(0,30)/0,83+0,04 = 0,402
     #    hoogste uit 0,38 < eis → geen ONTLADEN; R = 50−100 = −50 → geen SPAAR;
@@ -200,9 +205,37 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "ONTLADEN (curtail)", st.state
+
+
+async def test_shadow_huisreserve_blokkeert_ontladen(hass):
+    """v1.6.3 — flor-check: SOC onder de huisreserve mag niet verkopen of
+    sparen; curtail (negatieve prijs) blijft wel door."""
+    await _setup_shadow(hass)
+    async def zet(daglijst):
+        await _zet_daglijst(hass, daglijst)
+    hass.states.async_set("input_number.shadow_soc_min", "20")
+    hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "40.0")
+    # 1) verkoop zou lonen (avondpiek boven eis), maar SOC 12 ≤ flor 20 → NEUTRAAL
+    await _trig(hass, 12)
+    await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
+    await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
+    assert st.state in ("NEUTRAAL", "OP HET NET"), f"onder reserve geen verkoop, got {st.state}"
+    # 2) ruimtetak zou SPAAR vragen, ook geblokkeerd onder reserve
+    await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.30))
+    await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
+    assert st.state in ("NEUTRAAL", "OP HET NET"), f"onder reserve geen spaar, got {st.state}"
+    # 3) negatieve prijs → curtail gaat WEL door (verplicht, geen keuze)
+    await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
+    await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
+    assert st.state == "ONTLADEN (curtail)", f"curtail moet altijd door, got {st.state}"
+    # 4) SOC boven reserve → verkoop weer vrij
+    await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
+    await _trig(hass, 80)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state == "ONTLADEN", f"boven reserve weer verkopen, got {st.state}"
 
 
 async def test_shadow_hysterese_en_kwartierindex(hass):

@@ -43,7 +43,7 @@ async def async_fetch_forecast(hass: HomeAssistant) -> list[dict]:
     try:
         async with session.get(
             FORECAST_URL, timeout=TIMEOUT,
-            headers={"User-Agent": "Energyprijs/1.7.5 (HA integration)"},
+            headers={"User-Agent": "Energyprijs/1.7.6 (HA integration)"},
         ) as resp:
             resp.raise_for_status()
             doc = await resp.json()

@@ -289,6 +289,10 @@ template:
           {% endfor %}
           {# v1.5.2: hysterese aan de V- en eis-grens; prev-status levert
              de uit-kant van de band (zie CHANGELOG). #}
+          {# v1.6.3: huisreserve (flor)-check — onder reserve nooit verkopen/sparen. #}
+          {% set soc_now = states('sensor.accu_percentage') | float(-1) %}
+          {% set flor = states('input_number.shadow_soc_min') | float(20) %}
+          {% set onder_reserve = soc_now < 0 or soc_now <= flor %}
           {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
           {% set prev = states('input_text.shadow_status_vorige') | default('', true) | string %}
           {% set g_laden = V - H %}
@@ -298,6 +302,7 @@ template:
           {% set besluit = namespace(s='unavailable') %}
           {% if nu2.in_nu is not none %}
             {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'ONTLADEN (curtail)' %}
+            {%- elif onder_reserve %}{% set besluit.s = 'NEUTRAAL' %}
             {%- elif prev == 'ONTLADEN' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit %}{% set besluit.s = 'ONTLADEN' %}
             {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in %}{% set besluit.s = 'ONTLADEN' %}
             {%- elif prev == 'SPAAR' and R2 >= 0 %}{% set besluit.s = 'SPAAR' %}

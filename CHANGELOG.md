@@ -4,6 +4,19 @@ Incident-/reviewvermeldingen die eerder als commentaar in de code stonden ("les
 live-log 3 okt", "review 4 okt", …). De code bevat alleen nog het *waarom*; de
 *wanneer/welke-review* staat hier.
 
+## 2026-10-24 — v1.7.6: Shadow-huisreserve (flor-check) + test_hulpjes de deur uit
+
+**Shadow (shadow.yaml)**
+- Beslisketen krijgt de huisreserve-check die er al hoorde: `onder_reserve = soc_now < 0 or soc_now <= flor` (SOC via `sensor.accu_percentage`, grens via `input_number.shadow_soc_min`). Onder de reserve geen ONTLADEN en geen SPAAR — wel NEUTRAAL. Negatieve prijzen (curtail) gaan altijd door: dat is verplicht, geen keuze.
+- Nieuwe test `test_shadow_huisreserve_blokkeert_ontladen`: verkoop onder reserve geblokkeerd, spaar onder reserve geblokkeerd, curtail wél door, boven reserve wél verkopen.
+
+**Package (package.yaml)**
+- `input_text.test_dagmodus` (test-only schakelaar uit v1.7.5) **verwijderd**. Die liet bij invullen van `vers` alle punten van een oude dag onder "morgen" renderen — ongewenst in een productiepackage.
+- De datumfilter in `morgen_prognose` is nu weer ongeforseerd: alleen punten van morgen.
+- Tests vriezen de klok in plaats daarvan (`freezegun`, autouse-fixture op een vaste `now`) — deterministisch, ook rond middernacht.
+
+**Bewijs**: volledige suite `pytest tests/ -q` → **82 passed, 0 failed, 0 errors**.
+
 ## 2026-10-23 — v1.7.5: Jinja2-compat + daglijst-fallback robuust (tests groen)
 
 HA 2026.10 acceptseert `max(default=-1)` niet meer als Jinja2-filter in de
