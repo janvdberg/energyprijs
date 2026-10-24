@@ -147,8 +147,6 @@ template:
           {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
           {# v1.6.2: V-grens op η_rt = η_laad × η_ontlaad (hele roundtrip); de oude η_gem (gemiddelde per been) lag ~17% te laag #}
           {% set eta_rt = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
-          {% set eta_laad = states('input_number.rendement_laad_pct') | float(77) / 100 %}
-          {% set eta_ontl = states('input_number.rendement_ontlaad_pct') | float(90) / 100 %}
           {% set n = states('input_number.shadow_n_top') | int(12) %}
           {% set nu_epoch = now() | as_timestamp | round(0) | int %}
           {% set ns = namespace(prijzen=[]) %}
@@ -254,7 +252,9 @@ template:
       # ═══ BESLISSING — de zes stappen teruggebracht tot de vijf statussen ═══
       #   ONTLADEN = verkopen (uit > verkoop-eis) · SPAAR = ontladen naar huis (ruimte-tak)
       #   LADEN = laden als in+w+m < V · OP HET NET / NEUTRAAL = rust
-      #   curtail (negatieve uit) is geen status maar een export-limiet → attribute
+      #   curtail (negatieve uit) → eigen status 'ONTLADEN (curtail)': verplicht
+      #   door de grid-operator, dus géén beslissing maar een export-limiet die
+      #   de automatiek doorzet (zie automation-log).
       - name: "Shadow status"
         unique_id: shadow_status
         icon: mdi:content-save-settings-outline
@@ -266,7 +266,6 @@ template:
           {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
           {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
           {% set eta = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
-          {% set eta_laad = states('input_number.rendement_laad_pct') | float(77) / 100 %}
           {% set w = states('input_number.shadow_w') | float(0.025) %}
           {% set m = states('input_number.shadow_m') | float(0.015) %}
           {% set V = states('sensor.shadow_v_waarde_opgeslagen_kwh') | float(0) %}
@@ -289,12 +288,24 @@ template:
           {% endfor %}
           {# v1.5.2: hysterese aan de V- en eis-grens; prev-status levert
              de uit-kant van de band (zie CHANGELOG). #}
-          {# v1.6.3: huisreserve (flor)-check — onder reserve nooit verkopen/sparen. #}
-          {% set soc_now = states('sensor.accu_percentage') | float(-1) %}
-          {% set flor = states('input_number.shadow_soc_min') | float(20) %}
-          {% set onder_reserve = soc_now < 0 or soc_now <= flor %}
-          {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
           {% set prev = states('input_text.shadow_status_vorige') | default('', true) | string %}
+          {# Huisreserve (flor)-check: onder de reserve nooit verkopen of sparen.
+             Onbekende/onbeschikbare SOC telt als onder reserve (fail-safe).
+             Verkopentak heeft een bandbreedte van 2% (instap ≤ flor, uitstap pas
+             boven flor+2), anders flappert het besluit rond de grens.
+             LADEN wordt níét geblokkeerd: goedkoop laden is juist hoe je boven de
+             reserve komt. Curtail (negatieve prijs) gaat altijd door — verplicht. #}
+          {% set soc_raw = states('sensor.accu_percentage') %}
+          {% set soc_num = soc_raw | float(-1) %}
+          {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
+          {% set flor = states('input_number.shadow_soc_min') | float(20) %}
+          {# Verkoopblokkade: aan bij ≤ flor, maar pas vrij bij > flor + 2 als we
+             net uit verkoop kwamen — die band voorkomt geflapper op de grens. #}
+          {% set in_reserve = (not soc_ok) or soc_num <= flor %}
+          {% set band_uit = soc_ok and soc_num > flor + 2 %}
+          {% set verkoop_blokkade = in_reserve or (prev == 'ONTLADEN' and not band_uit) %}
+          {% set spaar_blokkade = in_reserve %}
+          {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
           {% set g_laden = V - H %}
           {% set g_laden_uit = V + H %}
           {% set g_eis_in = v_eis + H %}
@@ -302,13 +313,12 @@ template:
           {% set besluit = namespace(s='unavailable') %}
           {% if nu2.in_nu is not none %}
             {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'ONTLADEN (curtail)' %}
-            {%- elif onder_reserve %}{% set besluit.s = 'NEUTRAAL' %}
-            {%- elif prev == 'ONTLADEN' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit %}{% set besluit.s = 'ONTLADEN' %}
-            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in %}{% set besluit.s = 'ONTLADEN' %}
-            {%- elif prev == 'SPAAR' and R2 >= 0 %}{% set besluit.s = 'SPAAR' %}
-            {%- elif R2 > 0 %}{% set besluit.s = 'SPAAR' %}
-            {%- elif prev == 'LADEN' and (nu2.in_nu / eta_laad) + w + m < g_laden_uit %}{% set besluit.s = 'LADEN' %}
-            {%- elif (nu2.in_nu / eta_laad) + w + m < g_laden %}{% set besluit.s = 'LADEN' %}
+            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and not verkoop_blokkade %}{% set besluit.s = 'ONTLADEN' %}
+            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in and not verkoop_blokkade %}{% set besluit.s = 'ONTLADEN' %}
+            {%- elif prev == 'SPAAR' and R2 >= 0 and not spaar_blokkade %}{% set besluit.s = 'SPAAR' %}
+            {%- elif R2 > 0 and not spaar_blokkade %}{% set besluit.s = 'SPAAR' %}
+            {%- elif prev == 'LADEN' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'LADEN' %}
+            {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'LADEN' %}
             {%- elif prev == 'NEUTRAAL' and nu2.in_nu <= g_laden_uit %}{% set besluit.s = 'NEUTRAAL' %}
             {%- elif nu2.in_nu <= g_laden %}{% set besluit.s = 'NEUTRAAL' %}
             {%- else %}{% set besluit.s = 'OP HET NET' %}{% endif %}

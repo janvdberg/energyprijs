@@ -1,0 +1,428 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  energyprijs_shadow.yaml — SHADOW-MODE accu-handel (regime-vrije regel)
+#  Draait LOAST de bestaande G1–G4-logica; schrijft NOOIT naar de omvormer.
+#  Berekent per kwartier: doel-SOC, ruimtetak R, V, herlaadkosten, verkoop-eis
+#  en een SHADOW-status in de vijf bestaande labels (LADEN/OP HET NET/
+#  NEUTRAAL/SPAAR/ONTLADEN). Log per beslissing via notify- of logboekregel.
+#
+#  Installatie: plaats dit bestand in /config/packages/ EN herstart HA.
+#  Bron: roi-monitor/stroomhandel_tactiek.md (revisie 3, okt '26).
+# ═══════════════════════════════════════════════════════════════════════
+
+input_number:
+  # ── modelconstanten (instelbaar zonder code) ──
+  #    OPLET: geen 'initial' hier — initial zet bij ELKE HA-herstart de
+  #    tactiekwaarde terug over eigen instellingen heen. De installer zet deze
+  #    startwaarden éénmalig via HELPERS_DEFAULTS (IsDone-bewakend), exact zoals
+  #    het hoofdpackage dat doet (zie package.yaml r.385).
+  # v1.5.5: shadow_eta is DE NOODVALLET en moet CONSISTENT blijven met de
+  # gemeten roundtrip: η = (77+90)/200 = 0,835 per been; voor een heen-en-weer
+  # transactie geldt rt = 0,77×0,90 ≈ 0,70 (veld rendement_roundtrip_pct).
+  # Vroeger stond hier 0,83 (vóór-meting-aanname); bij het uitzetten van de
+  # meet-helpers mag de solver niet terugvallen op een optimistischer getal
+  # dan zijn eigen hoofdroute. Zolang de helpers bestaan wordt deze niet
+  # gebruikt; hij telt pas als de rendements-helpers unavailable zijn.
+  shadow_eta:
+    name: "Shadow η — noodvallet rendement (×)"
+    min: 0.50
+    max: 1.00
+    step: 0.01
+    unit_of_measurement: "×"
+    icon: mdi:lightning-bolt
+  shadow_w:
+    name: "Shadow w — slijtage €/kWh"
+    min: 0.00
+    max: 0.10
+    step: 0.005
+    unit_of_measurement: "€/kWh"
+    icon: mdi:tune
+  shadow_m:
+    name: "Shadow m — marge €/kWh"
+    min: 0.00
+    max: 0.10
+    step: 0.005
+    unit_of_measurement: "€/kWh"
+    icon: mdi:percent
+  shadow_n_top:
+    name: "Shadow N — aantal dure kwartieren voor V"
+    min: 4
+    max: 96
+    step: 1
+    icon: mdi:counter
+  shadow_capaciteit:
+    name: "Shadow C — batterijcapaciteit bruikbaar"
+    min: 10
+    max: 150
+    step: 1
+    unit_of_measurement: "kWh"
+    icon: mdi:battery-high
+  shadow_soc_min:
+    name: "Shadow SOC-ondergrens (huisreserve)"
+    min: 0
+    max: 50
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:battery-low
+  shadow_hysteresis:
+    name: "Shadow hysteresis — band aan de prijsgrens (€/kWh)"
+    min: 0
+    max: 0.05
+    step: 0.001
+    unit_of_measurement: "€/kWh"
+    mode: box
+    icon: mdi:wave-sine
+
+input_text:
+  # v1.7.4: hernoemd van shadow_vorige_status (de entiteit 'shadow_vorige_status'
+  # raakte onleesbaar nadat COMFORT → ONTLADEN ging); de installer migreert de
+  # waarde eenmalig. max 32 past 'ONTLADEN (curtail)'.
+  shadow_status_vorige:
+    name: "Shadow voorafgaande status (hysterese)"
+    mode: text
+    max: 32
+    icon: mdi:history
+
+template:
+  # ─────────────────────────────────────────────────────────────────────
+  #  Eén triggers-blok voor ALLE shadow-sensoren: herbereken zodra de
+  #  dagprijs-list vers is, helpers veranderen, SOC beweegt of de zon-
+  #  sensoren bijwerken. De daglijst-kwartier-cyclus (time_pattern /5 in
+  #  het package) drijft de shadow mee via sensor.stroomprijs_daglijst —
+  #  een eigen time_pattern hier zou de beslissings-log elke 5 min
+  #  herschrijven (P2-review 19 okt: onnodige log-bloat).
+  # ─────────────────────────────────────────────────────────────────────
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id:
+          - input_number.shadow_eta
+          - input_number.rendement_laad_pct
+          - input_number.rendement_ontlaad_pct
+          - input_number.rendement_roundtrip_pct
+          - input_number.prijs_opslag_tijdsafhankelijk
+          - input_number.prijs_dal_uren
+          - input_number.prijs_top_uren
+          - input_number.shadow_w
+          - input_number.shadow_m
+          - input_number.shadow_n_top
+          - input_number.shadow_capaciteit
+          - input_number.shadow_soc_min
+          - input_number.shadow_hysteresis
+          - input_boolean.prijs_saldering_energiebelasting_teruggave
+          - sensor.stroomprijs_daglijst
+          - sensor.vandaag_verwachte_zonnestroom
+          - sensor.verwachte_opbrengst_morgen
+          - sensor.accu_percentage
+          - sun.sun
+    sensor:
+      # ═══ STAP 1 — doel-SOC uit verwachte zonnestroom ═══
+      - name: "Shadow doel-SOC"
+        unique_id: shadow_doel_soc
+        unit_of_measurement: "%"
+        state_class: measurement
+        availability: >
+          {{ states('input_number.shadow_capaciteit') | float(0) > 0
+             and (has_value('sensor.vandaag_verwachte_zonnestroom')
+                  or has_value('sensor.verwachte_opbrengst_morgen')) }}
+        state: >
+          {% set S = (states('sensor.vandaag_verwachte_zonnestroom') | float(0)
+                      + states('sensor.verwachte_opbrengst_morgen') | float(0)) %}
+          {% set C = states('input_number.shadow_capaciteit') | float(92) %}
+          {% set grens = states('input_number.shadow_soc_min') | float(20) %}
+          {% set raw = 100 - (S / C * 100) %}
+          {{ ([grens, [100, raw] | min] | max) | round(1) }}
+
+      # ═══ STAP 3 — waarde van een kWh in de batterij (V) ═══
+      - name: "Shadow V — waarde opgeslagen kWh"
+        unique_id: shadow_v_waarde_opgeslagen_kwh
+        unit_of_measurement: "€/kWh"
+        state_class: measurement
+        availability: >
+          {{ states('sensor.stroomprijs_daglijst') not in ['unknown','unavailable']
+             and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
+        state: >
+          {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
+          {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
+          {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {# v1.6.2: V-grens op η_rt = η_laad × η_ontlaad (hele roundtrip); de oude η_gem (gemiddelde per been) lag ~17% te laag #}
+          {% set eta_rt = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
+          {% set n = states('input_number.shadow_n_top') | int(12) %}
+          {% set nu_epoch = now() | as_timestamp | round(0) | int %}
+          {% set ns = namespace(prijzen=[]) %}
+          {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
+            {% if e.e is defined and e.in is defined and e.e >= nu_epoch %}
+              {% set ns.prijzen = ns.prijzen + [e.in | float(-1)] %}
+            {% endif %}
+          {% endfor %}
+          {% for e in state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) %}
+            {% if e.e is defined and e.in is defined %}
+              {% set ns.prijzen = ns.prijzen + [e.in | float(-1)] %}
+            {% endif %}
+          {% endfor %}
+          {% set gesorteerd = ns.prijzen | sort(reverse=true) %}
+          {% set top = namespace(som=0.0, aantal=0) %}
+          {% for pr in gesorteerd %}
+            {% if top.aantal < n %}{% set top.som = top.som + pr %}{% set top.aantal = top.aantal + 1 %}{% endif %}
+          {% endfor %}
+          {% if top.aantal == 0 %}unavailable{% else %}
+            {{ (eta_rt * (top.som / top.aantal)) | round(4) }}
+          {% endif %}
+
+      # ═══ STAP 6 — herlaadkosten over venster t+24u (net vs PV) ═══
+      - name: "Shadow herlaadkosten"
+        unique_id: shadow_herlaadkosten
+        unit_of_measurement: "€/kWh"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.stroomprijs_daglijst')
+             and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
+        state: >
+          {% set S = (states('sensor.vandaag_verwachte_zonnestroom') | float(0)
+                      + states('sensor.verwachte_opbrengst_morgen') | float(0)) %}
+          {% set ns = namespace(net=[], pv=[], nu=now()) %}
+          {#── zonvenster: boven horizon → start is 'al begonnen' (use now); onder horizon → start = next_rising ──#}
+          {% set son_raw = state_attr('sun.sun', 'next_setting') %}
+          {% set op_raw = state_attr('sun.sun', 'next_rising') %}
+          {% set son = son_raw | as_datetime if son_raw else none %}
+          {% set op = op_raw | as_datetime if op_raw else none %}
+          {% if states('sun.sun') == 'above_horizon' and son is not none %}{% set op = now() %}{% endif %}
+          {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
+            {% if e.t is defined and e.in is defined %}
+              {% set ts = e.t | as_datetime %}
+              {% if ts >= ns.nu and ts <= ns.nu + timedelta(hours=24) %}
+                {% set ns.net = ns.net + [e.in | float(9)] %}
+                {#── PV-herlaad alleen binnen het zonvenster (sun.sun) ──#}
+                {% if e.uit is defined and son is not none and op is not none and ts >= op and ts <= son %}
+                  {% set ns.pv = ns.pv + [e.uit | float(9)] %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {% for e in state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) %}
+            {% if e.t is defined and e.in is defined %}
+              {% set ts = e.t | as_datetime %}
+              {% if ts <= ns.nu + timedelta(hours=24) %}
+                {% set ns.net = ns.net + [e.in | float(9)] %}
+                {#── PV-herlaad alleen binnen het zonvenster (sun.sun) ──#}
+                {% if e.uit is defined and son is not none and op is not none and ts >= op and ts <= son %}
+                  {% set ns.pv = ns.pv + [e.uit | float(9)] %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {% set net_min = ns.net | min if ns.net | length > 0 else none %}
+          {% set pv_min = ns.pv | min if ns.pv | length > 0 else none %}
+          {% if net_min is none and pv_min is none %}unavailable
+          {% elif net_min is none %}{{ (pv_min) | round(4) }}
+          {% elif pv_min is none %}{{ (net_min) | round(4) }}
+          {% else %}{{ ([net_min, pv_min] | min) | round(4) }}
+          {% endif %}
+
+      # ═══ STAP 6 — verkoop-eis ═══
+      - name: "Shadow verkoop-eis"
+        unique_id: shadow_verkoop_eis
+        unit_of_measurement: "€/kWh"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.stroomprijs_daglijst')
+             and has_value('sensor.shadow_herlaadkosten') }}
+        state: >
+          {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
+          {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
+          {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {% set eta = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
+          {% set w = states('input_number.shadow_w') | float(0.025) %}
+          {% set m = states('input_number.shadow_m') | float(0.015) %}
+          {% set h = states('sensor.shadow_herlaadkosten') | float(9) %}
+          {{ (h / eta + w + m) | round(4) }}
+
+      # ═══ RUIMTE — R = SOC − doel-SOC (positief = te vol voor aankomende zon) ═══
+      - name: "Shadow ruimtegebrek R"
+        unique_id: shadow_ruimtegebrek_r
+        unit_of_measurement: "%"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.accu_percentage') and has_value('sensor.shadow_doel_soc') }}
+        state: >
+          {% set soc = states('sensor.accu_percentage') | float(0) %}
+          {% set doel = states('sensor.shadow_doel_soc') | float(100) %}
+          {{ (soc - doel) | round(1) }}
+
+      # ═══ BESLISSING — de zes stappen teruggebracht tot de vijf statussen ═══
+      #   ONTLADEN = verkopen (uit > verkoop-eis) · SPAAR = ontladen naar huis (ruimte-tak)
+      #   LADEN = laden als in+w+m < V · OP HET NET / NEUTRAAL = rust
+      #   curtail (negatieve uit) → eigen status 'ONTLADEN (curtail)': verplicht
+      #   door de grid-operator, dus géén beslissing maar een export-limiet die
+      #   de automatiek doorzet (zie automation-log).
+      - name: "Shadow status"
+        unique_id: shadow_status
+        icon: mdi:content-save-settings-outline
+        availability: >
+          {{ states('sensor.stroomprijs_daglijst') not in ['unknown','unavailable']
+             and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
+        state: >
+          {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
+          {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
+          {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {% set eta = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
+          {% set w = states('input_number.shadow_w') | float(0.025) %}
+          {% set m = states('input_number.shadow_m') | float(0.015) %}
+          {% set V = states('sensor.shadow_v_waarde_opgeslagen_kwh') | float(0) %}
+          {# v1.6.2: de PV-herlaad-lus (ns3/pv_eis) en SOC2 waren dode code —
+             nooit gebruikt in de beslislogica; R2 en v_eis blijven. #}
+          {% set R2 = states('sensor.shadow_ruimtegebrek_r') | float(0) %}
+          {% set v_eis = states('sensor.shadow_verkoop_eis') | float(9) %}
+          {# HUIDIGE KWARTIERPRIJS v1.5.2: nu = laatste entry met t <= nu
+             (vorige formule ts <= nu < ts+15m rendeert leeg net voor het
+             kwartierpunt; zie CHANGELOG). #}
+          {% set nu2 = namespace(in_nu=none, uit_nu=none, t_nu=none) %}
+          {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
+            {% if e.e is defined and e.in is defined %}
+              {% if e.e <= (now() | as_timestamp | round(0) | int) and (nu2.t_nu is none or e.e > nu2.t_nu) %}
+                {% set nu2.in_nu = e.in | float(none) %}
+                {% set nu2.uit_nu = e.uit | float(none) %}
+                {% set nu2.t_nu = e.e %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {# v1.5.2: hysterese aan de V- en eis-grens; prev-status levert
+             de uit-kant van de band (zie CHANGELOG). #}
+          {% set prev = states('input_text.shadow_status_vorige') | default('', true) | string %}
+          {# Huisreserve (flor)-check: onder de reserve nooit verkopen of sparen.
+             Onbekende/onbeschikbare SOC telt als onder reserve (fail-safe).
+             Verkopentak heeft een bandbreedte van 2% (instap ≤ flor, uitstap pas
+             boven flor+2), anders flappert het besluit rond de grens.
+             LADEN wordt níét geblokkeerd: goedkoop laden is juist hoe je boven de
+             reserve komt. Curtail (negatieve prijs) gaat altijd door — verplicht. #}
+          {% set soc_raw = states('sensor.accu_percentage') %}
+          {% set soc_num = soc_raw | float(-1) %}
+          {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
+          {% set flor = states('input_number.shadow_soc_min') | float(20) %}
+          {# Verkoopblokkade: aan bij ≤ flor, maar pas vrij bij > flor + 2 als we
+             net uit verkoop kwamen — die band voorkomt geflapper op de grens. #}
+          {% set in_reserve = (not soc_ok) or soc_num <= flor %}
+          {% set band_uit = soc_ok and soc_num > flor + 2 %}
+          {% set verkoop_blokkade = in_reserve or (prev == 'ONTLADEN' and not band_uit) %}
+          {% set spaar_blokkade = in_reserve %}
+          {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
+          {% set g_laden = V - H %}
+          {% set g_laden_uit = V + H %}
+          {% set g_eis_in = v_eis + H %}
+          {% set g_eis_uit = v_eis - H %}
+          {% set besluit = namespace(s='unavailable') %}
+          {% if nu2.in_nu is not none %}
+            {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'ONTLADEN (curtail)' %}
+            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and not verkoop_blokkade %}{% set besluit.s = 'ONTLADEN' %}
+            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in and not verkoop_blokkade %}{% set besluit.s = 'ONTLADEN' %}
+            {%- elif prev == 'SPAAR' and R2 >= 0 and not spaar_blokkade %}{% set besluit.s = 'SPAAR' %}
+            {%- elif R2 > 0 and not spaar_blokkade %}{% set besluit.s = 'SPAAR' %}
+            {%- elif prev == 'LADEN' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'LADEN' %}
+            {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'LADEN' %}
+            {%- elif prev == 'NEUTRAAL' and nu2.in_nu <= g_laden_uit %}{% set besluit.s = 'NEUTRAAL' %}
+            {%- elif nu2.in_nu <= g_laden %}{% set besluit.s = 'NEUTRAAL' %}
+            {%- else %}{% set besluit.s = 'OP HET NET' %}{% endif %}
+          {%- endif %}
+          {{ besluit.s }}
+        attributes:
+          in_nu: >
+            {% set ns = namespace(v=none) %}
+            {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
+              {% if e.t is defined and e.in is defined %}
+                {% set ts = e.t | as_datetime %}
+                {% if ts <= now() %}{% set ns.v = e.in | float(0) %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.v }}
+          uit_nu: >
+            {% set ns = namespace(v=none) %}
+            {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
+              {% if e.t is defined and e.uit is defined %}
+                {% set ts = e.t | as_datetime %}
+                {% if ts <= now() %}{% set ns.v = e.uit | float(0) %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.v }}
+          V: "{{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}"
+          verkoop_eis: "{{ states('sensor.shadow_verkoop_eis') }}"
+          herlaadkosten: "{{ states('sensor.shadow_herlaadkosten') }}"
+          doel_SOC: "{{ states('sensor.shadow_doel_soc') }}"
+          R: "{{ states('sensor.shadow_ruimtegebrek_r') }}"
+          SOC: "{{ states('sensor.accu_percentage') }}"
+
+automation:
+  # ── beslis-logboek: elke statuswijziging in het HA-logboek én als
+  #    persistent event (recorder) zodat het maandrapport het kan lezen ──
+  #  v1.5.2: de trigger vereist nu een VEELEKEER veranderde status (from + to
+  #  + from != to). Oude versie: elke state-set met not unavailable → telde
+  #  onbekend→bekend-overgangen (kwartier-index-gap) óók mee.
+  #  De action zet óók de geheugenknop (input_text.shadow_status_vorige) die
+  #  de status-sensor leest voor de hysterese. NOT: input_text in triggers —
+  #  de sensor leest hem wel via states(), dus HA triggert op elke write.
+  - alias: "Shadow handel — log elke statusbeslissing"
+    id: energyprijs_shadow_log
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: state
+        entity_id: sensor.shadow_status
+        to:
+          - LADEN
+          - OP HET NET
+          - NEUTRAAL
+          - SPAAR
+          - ONTLADEN
+          - ONTLADEN (curtail)
+        not_from:
+          - unavailable
+          - unknown
+    actions:
+      # v1.5.2: de geheugenknop eerst zetten — de status-sensor leest deze
+      # (via states() tijdens renderen) en HA triggert op de write, dus de
+      # sensor herberekent ééns met de nieuwe prev-waarde. Zonder deze stap
+      # kent de hysterese de vorige status niet.
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.shadow_status_vorige
+        data:
+          value: "{{ trigger.to_state.state }}"
+      # v1.5.9: de notify-actie deed de hele automation onbeschikbaar maken
+      # (oct '26: 12 dagen shadow-test liep zonder beslissingslog). Nu:
+      # template-renderen + event_fired (persistent in het event-log) +
+      # optionele notify (continue_on_error vangt ServiceNotFound af).
+      - variables:
+          shadow_log_rij: >
+            {{ states('sensor.shadow_status') }} | in={{ state_attr('sensor.shadow_status','in_nu') }}
+            uit={{ state_attr('sensor.shadow_status','uit_nu') }} V={{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}
+            eis={{ states('sensor.shadow_verkoop_eis') }} R={{ states('sensor.shadow_ruimtegebrek_r') }}
+            doelSOC={{ states('sensor.shadow_doel_soc') }}% SOC={{ states('sensor.accu_percentage') }}%
+      - action: event
+        event_type: energyprijs_shadow_statusbeslissing
+        event_data:
+          timestamp: "{{ now().isoformat() }}"
+          status: "{{ trigger.to_state.state }}"
+          from: "{{ trigger.from_state.state if trigger.from_state else 'onbekend' }}"
+          in_nu: "{{ state_attr('sensor.shadow_status','in_nu') }}"
+          uit_nu: "{{ state_attr('sensor.shadow_status','uit_nu') }}"
+          v: "{{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}"
+          verkoop_eis: "{{ states('sensor.shadow_verkoop_eis') }}"
+          r: "{{ states('sensor.shadow_ruimtegebrek_r') }}"
+          doel_soc: "{{ states('sensor.shadow_doel_soc') }}"
+          soc: "{{ states('sensor.accu_percentage') }}"
+          rij: "{{ shadow_log_rij }}"
+      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+        data:
+          title: "Shadow handel — statuswijziging"
+          message: "{{ shadow_log_rij }}"
+        continue_on_error: true
+      - action: persistent_notification.create
+        data:
+          notification_id: energyprijs_shadow_wijziging
+          title: "Shadow handel"
+          message: >
+            Status: {{ states('sensor.shadow_status') }} —
+            in {{ state_attr('sensor.shadow_status','in_nu') }} ·
+            uit {{ state_attr('sensor.shadow_status','uit_nu') }} ·
+            V {{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }} · eis {{ states('sensor.shadow_verkoop_eis') }} ·
+            R {{ states('sensor.shadow_ruimtegebrek_r') }}% · SOC {{ states('sensor.accu_percentage') }}%
+            (doel {{ states('sensor.shadow_doel_soc') }}%). Dit is SHADOW: er wordt niet geschreven.
