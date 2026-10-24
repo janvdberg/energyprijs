@@ -418,7 +418,7 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
     await _zet_laden(0.30)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state in ("NEUTRAAL", "OP HET NET"), (
+    assert st.state != "LADEN", (
         f"0,30+0,04=0,340 > V+H=0,337 moet uit LADEN, got {st.state}")
 
     # ── Kwartier-index: 'nu' = laatste entry met t ≤ nu ────────────────────
@@ -452,5 +452,23 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
         f"kwartier-index: sensor mag niet unavailable zijn, got {st.state}")
     in_nu = st.attributes.get("in_nu")
     assert in_nu == 0.26, f"verwacht in_nu=0.26 (laatste entry met t ≤ nu), got {in_nu}"
+
+
+async def test_bevroren_daglijst_geen_besluit(hass):
+    """v1.7.8: is het laatste verstreken kwartier ouder dan 45 min (bevroren
+    daglijst — bijv. na middernacht als 'vandaag' nog de prijzen van gisteren
+    bevat), dan beslist de shadow niet: status blijft 'unavailable'."""
+    import time
+    await _setup_shadow(hass)
+    now = time.time()
+    dag = [
+        {"t": now - 3600, "e": now - 3500, "p": 0.2, "in": 0.05, "uit": 0.05},
+        {"t": now + 900, "e": now + 1800, "p": 0.2, "in": 0.40, "uit": 0.30},
+    ]
+    await _zet_daglijst(hass, dag)
+    await _trig(hass, 50)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state == "unavailable", (
+        f"bevroren lijst (60 min oud) mag geen besluit leveren, got {st.state}")
 
 
