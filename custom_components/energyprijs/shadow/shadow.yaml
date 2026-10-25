@@ -418,7 +418,9 @@ automation:
           doel_soc: "{{ states('sensor.shadow_doel_soc') }}"
           soc: "{{ states('sensor.accu_percentage') }}"
           rij: "{{ shadow_log_rij }}"
-      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+      - action: >-
+          {% set d = states('input_text.prijs_notify_doel') | trim %}
+          {{ 'notify.' ~ (d if d not in ['', 'unknown', 'unavailable', 'none'] else 'persistent_notification') }}
         data:
           title: "Shadow handel — statuswijziging"
           message: "{{ shadow_log_rij }}"

@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  PACKAGE: energyprijs — bruto basisprijs (15 min) + all-in formules
-#  Versie 1.6.2 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
+#  Versie 1.7.9 · okt 2026 · bestemd voor /config/packages/energyprijs.yaml
 #
 #  Ontwerpregels (vastgelegd door Jan):
 #   - Rekenen NOOIT met een prijs die niet geverifieerd verse data is.
@@ -869,7 +869,9 @@ automation:
         for: "00:05:00"
     conditions: []
     actions:
-      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+      - action: >-
+          {% set d = states('input_text.prijs_notify_doel') | trim %}
+          {{ 'notify.' ~ (d if d not in ['', 'unknown', 'unavailable', 'none'] else 'persistent_notification') }}
         data:
           title: "⚡ Stroomprijs-basis verstoord"
           message: >
@@ -896,7 +898,9 @@ automation:
         entity_id: binary_sensor.prijzen_morgen_beschikbaar
         state: "off"
     actions:
-      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+      - action: >-
+          {% set d = states('input_text.prijs_notify_doel') | trim %}
+          {{ 'notify.' ~ (d if d not in ['', 'unknown', 'unavailable', 'none'] else 'persistent_notification') }}
         data:
           title: "⚠ Morgenprijzen nog niet binnen"
           message: >
@@ -917,7 +921,9 @@ automation:
         for: "00:05:00"
     conditions: []
     actions:
-      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+      - action: >-
+          {% set d = states('input_text.prijs_notify_doel') | trim %}
+          {{ 'notify.' ~ (d if d not in ['', 'unknown', 'unavailable', 'none'] else 'persistent_notification') }}
         data:
           title: "⚠ Nettoeslag: blokfactoren leeg"
           message: >

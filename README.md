@@ -68,8 +68,9 @@ De package gebruikt sensoren van integraties die al geïnstalleerd moeten zijn �
 - **EnerPrice** (HACS: `LenFaki/home-assistant-nl-day-ahead-prices`) — zet *extended attributes* aan in de opties (aanbevolen)
 - **EnergyZero** (core-integratie)
 - Een notify-service (mobiele app, Telegram, `persistent_notification`). Vul diens
-  naam in zonder `notify.`-voorvoegsel in `input_text.prijs_notify_doel`; leeg =
-  persistent notification, dus niets faalt als je dit overslaat
+  naam in zonder `notify.`-voorvoegsel in `input_text.prijs_notify_doel`; leeg of
+  niet-geresolveerd (`unknown`/`unavailable`, bijv. rond een herstart) = automatisch
+  persistent notification, dus niets faalt als je dit overslaat (sinds v1.7.9)
 
 > De basisprijs vereist **twee** verse bronnen (kruiscontrole); met één bron
 > blijft de daglijst beschikbaar maar wordt de basis unavailable. Heb je alleen

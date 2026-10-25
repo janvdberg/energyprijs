@@ -111,6 +111,7 @@ template:
           - input_number.shadow_hysteresis
           - input_boolean.prijs_saldering_energiebelasting_teruggave
           - sensor.stroomprijs_daglijst
+          - input_text.shadow_status_vorige
           - sensor.vandaag_verwachte_zonnestroom
           - sensor.verwachte_opbrengst_morgen
           - sensor.accu_percentage
@@ -276,10 +277,15 @@ template:
           {# HUIDIGE KWARTIERPRIJS v1.5.2: nu = laatste entry met t <= nu
              (vorige formule ts <= nu < ts+15m rendeert leeg net voor het
              kwartierpunt; zie CHANGELOG). #}
+          {# v1.7.8: bevroren daglijst-check — als het laatste verstreken
+             kwartier ouder is dan 45 min, is de lijst niet meer vers (na
+             middernacht gebruikt 'vandaag' dan de laatste prijs van
+             gisteren). Dan geen beslissing: status blijft op NEUTRAAL. #}
+          {% set nu_epoch = now() | as_timestamp | round(0) | int %}
           {% set nu2 = namespace(in_nu=none, uit_nu=none, t_nu=none) %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
             {% if e.e is defined and e.in is defined %}
-              {% if e.e <= (now() | as_timestamp | round(0) | int) and (nu2.t_nu is none or e.e > nu2.t_nu) %}
+              {% if e.e <= nu_epoch and (nu2.t_nu is none or e.e > nu2.t_nu) %}
                 {% set nu2.in_nu = e.in | float(none) %}
                 {% set nu2.uit_nu = e.uit | float(none) %}
                 {% set nu2.t_nu = e.e %}
@@ -311,7 +317,9 @@ template:
           {% set g_eis_in = v_eis + H %}
           {% set g_eis_uit = v_eis - H %}
           {% set besluit = namespace(s='unavailable') %}
-          {% if nu2.in_nu is not none %}
+          {# v1.7.8: bevroren-lijst-check — laatste verstreken kwartier meer
+             dan 45 min oud → lijst niet meer vers → geen besluit (NEUTRAAL). #}
+          {% if nu2.in_nu is not none and nu_epoch - nu2.t_nu <= 2700 %}
             {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'ONTLADEN (curtail)' %}
             {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and not verkoop_blokkade %}{% set besluit.s = 'ONTLADEN' %}
             {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in and not verkoop_blokkade %}{% set besluit.s = 'ONTLADEN' %}
@@ -410,7 +418,9 @@ automation:
           doel_soc: "{{ states('sensor.shadow_doel_soc') }}"
           soc: "{{ states('sensor.accu_percentage') }}"
           rij: "{{ shadow_log_rij }}"
-      - action: "{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}"
+      - action: >-
+          {% set d = states('input_text.prijs_notify_doel') | trim %}
+          {{ 'notify.' ~ (d if d not in ['', 'unknown', 'unavailable', 'none'] else 'persistent_notification') }}
         data:
           title: "Shadow handel — statuswijziging"
           message: "{{ shadow_log_rij }}"

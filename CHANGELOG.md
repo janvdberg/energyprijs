@@ -1,3 +1,31 @@
+## 2026-10-25 — v1.7.9: notify-doel-template robuust tegen unknown/unavailable helper
+
+**Aanleiding**: HA-repair "unknown action notify.unknown" op
+`automation.prijzen_meld_bronuitval`. De oude één-regel-vorm
+`{{ 'notify.' ~ (states('input_text.prijs_notify_doel') or 'persistent_notification') }}`
+valt alleen terug bij een LEGE helper. Staat de helper op `unknown`/`unavailable`
+(rond herstart/update — precies toen de bronuitval-melding om 23:10 afging), dan is
+`'unknown'` een niet-lege string → actie wordt `notify.unknown` → ServiceNotFound.
+
+**Fix**: alle vier templated notify-doelen (package: prijzen_meld_bronuitval,
+prijzen_meld_morgen_missing, prijzen_meld_nettoeslag_blokken; shadow:
+energyprijs_shadow_log) naar:
+
+```yaml
+- action: >-
+    {% set d = states('input_text.prijs_notify_doel') | trim %}
+    {{ 'notify.' ~ (d if d not in ['', 'unknown', 'unavailable', 'none'] else 'persistent_notification') }}
+```
+
+Triggers en data-blokken ongewijzigd (`to: [unavailable, unknown]` + `for: 5 min` is bewust).
+
+**Test**: nieuw `tests/test_notify_doel_robuust_v179.py` (opgenomen in de
+pytest.ini-whitelist): geen enkele plaats mag nog de kwetsbare `or`-vorm bevatten;
+elke notify-template moet trim + not-in-fallback hebben.
+
+**Bewijs**: `pytest tests/ -q` → 86 passed, 1 failed (pre-existing:
+test_package_e2e_ha faalt ook op schone HEAD — accu-snelkoppeling in test-venv).
+
 ## 2026-10-24 — v1.7.8: triggers + bevroren-daglijstcheck (review-opvolging Claude)
 
 **Aanloop**: opvolging van de v1.7.7-review; drie open punten uit die review gesloten.
