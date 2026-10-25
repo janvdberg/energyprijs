@@ -1,3 +1,30 @@
+## 2026-10-24 — v1.7.8: triggers + bevroren-daglijstcheck (review-opvolging Claude)
+
+**Aanloop**: opvolging van de v1.7.7-review; drie open punten uit die review gesloten.
+
+**Shadow (shadow.yaml)**
+- Trigger-list status-sensor: `input_text.shadow_status_vorige` toegevoegd. De
+  hysterese leest prev via `states()`; zonder trigger herberekende de sensor te
+  laat na een prev-wijziging (hysterese-band liep achter).
+- Bevroren-daglijstcheck: is het laatste verstreken kwartier ouder dan 45 min,
+  dan is de daglijst niet meer vers (na middernacht bevat 'vandaag' anders de
+  laatste prijs van gisteren). Status blijft `unavailable` — geen besluit op
+  oude prijzen.
+
+**Test**
+- Nieuw: `test_bevroren_daglijst_geen_besluit` (60 min oude lijst → unavailable).
+- P4-assert hysterese versoepeld naar `!= "LADEN"` (niet vastgezet op een
+  specifieke ruststatus).
+
+**Gedrag in productie (release-note)**
+- Door de η-schrapping (v1.7.7) ligt de laadgrens ruimer (~factor 1/0,77 op de
+  inkoopprijs): verwacht méér LADEN-kwartieren. Eerste dagen status-historie
+  controleren op plausibel patroon.
+- SOC-latch (wisselend besluit rond flor+2) staat nog open voor een volgende
+  iteratie; veilig (onder flor blijft verkoop geblokkeerd) maar rommelig.
+
+**Bewijs**: `pytest tests/ -q` → **84 passed, 0 failed**.
+
 ## 2026-10-24 — v1.7.7: η-laad schrapping (dubbel laadverlies) + test-fix scenario 4 + curtail-comment
 
 **Review** (Claude, externe review-van 24 okt): de LADEN-tak `(in_nu / eta_laad) + w + m < V − H`

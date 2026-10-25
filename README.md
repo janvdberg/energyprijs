@@ -283,14 +283,16 @@ yaxis:
 ### Staafkleur = laadstatus
 
 Wil je elk 15-min-blok zien als *beslissing* in plaats van als prijs? De daglijst bevat
-per interval ook `s` (status), berekend tegen jouw drempel
-(`input_number.prijs_laad_drempel`, standaard €0,337 — pas 'm aan via Settings →
-Automatiseringen & Scenes → Helpers):
+per interval ook `s` (status). **Sinds v1.8.0 geen vaste drempel meer:** de grens wordt
+per daglijst zelf berekend uit het laagste all-in-uur van die lijst
+(`input_number.prijs_laad_fractie`, standaard 1,25× — pas 'm aan via Settings →
+Automatiseringen & Scenes → Helpers). Daardoor betekent "laden" altijd: *dit hoort bij
+de goedkoopste uren van de dag*, niet "onder een getal dat toevallig ergens staat".
 
 | Status | Betekenis | Kleur |
 |---|---|---|
-| laden | afname all-in ≤ drempel | 🟢 donkergroen |
-| comfort | tot €0,08 boven drempel | 🟡 geel |
+| laden | afname all-in ≤ fractie × laagste uur | 🟢 donkergroen |
+| comfort | tot €0,08 boven die grens | 🟡 geel |
 | ontladen | ver daarboven | 🔴 rood |
 
 ```yaml

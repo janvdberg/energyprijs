@@ -54,7 +54,7 @@ HELPERS_DEFAULTS: dict[str, float] = {
     "prijs_energiebelasting": 0.0916,      # 2026-peil excl. btw
     "prijs_opslag_afname": 0.019,          # neutraal — eigen contract invullen
     "prijs_opslag_levering": 0.002,        # neutraal — eigen contract invullen
-    "prijs_laad_drempel": 0.337,
+    "prijs_laad_fractie": 1.25,
     "prijs_afwijkingsdrempel": 0.005,
     # accu-contract (v1.2.42): conservatieve middenwaarden; gebruiker verzet ze.
     "accu_capaciteit_kwh": 10.0,

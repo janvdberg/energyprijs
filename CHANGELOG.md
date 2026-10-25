@@ -1,3 +1,20 @@
+## 2026-10-26 — v1.8.0: laden-sein zonder vaste drempel (relatief per daglijst)
+
+**Aanleiding**: Jan's kritiek (okt '26) dat het `s`-sein "nu laden" voorstelde terwijl
+de goedkoopste uren later lagen. De oude regel vergeleek elk uur met een VASTE
+helper-waarde (`prijs_laad_drempel`, €0,337) en had dus geen tijdsblik: dure uren
+binnen een verder goedkope dag kregen óók 'laden'.
+
+**Fix**: `input_number.prijs_laad_drempel` → `input_number.prijs_laad_fractie`
+(× laagste all-in-uur van de betreffende lijst, default 1,25; prognose-blok 1,40).
+De status wordt nu in een tweede pass ná de renderloop bepaald: minimum uit de lijst,
+grens = fractie × minimum, comfort-grens blijft +€0,08. 'laden' betekent nu altijd
+"dit uur hoort bij de goedkoopste van de dag".
+
+**Volgschade**: helper heet anders (installer-default, __init__-lijst, e2e-/review-tests,
+README). Bestaande installaties: vervang de helper via Settings → Helpers of laat de
+package-update hem opnieuw aanmaken; de oude drempelwaarde is niet meer van toepassing.
+
 ## 2026-10-25 — v1.7.9: notify-doel-template robuust tegen unknown/unavailable helper
 
 **Aanleiding**: HA-repair "unknown action notify.unknown" op

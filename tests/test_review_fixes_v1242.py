@@ -53,7 +53,7 @@ def test_package_geen_dubbele_sleutels():
 def test_alle_verwachte_helpers_aanwezig_in_geparsed_package():
     pkg = strict_pkg()
     voor_de_prijs = {"prijs_btw", "prijs_energiebelasting", "prijs_opslag_afname",
-                     "prijs_opslag_levering", "prijs_laad_drempel",
+                     "prijs_opslag_levering", "prijs_laad_fractie",
                      "prijs_afwijkingsdrempel"}
     voor_de_accu = {"accu_capaciteit_kwh", "accu_vermogen_in_kw", "accu_vermogen_uit_kw",
                     "accu_reserve_pct"}

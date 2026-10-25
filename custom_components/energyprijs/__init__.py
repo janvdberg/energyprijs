@@ -58,7 +58,7 @@ HELPER_ENTITY_IDS: list[str] = [
     "input_number.prijs_opslag_afname",
     "input_number.prijs_opslag_levering",
     "input_number.prijs_afwijkingsdrempel",
-    "input_number.prijs_laad_drempel",
+    "input_number.prijs_laad_fractie",
     "input_boolean.prijs_saldering_energiebelasting_teruggave",
     "input_text.accu_bron_entity",
     "input_number.accu_capaciteit_kwh",

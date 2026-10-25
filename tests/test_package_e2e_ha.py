@@ -41,7 +41,7 @@ async def test_package_laadt_in_ha_en_accu_snelkoppeling_is_live(hass):
     # 1) alle helpers uit HET GEPARSTE package bestaan als entiteit
     for h in ("input_number.prijs_btw", "input_number.prijs_energiebelasting",
               "input_number.prijs_opslag_afname", "input_number.prijs_opslag_levering",
-              "input_number.prijs_laad_drempel", "input_number.prijs_afwijkingsdrempel",
+              "input_number.prijs_laad_fractie", "input_number.prijs_afwijkingsdrempel",
               "input_number.accu_capaciteit_kwh", "input_number.accu_vermogen_in_kw",
               "input_number.accu_vermogen_uit_kw", "input_number.accu_reserve_pct",
               "input_text.accu_bron_entity",

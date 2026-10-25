@@ -276,7 +276,7 @@ template:
           - input_number.prijs_energiebelasting
           - input_number.prijs_opslag_afname
           - input_number.prijs_opslag_levering
-          - input_number.prijs_laad_drempel
+          - input_number.prijs_laad_fractie
           - input_boolean.prijs_saldering_energiebelasting_teruggave
           - sensor.prijzen_bron_enerprice
           - sensor.prijzen_bron_voorspelling
@@ -345,16 +345,20 @@ template:
                 {% endif %}
                 {% set toel = (ts * nsb.f) if (ts > 0 and nsb.f is not none) else 0 %}
                 {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
-                {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'e': (i.time | as_datetime).timestamp() | round(0) | int, 'p': p | round(5),
                     'in': allin,
-                    's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
                     'rt': (allin / rt_safe) | round(4),
                     'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
               {% endif %}
             {% endfor %}
-            {{ ns.out }}
+            {# v1.8.0: laden = goedkoopste uren van DEZE daglijst (geen vaste drempel):
+               grens = fractie × laagste all-in; comfort-grens blijft +€0,08. #}
+            {% set fr = states('input_number.prijs_laad_fractie') | float(1.25) %}
+            {% set min_in = ns.out | map(attribute='in') | sort | first | default(9) %}
+            {% set drem = (min_in * fr) | round(4) %}
+            {% set ns2 = namespace(fin=[]) %}{% for x in ns.out %}{% set ns2.fin = ns2.fin + [dict(x, s=('laden' if x['in'] <= drem else ('comfort' if x['in'] <= drem + 0.08 else 'ontladen')))] %}{% endfor %}
+            {{ ns2.fin }}
           morgen: >
             {% set btw = 1 + states('input_number.prijs_btw') | float(0.21) %}
             {% set bel = states('input_number.prijs_energiebelasting') | float(0) %}
@@ -400,16 +404,20 @@ template:
                 {% endif %}
                 {% set toel = (ts * nsb.f) if (ts > 0 and nsb.f is not none) else 0 %}
                 {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
-                {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'e': (i.time | as_datetime).timestamp() | round(0) | int, 'p': p | round(5),
                     'in': allin,
-                    's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
                     'rt': (allin / rt_safe) | round(4),
                     'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
               {% endif %}
             {% endfor %}
-            {{ ns.out }}
+            {# v1.8.0: laden = goedkoopste uren van DEZE daglijst (geen vaste drempel):
+               grens = fractie × laagste all-in; comfort-grens blijft +€0,08. #}
+            {% set fr = states('input_number.prijs_laad_fractie') | float(1.25) %}
+            {% set min_in = ns.out | map(attribute='in') | sort | first | default(9) %}
+            {% set drem = (min_in * fr) | round(4) %}
+            {% set ns2 = namespace(fin=[]) %}{% for x in ns.out %}{% set ns2.fin = ns2.fin + [dict(x, s=('laden' if x['in'] <= drem else ('comfort' if x['in'] <= drem + 0.08 else 'ontladen')))] %}{% endfor %}
+            {{ ns2.fin }}
           # ── v1.7.0 MORGEN_PROGNOSE: INFORMATIEFE vervanger voor het EPEX-gat ──
           #    (±00:00–14:10). Bewust een APART attribuut: 'morgen' blijft alleen
           #    echte prijzen, dus elke beslissingslezer (shadowPIES) en de
@@ -435,7 +443,6 @@ template:
             {% set ftext = states('input_text.prijs_net_blokken') | default('', true) | trim %}
             {% set rt = states('input_number.rendement_roundtrip_pct') | float(70) / 100 %}
             {% set rt_safe = [rt, 0.01] | max %}
-            {% set drem = states('input_number.prijs_laad_drempel') | float(9) %}
             {# "Is er al echte morgen?" — check de ECHTE bronnen direct, niet
                het eigen 'morgen'-attribuut (dat zou 1-5 min vertraging geven). #}
             {% set echte_ns = namespace(echte_eid='') %}
@@ -461,11 +468,12 @@ template:
                        | default([], true) %}
               {% if i.time is defined and i.price is defined %}
                 {% set dt = i.time | as_datetime %}
+                {% set _skip = morgen_datum is not none and dt.date() != morgen_datum %}
                 {# Ruwe datum van het punt (offset behouden — as_datetime
                    slaat HA's lokale tz af) vergelijken met de lokaal-berekende
                    morgen. .astimezone() mag hier NIET: die convert naar HA's
                    lokale tz en sloop in NL de eerste/laatste uurtjes weg. #}
-                {% if morgen_datum is not none and dt.date() != morgen_datum %}{% continue %}{% endif %}
+                {% if not _skip %}
                 {% set p = i.price | float(0) %}
                 {% set h = dt.hour %}
                 {% set mnd = dt.month %}
@@ -488,13 +496,20 @@ template:
                 {% set allin = ((p + sa + toel + bel) * btw) | round(4) %}
                 {% set ns.out = ns.out + [{'t': i.time, 'e': dt.timestamp() | round(0) | int, 'p': p | round(5),
                     'in': allin,
-                    's': 'laden' if allin <= drem else ('comfort' if allin <= drem + 0.08 else 'ontladen'),
                     'uit': (((p + sl + toel) * btw + (bel * btw if saldering else 0)) | round(4)),
                     'rt': (allin / rt_safe) | round(4),
                     'rt_uit': ((((p + sl + toel) * btw + (bel * btw if saldering else 0))) * rt) | round(4)}] %}
+                {% endif %}
               {% endif %}
             {% endfor %}
-            {{ ns.out }}
+            {# v1.8.0: ook de prognose kent geen vaste drempel: laden = ≤ fractie ×
+               laagste VOORSPELDE all-in-uur. Default hier wat ruimer (1,40), want
+               het minimum is in deze lijst zelf nog een schatting. #}
+            {% set fr = states('input_number.prijs_laad_fractie') | float(1.4) %}
+            {% set min_in = ns.out | map(attribute='in') | sort | first | default(9) %}
+            {% set drem = (min_in * fr) | round(4) %}
+            {% set ns2 = namespace(fin=[]) %}{% for x in ns.out %}{% set ns2.fin = ns2.fin + [dict(x, s=('laden' if x['in'] <= drem else ('comfort' if x['in'] <= drem + 0.08 else 'ontladen')))] %}{% endfor %}
+            {{ ns2.fin }}
             {% endif %}
 
   # ── GECOÖRDINEERD: afname/levering all-in, herbereken bij contractwijziging ──
@@ -696,12 +711,12 @@ input_number:
     step: 0.0001
     mode: box
     icon: mdi:store-check
-  prijs_laad_drempel:
-    name: "Prijs: laad-drempel (afname all-in)"
-    unit_of_measurement: "EUR/kWh"
-    min: 0
-    max: 1
-    step: 0.001
+  prijs_laad_fractie:
+    name: "Prijs: laad-fractie (× laagste uur van de dag)"
+    unit_of_measurement: "×"
+    min: 1
+    max: 3
+    step: 0.05
     mode: box
     icon: mdi:ev-station
   prijs_afwijkingsdrempel:
