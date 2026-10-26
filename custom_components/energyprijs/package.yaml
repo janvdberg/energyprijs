@@ -683,7 +683,11 @@ template:
                het minimum is in deze lijst zelf nog een schatting. #}
             {% set fr = states('input_number.prijs_laad_fractie') | float(1.4) %}
             {% set min_in = ns.out | map(attribute='in') | sort | first | default(9) %}
-            {% set drem = (min_in * fr) | round(4) %}
+            {# v1.8.1 (review-fix, laag): dezelfde twee guards als vandaag/morgen —
+               lege lijst → geen drempel; negatieve all-in → marge in absolute euro's
+               anders legt ×fractie de drempel ONDER het minimum → nooit 'laden'. #}
+            {% set prijzen_beschikbaar = (ns.out | count > 0) and (min_in < 9.0) %}
+            {% set drem = (((min_in + 0.06) if min_in < 0 else (min_in * fr)) | round(4)) if prijzen_beschikbaar else -1 %}
             {% set ns2 = namespace(fin=[]) %}{% for x in ns.out %}{% set ns2.fin = ns2.fin + [dict(x, s=('laden' if x['in'] <= drem else ('comfort' if x['in'] <= drem + 0.08 else 'ontladen')))] %}{% endfor %}
             {{ ns2.fin }}
             {% endif %}
