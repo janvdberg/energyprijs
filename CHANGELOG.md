@@ -1,3 +1,19 @@
+## 2026-10-28 — v1.8.2: shadow-statusnamen gelijk aan de documentatie-banden
+
+**Aanleiding**: Jan's swap van 28 okt (accu_statusnamen.md): 'Spaar' en 'Op het net'
+wisselden van betekenis, en de ShadowPIES-labels (CAPS) weken af van de bandennamen.
+Eis: "namen moeten overal in de code hetzelfde zijn".
+
+**Fix**: alle shadow-statuslabels hernoemd naar de banden uit accu_statusnamen.md:
+`LADEN→Laden`, `ONTLADEN→Ontladen`, `ONTLADEN (curtail)→Ontladen (curtail)`,
+`NEUTRAAL→Neutraal`; én de inhoudswap: ruimtetak `SPAAR→Op het net` (lading houden,
+band 4), else-vangnet `OP HET NET→Spaar` (goedkoopste rust, band 2). De beslislogica is
+ONVERANDERD — alleen de labels. cards.py: kleurcodering nu 🟢🟡🔵⚪🔴 per documentatie.
+
+**Volgschade**: hysterese-histore `input_text.shadow_status_vorige` bevat oude CAPS-
+waarden → STATUS_MIGRATIE (installer.py) vertelt ze eenmalig; zonder die tabel missen
+de hysterese-takken hun prev-waarde na de upgrade. Bestaande HA-instanties migreren
+automatisch bij setup.
 ## 2026-10-26 — v1.8.0: laden-sein zonder vaste drempel (relatief per daglijst)
 
 **Aanleiding**: Jan's kritiek (okt '26) dat het `s`-sein "nu laden" voorstelde terwijl

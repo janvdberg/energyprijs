@@ -98,7 +98,7 @@ async def _ruim_verouderde_helpers(hass: HomeAssistant) -> None:
 
     # v1.7.4: hernoemde geheugenknop voor de status-hysterese — de waarde
     # 'COMFORT'/'COMFORT (curtail)' wordt eenmalig vertaald naar
-    # 'ONTLADEN'/'ONTLADEN (curtail)' zodat de hysterese-takken direct na
+    # 'Ontladen'/'Ontladen (curtail)' zodat de hysterese-takken direct na
     # de hernoeming meeklinken.
     from .installer import STATUS_HISTOIRE, STATUS_MIGRATIE
     for old in STATUS_HISTOIRE:

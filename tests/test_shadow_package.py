@@ -3,8 +3,8 @@ template-component en de zes beslis-sensoren nameten met gekende prijzen.
 
 Bewijst wat een YAML-pars test niet kan: HA accepteert het package, de
 formules uit stroomhandel_tactiek.md (revisie 3) rekenen correct, en de vijf
-statuslabels verschijnen zoals bedoeld — inclusief de ruimtetak (SPAAR bij te
-vol voor aankomende zon) en curtail (ONTLADEN bij negatieve uit).
+statuslabels verschijnen zoals bedoeld — inclusief de ruimtetak (Op het net bij te
+vol voor aankomende zon) en curtail (Ontladen bij negatieve uit).
 """
 from pathlib import Path
 
@@ -36,7 +36,7 @@ async def _setup_shadow(hass):
                 {"entity_id": f"input_number.{key}", "value": value}, blocking=True)
     # v1.6.x: de status-template leest input_text.shadow_status_vorige voor de
     # hysterese-prev. Zonder die helper rendert states() als 'unknown' en valt
-    # elke hysterese-tak stil weg (prev == 'LADEN' matcht nooit). Setup dus
+    # elke hysterese-tak stil weg (prev == 'Laden' matcht nooit). Setup dus
     # eerst de input_text-helpers uit het package, vóór de template.
     if pkg.get("input_text"):
         assert await async_setup_component(hass, "input_text", {"input_text": pkg["input_text"]})
@@ -185,33 +185,33 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
 
 
     # 1) normale spread: in 0,30→0,40; uit 0,28→0,38; eis ≈ herlaad(0,30)/0,83+0,04 = 0,402
-    #    hoogste uit 0,38 < eis → geen ONTLADEN; R = 50−100 = −50 → geen SPAAR;
-    #    V = 0,83×top-duurste(0,40)=0,332; in_nu=0,30 + w+m=0,34 > V → NEUTRAAL/OP HET NET
+    #    hoogste uit 0,38 < eis → geen Ontladen; R = 50−100 = −50 → geen Op het net;
+    #    V = 0,83×top-duurste(0,40)=0,332; in_nu=0,30 + w+m=0,34 > V → Neutraal/Spaar
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.38))
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state in ("NEUTRAAL", "OP HET NET"), st.state
+    assert st.state in ("Neutraal", "Spaar"), st.state
 
     # 2) te vol voor aankomende zon (S=40 → doel 56,5; SOC 80 → R=23,5) en PV-herlaad
-    #    goedkoop (middag-uit 0,05 → pv_eis ≈ 0,096) → avondpiek 0,30 > pv_eis → ONTLADEN
+    #    goedkoop (middag-uit 0,05 → pv_eis ≈ 0,096) → avondpiek 0,30 > pv_eis → Ontladen
     hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "40.0")
     await _trig(hass, 80)   # doel-SOC = 100−40/92·100 ≈ 56,5 → R = 80−56,5 ≈ 23,5
     await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "ONTLADEN", f"avondpiek boven eis moet verkopen, got {st.state}"
+    assert st.state == "Ontladen", f"avondpiek boven eis moet verkopen, got {st.state}"
 
-    # 3) te vol maar verkoop loont niet → ruimtetak: SPAAR (ontladen naar huis)
+    # 3) te vol maar verkoop loont niet → ruimtetak: Op het net (ontladen naar huis)
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.30))   # uit 0,30 < eis 0,402
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "SPAAR", f"ruimtegebrek zonder marge → huis-ontlasting, got {st.state}"
+    assert st.state == "Op het net", f"ruimtegebrek zonder marge → huis-ontlasting, got {st.state}"
 
-    # 3) negatieve uit → curtail binnen ONTLADEN-label
+    # 3) negatieve uit → curtail binnen Ontladen-label
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "ONTLADEN (curtail)", st.state
+    assert st.state == "Ontladen (curtail)", st.state
 
 
 async def test_onder_reserve_model():
@@ -227,7 +227,7 @@ async def test_onder_reserve_model():
         "{% set flor = states('input_number.shadow_soc_min') | float(20) %}"
         "{% set in_reserve = (not soc_ok) or soc_num <= flor %}"
         "{% set band_uit = soc_ok and soc_num > flor + 2 %}"
-        "{% set verkoop_blokkade = in_reserve or (prev == 'ONTLADEN' and not band_uit) %}"
+        "{% set verkoop_blokkade = in_reserve or (prev == 'Ontladen' and not band_uit) %}"
         "{{ verkoop_blokkade }}"
     )
     def render(soc, prev=""):
@@ -236,9 +236,9 @@ async def test_onder_reserve_model():
     assert render("12") == "True"       # diep onder reserve
     assert render("20") == "True"       # precies op flor: grens is '≤'
     assert render("21") == "False"      # fris besluit bij 21: verkoop mag
-    assert render("21", "ONTLADEN") == "True"    # net uit verkoop: binnen band blijft het uit
-    assert render("23", "ONTLADEN") == "False"   # flor+2 overschreden → verkoop weer vrij
-    assert render("80", "ONTLADEN") == "False"
+    assert render("21", "Ontladen") == "True"    # net uit verkoop: binnen band blijft het uit
+    assert render("23", "Ontladen") == "False"   # flor+2 overschreden → verkoop weer vrij
+    assert render("80", "Ontladen") == "False"
     assert render("unknown") == "True"  # fail-safe
     assert render("unavailable") == "True"
     assert render("-1") == "True"
@@ -246,7 +246,7 @@ async def test_onder_reserve_model():
 
 async def test_shadow_huisreserve_blokkeert_ontladen(hass):
     """Flor-check: SOC onder de huisreserve mag niet verkopen of sparen;
-    curtail (negatieve prijs) blijft wel door; LADEN wordt niet geblokkeerd."""
+    curtail (negatieve prijs) blijft wel door; Laden wordt niet geblokkeerd."""
     await _setup_shadow(hass)
     async def zet(daglijst):
         await _zet_daglijst(hass, daglijst)
@@ -257,22 +257,22 @@ async def test_shadow_huisreserve_blokkeert_ontladen(hass):
     await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "ONTLADEN", f"onder reserve geen verkoop, got {st.state}"
-    # 2) ruimtetak zou SPAAR vragen, ook geblokkeerd onder reserve
+    assert st.state != "Ontladen", f"onder reserve geen verkoop, got {st.state}"
+    # 2) ruimtetak zou Op het net vragen, ook geblokkeerd onder reserve
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.30))
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "SPAAR", f"onder reserve geen spaar, got {st.state}"
+    assert st.state != "Op het net", f"onder reserve geen spaar, got {st.state}"
     # 3) negatieve prijs → curtail gaat WEL door (verplicht, geen keuze)
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "ONTLADEN (curtail)", f"curtail moet altijd door, got {st.state}"
-    # 4) diepgooie inkoopprijs onder de reserve → LADEN mag NIET geblokkeerd
+    assert st.state == "Ontladen (curtail)", f"curtail moet altijd door, got {st.state}"
+    # 4) diepgooie inkoopprijs onder de reserve → Laden mag NIET geblokkeerd
     #    worden (goedkoop laden is juist hoe je boven de reserve komt). Ruis
     #    (w+m) op 0, η_rt=1 via shadow_eta (η_laad=1); de diepe dal staat in het verleden
     #    en drukt V dus niet: V = top-dal 0.30 ≈ 0.20. in_nu 0.05 < g_laden ≈ 0.295
-    #    ⇒ de LADEN-tak móét vuren.
+    #    ⇒ de Laden-tak móét vuren.
     hass.states.async_set("input_number.shadow_w", "0")
     hass.states.async_set("input_number.shadow_m", "0")
     # η_rt=1 via de noodvallet shadow_eta: de gemeten rendements-helpers bestaan
@@ -282,30 +282,30 @@ async def test_shadow_huisreserve_blokkeert_ontladen(hass):
     await zet(_daglijst_piek_met_pv(0.05, 0.05, 0.30, 0.30))
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "LADEN", f"goedkoop laden moet vrij zijn, got {st.state}"
+    assert st.state == "Laden", f"goedkoop laden moet vrij zijn, got {st.state}"
     # 5) SOC precies gelijk aan flor → grens is '≤', dus geblokkeerd
     await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
     await _trig(hass, 20)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "ONTLADEN", f"bij soc==flor nog geen verkoop, got {st.state}"
+    assert st.state != "Ontladen", f"bij soc==flor nog geen verkoop, got {st.state}"
     # 6) net boven flor (21): fris besluit → verkoop wéér toegestaan (de instap
     #    is ≤ flor; de band zit aan de uit-kant en is gedekt door de modeltest).
     await _trig(hass, 21)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "ONTLADEN", f"bij 21 fris besluit verkoop vrij, got {st.state}"
+    assert st.state == "Ontladen", f"bij 21 fris besluit verkoop vrij, got {st.state}"
     # 7) SOC unavailable → fail-safe: geen verkoop
     await _trig(hass, 80)
     hass.states.async_set("sensor.accu_percentage", "unavailable")
     await hass.async_block_till_done()
     await _trig(hass, None)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "ONTLADEN", f"unknown/unavailable SOC fail-safe, got {st.state}"
+    assert st.state != "Ontladen", f"unknown/unavailable SOC fail-safe, got {st.state}"
 
 
 async def test_shadow_hysterese_en_kwartierindex(hass):
     """v1.5.2 — de twee anti-knipperingsfixes:
     1. Hysterese: vlakke prijsspel rond de V-grens (in+w+m ≈ V) mag NIET elk
-       kwartier LADEN↔NEUTRAAL tikken. Zolang de prijs binnen ±H van de grens
+       kwartier Laden↔Neutraal tikken. Zolang de prijs binnen ±H van de grens
        blijft, blijft de status staan.
     2. Kwartier-index: de daglijst bevat per kwartier één entry (t = start);
        'nu' = laatste entry met t ≤ nu, niet 'entry met t ≤ nu < t+15m'
@@ -318,16 +318,16 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
     await hass.async_block_till_done()
 
     # ── Hysterese: vlakke prijsspel rond V ─────────────────────────────────
-    # v1.7.7: de beslis-template deelt de LADEN-grens níét meer op η_laad
+    # v1.7.7: de beslis-template deelt de Laden-grens níét meer op η_laad
     # (V bevat al η_rt = η_laad × η_ontlaad; dubbel telden we het laadverlies).
     # Beslisregel: in_nu + w + m < V − H. De V-sensor filtert op e >= nu_epoch,
     # dus verstreken entries tellen NIET mee — top-12 = alleen de 2 dure
-    # toekomstprijzen (0,40). V = 0,83 × 0,40 = 0,332; LADEN-grens V − H = 0,327.
+    # toekomstprijzen (0,40). V = 0,83 × 0,40 = 0,332; Laden-grens V − H = 0,327.
     # Hysterese-band in_nu + w + m ∈ (0,327 ; 0,337) → in_nu ∈ (0,287 ; 0,297).
-    # P1: in_nu = 0,295 → 0,295+0,040 = 0,335 > V = 0,332 → NEUTRAAL
-    # P2: in_nu = 0,285 → 0,285+0,040 = 0,325 < V−H = 0,327 → LADEN
-    # P3: in_nu = 0,292 → 0,292+0,040 = 0,332 → binnen band → LADEN
-    # P4: in_nu = 0,30  → 0,30+0,040 = 0,340 > V+H = 0,337 → uit LADEN
+    # P1: in_nu = 0,295 → 0,295+0,040 = 0,335 > V = 0,332 → Neutraal
+    # P2: in_nu = 0,285 → 0,285+0,040 = 0,325 < V−H = 0,327 → Laden
+    # P3: in_nu = 0,292 → 0,292+0,040 = 0,332 → binnen band → Laden
+    # P4: in_nu = 0,30  → 0,30+0,040 = 0,340 > V+H = 0,337 → uit Laden
     async def _zet_laden(in_p, uit_p=0.28):
         """Daglijst: verstreken entry (nu−2min, in_p) + 2 dure toekomstprijzen
         (0,40). De V-sensor telt alleen e >= nu → top = 2× 0,40 → V = 0,2772."""
@@ -353,23 +353,23 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
     # v1.7.7: η-laad schrapt — V bevat al η_rt (laad × ontlaad); de oude
     # in_nu/η_laad + w + m < V − H telt het laadverlies dubbel. Nieuwe
     # beslisregel: in_nu + w + m < V − H.
-    # V = 0,83 × 0,40 = 0,332; LADEN-grens V − H = 0,327; w+m = 0,040.
+    # V = 0,83 × 0,40 = 0,332; Laden-grens V − H = 0,327; w+m = 0,040.
     # Hysterese-band: in_nu + w + m ∈ (0,327 ; 0,337) → in_nu ∈ (0,287 ; 0,297)
-    # P1: in_nu = 0,295 → 0,295+0,040 = 0,335 > V = 0,332 → NEUTRAAL
-    # P2: in_nu = 0,285 → 0,285+0,040 = 0,325 < V−H = 0,327 → LADEN
-    # P3: in_nu = 0,292 → 0,292+0,040 = 0,332 → binnen band → LADEN
-    # P4: in_nu = 0,30  → 0,30+0,040 = 0,340 > V+H = 0,337 → uit LADEN
-    # P1: in_nu = 0,295 → NEUTRAAL
+    # P1: in_nu = 0,295 → 0,295+0,040 = 0,335 > V = 0,332 → Neutraal
+    # P2: in_nu = 0,285 → 0,285+0,040 = 0,325 < V−H = 0,327 → Laden
+    # P3: in_nu = 0,292 → 0,292+0,040 = 0,332 → binnen band → Laden
+    # P4: in_nu = 0,30  → 0,30+0,040 = 0,340 > V+H = 0,337 → uit Laden
+    # P1: in_nu = 0,295 → Neutraal
     await _zet_laden(0.295)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "NEUTRAAL", f"P1: verwacht NEUTRAAL, got {st.state}"
+    assert st.state == "Neutraal", f"P1: verwacht Neutraal, got {st.state}"
 
-    # P2: in_nu = 0,285 → LADEN
+    # P2: in_nu = 0,285 → Laden
     await _zet_laden(0.285)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    if st.state != "LADEN":
+    if st.state != "Laden":
         import time as _t
         dag = hass.states.get("sensor.stroomprijs_daglijst")
         vandaag = dag.attributes.get("vandaag", []) if dag else []
@@ -382,21 +382,21 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
         prev = hass.states.get("input_text.shadow_status_vorige")
         prev = prev.state if prev else None
         raise AssertionError(
-            f"P2: verwacht LADEN, got {st.state}; "
+            f"P2: verwacht Laden, got {st.state}; "
             f"in_nu={in_nu} V={V} H={H} w={w} m={m} "
             f"prev={prev} | in+w+m={in_nu+w+m if in_nu else '?'} "
             f"g_laden={V-H} g_laden_uit={V+H}")
-    assert st.state == "LADEN", f"P2: verwacht LADEN, got {st.state}"
-    # P3: in_nu = 0,292 → 0,292+0,04 = 0,332 → = V → binnen band → LADEN
+    assert st.state == "Laden", f"P2: verwacht Laden, got {st.state}"
+    # P3: in_nu = 0,292 → 0,292+0,04 = 0,332 → = V → binnen band → Laden
     await hass.services.async_call(
         "input_text", "set_value",
-        {"entity_id": "input_text.shadow_status_vorige", "value": "LADEN"},
+        {"entity_id": "input_text.shadow_status_vorige", "value": "Laden"},
         blocking=True)
     await hass.async_block_till_done()
     await _zet_laden(0.292)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    if st.state != "LADEN":
+    if st.state != "Laden":
         import time as _t
         dag = hass.states.get("sensor.stroomprijs_daglijst")
         vandaag = dag.attributes.get("vandaag", []) if dag else []
@@ -408,18 +408,18 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
         prev = prev.state if prev else None
         val = in_nu + 0.025 + 0.015 if in_nu else '?'
         raise AssertionError(
-            f"P3: verwacht LADEN, got {st.state}; "
+            f"P3: verwacht Laden, got {st.state}; "
             f"in_nu={in_nu} V={V} H={H} prev={prev} "
             f"| in+w+m={val} g_laden_uit={V+H}")
-    assert st.state == "LADEN", (
+    assert st.state == "Laden", (
         f"hysterese faalt, got {st.state}")
 
-    # P4: in_nu = 0,30 → 0,30+0,04=0,340 > V+H=0,337 → buiten band → uit LADEN
+    # P4: in_nu = 0,30 → 0,30+0,04=0,340 > V+H=0,337 → buiten band → uit Laden
     await _zet_laden(0.30)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "LADEN", (
-        f"0,30+0,04=0,340 > V+H=0,337 moet uit LADEN, got {st.state}")
+    assert st.state != "Laden", (
+        f"0,30+0,04=0,340 > V+H=0,337 moet uit Laden, got {st.state}")
 
     # ── Kwartier-index: 'nu' = laatste entry met t ≤ nu ────────────────────
     # Oude index (t ≤ nu < t+15m): bij nu = t+14m zou de entry nog matchen;

@@ -94,7 +94,7 @@ HELPERS_DEFAULTS: dict[str, float] = {
 # een "niet meer beschikbaar"-entiteit achter.
 VEROUDERDE_HELPERS: tuple[str, ...] = ("input_number.accu_handmatig_pct",)
 
-# v1.7.4: hernoemde status-histore (COMFORT → ONTLADEN); de nieuwe
+# v1.7.4: hernoemde status-histore (COMFORT → Ontladen); de nieuwe
 # unique_id is in het shadow-package (input_text.shadow_status_vorige).
 # Sleutel = oude entity_id, waarde = nieuwe entity_id; de migratie in
 # __init__.py schrijft naar de OUDERLEIDING (de nieuwe entiteit bestaat
@@ -104,10 +104,19 @@ STATUS_HISTOIRE: dict[str, str] = {
 }
 
 # v1.7.4: de statussen waarvoor de hysterese-geheugenknop gemigreerd moet
-# worden (COMFORT → ONTLADEN); andere waarden laten staan.
+# worden (COMFORT → Ontladen); andere waarden laten staan.
 STATUS_MIGRATIE: dict[str, str] = {
-    "COMFORT": "ONTLADEN",
-    "COMFORT (curtail)": "ONTLADEN (curtail)",
+    "COMFORT": "Ontladen",                    # v1.7.4
+    "COMFORT (curtail)": "Ontladen (curtail)",  # v1.7.4
+    # v1.8.2 (28 okt '26): namen gelijk aan de documentatie-banden (accu_statusnamen.md);
+    # Spaar en Op het net wisselden van betekenis, dus de hysterese-histore moet
+    # vertaald worden of de takken missen hun prev-waarde na de upgrade.
+    "LADEN": "Laden",
+    "NEUTRAAL": "Neutraal",
+    "ONTLADEN": "Ontladen",
+    "ONTLADEN (curtail)": "Ontladen (curtail)",
+    "SPAAR": "Op het net",      # ruimtetak: lading houden = band 4
+    "OP HET NET": "Spaar",      # else-vangnet: goedkoopste rust = band 2
 }
 
 
