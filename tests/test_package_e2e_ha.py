@@ -103,6 +103,19 @@ async def test_package_laadt_in_ha_en_accu_snelkoppeling_is_live(hass):
         {"entity_id": "input_text.accu_bron_entity", "value": "sensor.nep_soc"},
         blocking=True)
     await hass.async_block_till_done()
+    # v1.8.5-fix (diagnose okt '26): de reserve-sensor hangt aan een KETEN van
+    # template-hops — nep_soc → accu-percentage-sensor → reserve-sensor. Een
+    # enkele block_till_done verwerkt hop 1; hop 2 staat nog op het moment dat
+    # de eerste set inputs binnenkwam en wordt door HA's coalescing overgeslagen.
+    # Meten (april '26): losse render van de availability-template geeft True en
+    # de state-template 20.0 — de template klopt dus; alleen de herberekening van
+    # de sensor ontbreekt. Doorspoelen met een tijdstick sluit dat af (geen
+    # productiebug: in HA live triggert de volgende state-change alsnog).
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=2))
+    await hass.async_block_till_done()
     st_r = hass.states.get(reserve_eid)
     assert st_r.state == "20.0", f"25% van 80 kWh = 20.0, got {st_r.state}"
 
