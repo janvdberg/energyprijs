@@ -94,12 +94,12 @@ HELPERS_DEFAULTS: dict[str, float] = {
 # een "niet meer beschikbaar"-entiteit achter.
 VEROUDERDE_HELPERS: tuple[str, ...] = ("input_number.accu_handmatig_pct",)
 
-# v1.7.4: hernoemde status-histore (COMFORT → Ontladen); de nieuwe
+# v1.7.4: hernoemde status-historie (COMFORT → Ontladen); de nieuwe
 # unique_id is in het shadow-package (input_text.shadow_status_vorige).
 # Sleutel = oude entity_id, waarde = nieuwe entity_id; de migratie in
 # __init__.py schrijft naar de OUDERLEIDING (de nieuwe entiteit bestaat
 # pas na de volgende herstart, nadat het nieuwe package geladen is).
-STATUS_HISTOIRE: dict[str, str] = {
+STATUS_HISTORIE: dict[str, str] = {
     "input_text.shadow_vorige_status": "input_text.shadow_status_vorige",
 }
 
@@ -109,13 +109,17 @@ STATUS_MIGRATIE: dict[str, str] = {
     "COMFORT": "Ontladen",                    # v1.7.4
     "COMFORT (curtail)": "Ontladen (curtail)",  # v1.7.4
     # v1.8.2 (28 okt '26): namen gelijk aan de documentatie-banden (accu_statusnamen.md);
-    # Spaar en Op het net wisselden van betekenis, dus de hysterese-histore moet
+    # Spaar en Op het net wisselden van betekenis, dus de hysterese-historie moet
     # vertaald worden of de takken missen hun prev-waarde na de upgrade.
+# v1.8.5: géén ketens — elke waarde is direct een eindlabel; __init__.py
+# doet één lookup per herstart, dus "SPAAR" → "Op het net" → "Doorleveren"
+# zou nooit tot "Doorleveren" komen. Nieuwe statussen alleen toevoegen als
+# nieuwste eindlabel (niet als tussenstation).
     "LADEN": "Laden",
     "NEUTRAAL": "Neutraal",
     "ONTLADEN": "Ontladen",
     "ONTLADEN (curtail)": "Ontladen (curtail)",
-    "SPAAR": "Op het net",      # ruimtetak: lading houden = band 4
+    "SPAAR": "Doorleveren",     # ruimtetak: lading houden = band 4 (v1.8.5: eindlabel direct, géén keten via "Op het net")
     "OP HET NET": "Spaar",      # else-vangnet: goedkoopste rust = band 2
     # v1.8.3 (31 okt '26): band 4 hernoemd "Op het net" naar "Doorleveren"; de oude
     # naam liet te veel ruimte voor verkeerde interpretatie (de accu staat niet in

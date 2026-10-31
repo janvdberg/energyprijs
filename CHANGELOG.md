@@ -1,10 +1,66 @@
+## 2026-10-31 — v1.8.5: review-fixes op v1.8.4 (hysteresen, reserve-band, migratie, CI, docs)
+
+**Aanleiding**: code-review (Claude) op de v1.8.4-stand: vijf echte bugs plus
+documentatie- en opruimwerk. Beslislogica buiten de hieronder genoemde takken
+onveranderd.
+
+1. **Ontladen-hysterese hersteld** (shadow.yaml): de uit-tak had géén
+   prev-eis en ving met `g_eis_uit = v_eis − H` alles op tot onder de
+   instapdrempel `v_eis + H` — de instaptak was dode code en instappen
+   gebeurde al op eis−H. Nu: instappen vereist `uit > v_eis + H`; blijven
+   vereist `prev == 'Ontladen'` en `uit > v_eis − H`. Nieuwe test:
+   `prev='Neutraal'` + `uit = v_eis` → Neutraal; `prev='Ontladen'` +
+   dezelfde `uit` → Ontladen.
+2. **Reserve-band omgekeerd** (shadow.yaml): `verkoop_blokkade = in_reserve or
+   (prev == 'Ontladen' and not band_uit)` flopte elke tick rond de reserve
+   (vers besluit vrij → volgende tick geblokkeerd → tick daarna weer vrij).
+   Nu: instappen pas boven flor+2, blijven tot flor. `test_onder_reserve_model`
+   verwachtingen omdraaid; e2e-reservescenario stap 6 aangepast (21 → géén
+   Ontladen, 23 → wél); nieuwe flapper-test: 4 ticks bij SOC 21 wisselen
+   niet.
+3. **Neutraal-bandbreedte écht gebouwd** (shadow.yaml): het CHANGELOG van
+   v1.8.4 belooft flor..flor+2, maar de code gebruikte alleen `not
+   in_reserve`. Nieuwe vlag `neutraal_vrij = soc_ok and (soc > flor+2 or
+   (prev == 'Neutraal' and soc > flor))`; de verbruiksband-tak gebruikt die
+   i.p.v. `not in_reserve`. Nieuwe test: SOC 21 met vers besluit → Spaar, met
+   prev='Neutraal' → Neutraal, SOC 20 → altijd Spaar.
+4. **Statusmigratie niet laten ketenen** (installer.py): `__init__.py` doet
+   één lookup, dus `"SPAAR" → "Op het net"` kwam nooit bij "Doorleveren" uit;
+   wie van ≤1.8.1 direct naar ≥1.8.3 ging, kreeg een ongeldige prev. Nu
+   `"SPAAR" → "Doorleveren"` direct; `"Op het net" → "Doorleveren"` blijft
+   staan voor 1.8.2-installaties. Nieuwe test: géén waarde in
+   STATUS_MIGRATIE is zelf een sleutel, en alle waarden zijn geldige
+   eindlabels.
+5. **CI-lint** (ruff `--select F`): ongebruikte `from pathlib import Path`
+   weg uit config_flow.py; ongebruikte `dt_util` /
+   `async_fire_time_changed` weg uit test_voorspellingsbron.py. (Overige
+   ruff-vondsten buiten het opdrachtvlak — `timezone`-imports,
+   `import json`-duplicaten, F841 `pt` — zijn op de achtergrond; die raken
+   geen test en geen beslislogica.)
+6. **Documentatie en versie**: manifest 1.8.4 → 1.8.5; README-badge 1.6.2 →
+   1.8.5; README-versiehistorie (stopte bij 1.6.2) vervangen door
+   verwijzing naar CHANGELOG.md; Shadow-featurezin in de README-featuretabel
+   in twee zinnen herschreven; commentaar bij de bevroren daglijst
+   gecorrigeerd — bij een stagnerende daglijst wordt
+   `sensor.shadow_status` 'unavailable', níét 'Neutraal' (de oude zin
+   klopte niet met code én test); typo's: verkoopfallemaal → "verkoop-eis:
+   alles", histore → historie, STATUS_HISTOIRE → STATUS_HISTORIE (overal
+   tegelijk), zonnoverschot → zonoverschot.
+
+**Vergeten v1.8.1** (26 okt '26, commit b33f2b2; geen release-page/tag):
+review-fixes op v1.8.0 — `ns_mn` in morgen-template, vandaag-min (wm) in
+morgen, lege-data guard (drem=-1), tmin-scan + negatieve-prijsdrempel
+(simulatie-fix), plus `scripts/simuleer_v181.py` als simulatie-generiek.
+De versie-versie in manifest/README telde toen óók niet mee (de CAPS-/
+manifest-mismatch die later in v1.8.2 werd opgeruimd).
+
 ## 2026-10-31 — v1.8.4: Neutraal is de VERBRUIKSBAND (accu voert het huis)
 
 **Aanleiding**: Jan (31 okt '26): "Daar was eigenlijk de Neutraal-status ook voor
 bedoeld — de stroomprijs is te duur om te laden maar te goedkoop om te verkopen,
 ook rekening houdend met de efficiëntie." De code maakte er tot nu toe een passieve
 rustband van (huis op net zolang in ≤ V+H), dus elke prijs tussen laad- en
-verkoopfallemaal viel stil op Spaar: dure uren (bv. €0,48 's middags, top-12 's
+verkoop-eis: alles daaronder viel stil op Spaar: dure uren (bv. €0,48 's middags, top-12 's
 avonds €0,50) werden nooit vermeden terwijl de accu 25% SOC had.
 
 **Fix**: één nieuwe tak vóór het Spaar-vangnet in de beslisboom:
@@ -22,12 +78,12 @@ STATUS_MIGRATIE-regel nodig (prev 'Neutraal' blijft geldige hysterese-waarde).
 
 **Aanleiding**: Jan's opmerking (31 okt '26) dat "op het net" te veel ruimte laat voor
 verkeerde interpretatie — de accu staat bij deze band niet parallel aan het net; het
-zonnoverschot wordt doorgesluisd en de lading wordt gehouden.
+zonoverschot wordt doorgesluisd en de lading wordt gehouden.
 
 **Fix**: alle code-labels, tests, README en kaarttekst hernoemd naar **Doorleveren**
 (⚪ behouden). Beslislogica ONVERANDERD — alleen de naam.
 STATUS_MIGRATIE krijgt een extra regel `"Op het net" → "Doorleveren"` zodat de
-hysterese-histore van bestaande instanties meegaat. Documentatie (accu_statusnamen.md)
+hysterese-historie van bestaande instanties meegaat. Documentatie (accu_statusnamen.md)
 is apart aangepast.
 
 ## 2026-10-28 — v1.8.2: shadow-statusnamen gelijk aan de documentatie-banden
@@ -42,7 +98,7 @@ Eis: "namen moeten overal in de code hetzelfde zijn".
 band 4), else-vangnet `OP HET NET→Spaar` (goedkoopste rust, band 2). De beslislogica is
 ONVERANDERD — alleen de labels. cards.py: kleurcodering nu 🟢🟡🔵⚪🔴 per documentatie.
 
-**Volgschade**: hysterese-histore `input_text.shadow_status_vorige` bevat oude CAPS-
+**Volgschade**: hysterese-historie `input_text.shadow_status_vorige` bevat oude CAPS-
 waarden → STATUS_MIGRATIE (installer.py) vertelt ze eenmalig; zonder die tabel missen
 de hysterese-takken hun prev-waarde na de upgrade. Bestaande HA-instanties migreren
 automatisch bij setup.

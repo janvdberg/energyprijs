@@ -16,8 +16,7 @@ from pathlib import Path
 
 import pytest
 from datetime import datetime, timedelta, timezone
-from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
 
 import yaml
 

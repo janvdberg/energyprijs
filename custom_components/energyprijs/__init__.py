@@ -100,8 +100,8 @@ async def _ruim_verouderde_helpers(hass: HomeAssistant) -> None:
     # 'COMFORT'/'COMFORT (curtail)' wordt eenmalig vertaald naar
     # 'Ontladen'/'Ontladen (curtail)' zodat de hysterese-takken direct na
     # de hernoeming meeklinken.
-    from .installer import STATUS_HISTOIRE, STATUS_MIGRATIE
-    for old in STATUS_HISTOIRE:
+    from .installer import STATUS_HISTORIE, STATUS_MIGRATIE
+    for old in STATUS_HISTORIE:
         st = hass.states.get(old)
         if st is None or st.state not in STATUS_MIGRATIE:
             continue  # nog niet geladen of al gemigreerd → laten staan
@@ -110,7 +110,7 @@ async def _ruim_verouderde_helpers(hass: HomeAssistant) -> None:
                 "input_text", "set_value",
                 {"entity_id": old, "value": STATUS_MIGRATIE[st.state]},
                 blocking=True)
-            _LOGGER.info("energyprijs: status-histore %s gemigreerd naar %s",
+            _LOGGER.info("energyprijs: status-historie %s gemigreerd naar %s",
                          old, STATUS_MIGRATIE[st.state])
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("energyprijs: migratie %s mislukt: %s", old, e)

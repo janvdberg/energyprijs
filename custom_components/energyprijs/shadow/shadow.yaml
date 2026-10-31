@@ -280,7 +280,8 @@ template:
           {# v1.7.8: bevroren daglijst-check — als het laatste verstreken
              kwartier ouder is dan 45 min, is de lijst niet meer vers (na
              middernacht gebruikt 'vandaag' dan de laatste prijs van
-             gisteren). Dan geen beslissing: status blijft op Neutraal. #}
+             gisteren). Dan geen beslissing: sensor.shadow_status wordt
+             'unavailable' (fail-safe — geen gok zonder verse prijzen). #}
           {% set nu_epoch = now() | as_timestamp | round(0) | int %}
           {% set nu2 = namespace(in_nu=none, uit_nu=none, t_nu=none) %}
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) %}
@@ -297,19 +298,22 @@ template:
           {% set prev = states('input_text.shadow_status_vorige') | default('', true) | string %}
           {# Huisreserve (flor)-check: onder de reserve nooit verkopen of sparen.
              Onbekende/onbeschikbare SOC telt als onder reserve (fail-safe).
-             Verkopentak heeft een bandbreedte van 2% (instap ≤ flor, uitstap pas
-             boven flor+2), anders flappert het besluit rond de grens.
+             v1.8.5: band omgekeerd — verkoop instappen pas BOVEN flor+2, blijven
+             tot flor. De oude volgorde (instap ≤ flor) flopte elke tick rond de
+             reserve: vers besluit vrij → volgende tick prev=Ontladen en binnen
+             de band geblokkeerd → tick daarna weer vrij.
              Laden wordt níét geblokkeerd: goedkoop laden is juist hoe je boven de
              reserve komt. Curtail (negatieve prijs) gaat altijd door — verplicht. #}
           {% set soc_raw = states('sensor.accu_percentage') %}
           {% set soc_num = soc_raw | float(-1) %}
           {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
           {% set flor = states('input_number.shadow_soc_min') | float(20) %}
-          {# Verkoopblokkade: aan bij ≤ flor, maar pas vrij bij > flor + 2 als we
-             net uit verkoop kwamen — die band voorkomt geflapper op de grens. #}
+          {# Blokkades (v1.8.5): verkoop en verbruiksband delen de band flor..flor+2 —
+             instappen vereist soc > flor+2; eenmaal in de status blijft men tot flor. #}
           {% set in_reserve = (not soc_ok) or soc_num <= flor %}
           {% set band_uit = soc_ok and soc_num > flor + 2 %}
-          {% set verkoop_blokkade = in_reserve or (prev == 'Ontladen' and not band_uit) %}
+          {% set verkoop_blokkade = in_reserve or (prev != 'Ontladen' and not band_uit) %}
+          {% set neutraal_vrij = soc_ok and (soc_num > flor + 2 or (prev == 'Neutraal' and soc_num > flor)) %}
           {% set spaar_blokkade = in_reserve %}
           {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
           {% set g_laden = V - H %}
@@ -321,7 +325,10 @@ template:
              dan 45 min oud → lijst niet meer vers → geen besluit (Neutraal). #}
           {% if nu2.in_nu is not none and nu_epoch - nu2.t_nu <= 2700 %}
             {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'Ontladen (curtail)' %}
-            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and not verkoop_blokkade %}{% set besluit.s = 'Ontladen' %}
+            {# v1.8.5: hysterese gerepareerd — de vorige tak 2 had géén prev-eis en
+               ving met g_eis_uit (= eis − H) alles op tot onder de instapdrempel,
+               waardoor tak 3 dood was en instappen al op eis−H gebeurde. #}
+            {%- elif prev == 'Ontladen' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and not verkoop_blokkade %}{% set besluit.s = 'Ontladen' %}
             {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in and not verkoop_blokkade %}{% set besluit.s = 'Ontladen' %}
             {%- elif prev == 'Doorleveren' and R2 >= 0 and not spaar_blokkade %}{% set besluit.s = 'Doorleveren' %}
             {%- elif R2 > 0 and not spaar_blokkade %}{% set besluit.s = 'Doorleveren' %}
@@ -335,7 +342,7 @@ template:
                Spaar is het vangnet daarboven: uit-prijs tot aan verkoop-eis. #}
             {%- elif prev == 'Neutraal' and nu2.in_nu <= g_laden_uit %}{% set besluit.s = 'Neutraal' %}
             {%- elif nu2.in_nu <= g_laden %}{% set besluit.s = 'Neutraal' %}
-            {%- elif nu2.in_nu + w + m >= g_laden_uit and (nu2.uit_nu is none or nu2.uit_nu <= g_eis_in) and not in_reserve %}{% set besluit.s = 'Neutraal' %}
+            {%- elif nu2.in_nu + w + m >= g_laden_uit and (nu2.uit_nu is none or nu2.uit_nu <= g_eis_in) and neutraal_vrij %}{% set besluit.s = 'Neutraal' %}
             {%- else %}{% set besluit.s = 'Spaar' %}{% endif %}
           {%- endif %}
           {{ besluit.s }}

@@ -204,6 +204,20 @@ async def test_grafiekkaart_legenda_weg_en_series(hass):
     assert prognose["yaxis_id"] == "prijzen"
 
 
+def test_status_migratie_geen_ketens():
+    """v1.8.5 — de migratie in __init__.py doet ÉÉN lookup: een waarde die zelf
+    een sleutel is (bv. "SPAAR" → "Op het net" → "Doorleveren") komt nooit bij
+    het eindlabel uit. Iedere waarde moet dus direct een geldig eindlabel
+    zijn (Laden, Neutraal, Spaar, Doorleveren, Ontladen, Ontladen (curtail))."""
+    import custom_components.energyprijs.installer as inst
+    eindlabels = {"Laden", "Neutraal", "Spaar", "Doorleveren", "Ontladen", "Ontladen (curtail)"}
+    for key, value in inst.STATUS_MIGRATIE.items():
+        assert value in eindlabels, f"{key!r} → {value!r} is geen eindlabel"
+        assert value not in inst.STATUS_MIGRATIE, (
+            f"{key!r} → {value!r} vormt een keten: {value!r} is zelf een sleutel "
+            f"en één lookup komt er nooit aan")
+
+
 def test_daglijst_triggers_time_pattern_en_helpers():
     """Taak-test 7 okt '26 (v1.4.3): het daglijst-template moet zowel periodiek
     (time_pattern /5 → state now().strftime verandert, dus 'nu' blijft lopen en de

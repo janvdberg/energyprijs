@@ -44,8 +44,6 @@ class EnergyprijsConfigFlow(ConfigFlow, domain=DOMAIN):
         # veilige publieke routes: sync_package_if_changed (async, executor-correct)
         # en _packages_status_sync (read-only, schrijft nooit naar cfg).
         try:
-            from pathlib import Path
-
             from .installer import (_config_dir, _packages_status_sync,
                                      sync_package_if_changed)
 
