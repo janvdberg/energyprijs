@@ -250,7 +250,6 @@ async def test_opbouwcheck_herbouwt_kaart_met_update_interval(hass):
     (update_interval gezet) mag NIET als actueel gelden — de sleutel-op-sleutel-
     check moet het exact één keer vervangen; na herbouw is alles 'huidig'."""
     from custom_components.energyprijs.cards import GRAFIEK_CARD
-    from custom_components.energyprijs import installer as inst
 
     assert "update_interval" not in GRAFIEK_CARD  # uitgangspunt deze release
 

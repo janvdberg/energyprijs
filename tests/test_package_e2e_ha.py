@@ -107,10 +107,11 @@ async def test_package_laadt_in_ha_en_accu_snelkoppeling_is_live(hass):
     # template-hops — nep_soc → accu-percentage-sensor → reserve-sensor. Een
     # enkele block_till_done verwerkt hop 1; hop 2 staat nog op het moment dat
     # de eerste set inputs binnenkwam en wordt door HA's coalescing overgeslagen.
-    # Meten (april '26): losse render van de availability-template geeft True en
-    # de state-template 20.0 — de template klopt dus; alleen de herberekening van
-    # de sensor ontbreekt. Doorspoelen met een tijdstick sluit dat af (geen
-    # productiebug: in HA live triggert de volgende state-change alsnog).
+    # Meten (okt '26): losse render van dezelfde templates geeft True (avail) en
+    # 20.0 (state) — de template klopt dus; de herberekening na een keten van
+    # twee hops komt pas na een tijdstick binnen. Niet verder onderzocht of dit
+    # ook live zo werkt (een volgende state-change zou in HA live alsnog
+    # afzeggen) — dit is een testfixture-timingfix, geen productiewijziging.
     from datetime import timedelta
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed

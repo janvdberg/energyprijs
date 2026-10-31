@@ -105,26 +105,29 @@ STATUS_HISTORIE: dict[str, str] = {
 
 # v1.7.4: de statussen waarvoor de hysterese-geheugenknop gemigreerd moet
 # worden (COMFORT → Ontladen); andere waarden laten staan.
+# STATUS_MIGRATIE vertaalt hysterese-historie (input_text.shadow_status_vorige)
+# eenmalig naar de huidige eindlabels — zónder die waarde in het package zelf.
+#
+# v1.8.2 (28 okt '26): namen gelijk aan de documentatie-banden (accu_statusnamen.md);
+# Spaar en Op het net wisselden van betekenis, dus de historie moet vertaald
+# worden of de takken missen hun prev-waarde na de upgrade.
+# v1.8.3 (31 okt '26): band 4 hernoemd "Op het net" naar "Doorleveren"; de oude
+# naam liet te veel ruimte voor verkeerde interpretatie (de accu staat niet in
+# parallel met het net — overschot wordt doorgesluisd, lading gehouden).
+# v1.8.5: géén ketens — elke waarde is direct een eindlabel; __init__.py doet
+# één lookup per herstart, dus "SPAAR" → "Op het net" → "Doorleveren" zou nooit
+# tot "Doorleveren" komen. Nieuwe statussen alleen toevoegen als nieuwste
+# eindlabel (niet als tussenstation).
 STATUS_MIGRATIE: dict[str, str] = {
     "COMFORT": "Ontladen",                    # v1.7.4
     "COMFORT (curtail)": "Ontladen (curtail)",  # v1.7.4
-    # v1.8.2 (28 okt '26): namen gelijk aan de documentatie-banden (accu_statusnamen.md);
-    # Spaar en Op het net wisselden van betekenis, dus de hysterese-historie moet
-    # vertaald worden of de takken missen hun prev-waarde na de upgrade.
-# v1.8.5: géén ketens — elke waarde is direct een eindlabel; __init__.py
-# doet één lookup per herstart, dus "SPAAR" → "Op het net" → "Doorleveren"
-# zou nooit tot "Doorleveren" komen. Nieuwe statussen alleen toevoegen als
-# nieuwste eindlabel (niet als tussenstation).
     "LADEN": "Laden",
     "NEUTRAAL": "Neutraal",
     "ONTLADEN": "Ontladen",
     "ONTLADEN (curtail)": "Ontladen (curtail)",
-    "SPAAR": "Doorleveren",     # ruimtetak: lading houden = band 4 (v1.8.5: eindlabel direct, géén keten via "Op het net")
+    "SPAAR": "Doorleveren",     # ruimtetak: lading houden = band 4
     "OP HET NET": "Spaar",      # else-vangnet: goedkoopste rust = band 2
-    # v1.8.3 (31 okt '26): band 4 hernoemd "Op het net" naar "Doorleveren"; de oude
-    # naam liet te veel ruimte voor verkeerde interpretatie (de accu staat niet in
-    # parallel met het net -- overschot wordt doorgesluisd, lading gehouden).
-    "Op het net": "Doorleveren",
+    "Op het net": "Doorleveren",  # oude naam band 4 (vóór hernoeming v1.8.3)
 }
 
 

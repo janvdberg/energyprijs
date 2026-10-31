@@ -322,7 +322,8 @@ template:
           {% set g_eis_uit = v_eis - H %}
           {% set besluit = namespace(s='unavailable') %}
           {# v1.7.8: bevroren-lijst-check — laatste verstreken kwartier meer
-             dan 45 min oud → lijst niet meer vers → geen besluit (Neutraal). #}
+             dan 45 min oud → lijst niet meer vers → geen besluit
+             (status wordt 'unavailable'). #}
           {% if nu2.in_nu is not none and nu_epoch - nu2.t_nu <= 2700 %}
             {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'Ontladen (curtail)' %}
             {# v1.8.5: hysterese gerepareerd — de vorige tak 2 had géén prev-eis en

@@ -669,3 +669,47 @@ async def test_bevroren_daglijst_geen_besluit(hass):
         f"bevroren lijst (60 min oud) mag geen besluit leveren, got {st.state}")
 
 
+async def test_shadow_curtail_geen_verkoop_hysterese_v186(hass):
+    """v1.8.6 (stap 5, keuze vastgelegd): 'Ontladen (curtail)' telt NIET mee in de
+    verkoop-hysterese — bewuste keus, deels door de vorige review gedragen.
+
+    Curtail is géén verkoop maar een verplichte export-limiet (grid-operator):
+    zodra 'uit' weer boven 0 komt, geldt de instapregel van een VERS besluit —
+    uit > verkoop-eis + H EN SOC > flor + 2 (verkoop_blokkade). Pas daarna mag
+    de gewone Ontladen-band beginnen. Als curtail wél zou meetellen, zou de
+    instap al bij SOC ≤ flor+2 direct na een curtail doorgaan — de reserveband
+    (flapper-test) bestaat precies om dat te voorkomen.
+    """
+    await _setup_shadow(hass)
+    # η_rt=1 via shadow_eta (gemeten rendements-helpers bestaan hier niet),
+    # zodat de verkoop-eis exact te berekenen is: min-in + w + m.
+    await hass.services.async_call(
+        "input_number", "set_value",
+        {"entity_id": "input_number.shadow_eta", "value": 1}, blocking=True)
+    await hass.async_block_till_done()
+    # SOC 21: in de reserveband (flor 20..22) → verkoop is hier geblokkeerd.
+    # Daglijst: nu-kwartier duurt (in 0.50 → laden loont níét; uit 0.30),
+    # straks goedkooper (in 0.30 → V wordt laag, verkoop-eis laag).
+    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
+    await _trig(hass, 21)
+    # 1) negatieve uit → curtail is verplicht en gaat door, óók onder de band
+    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, -0.02, 0.10))
+    await _trig(hass, 21)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state == "Ontladen (curtail)", f"curtail gaat door, got {st.state}"
+    # 2) uit springt terug boven de verkoop-eis, maar SOC blijft 21 (≤ flor+2):
+    #    curtail telt níét als 'Ontladen' voor de hysterese → vers besluit,
+    #    verkoop_blokkade werkt → géén Ontladen.
+    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
+    await _trig(hass, 21)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state != "Ontladen", (
+        f"direct na curtail bij SOC ≤ flor+2 mag geen verkoop instappen, got {st.state}")
+    # 3) zelfde situatie (uit wél boven de verkoop-eis) met SOC boven de
+    #    band (23 > flor+2): verkoop mag Wél instappen.
+    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
+    await _trig(hass, 23)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state == "Ontladen", f"boven flor+2 mag verkoop wel, got {st.state}"
+
+

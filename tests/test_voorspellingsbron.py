@@ -11,7 +11,6 @@ en zodra een echte bron morgen-prijzen heeft: morgen gevuld,
 morgen_prognose=[], binary_sensor on. De 15:15-melding is dus blind voor
 de prognose. Bron offline → sensor unavailable → morgen_prognose leeg.
 """
-import json
 from pathlib import Path
 
 import pytest
@@ -127,7 +126,6 @@ async def _leeg_alle_echte_bronnen(hass):
     # handmatige attribute-zet (die wordt overschreven door de template-self);
     # ze volgen de RUWE entiteiten. Dus: lege daglijsten op de ruwe entiteiten
     # zetten → de bron-templates rendert 'prijs|[]|[]' → morgen leeg.
-    import json
     for raw in ("sensor.test_enerprice_raw", "sensor.test_nordpool_raw",
                 "sensor.test_energyzero_raw"):
         hass.states.async_set(raw, "0.20|[]|[]")
@@ -169,8 +167,6 @@ async def test_voorspelling_vult_morgen_prognose(hass):
     st = hass.states.get("sensor.stroomprijs_daglijst")
     # 'morgen' blijft ECHT leeg — prognose mag niet daarin zitten
     assert st.attributes.get("morgen") == []
-    vs2 = hass.states.get(SENSOR)
-    pt = vs2.attributes.get("prices_tomorrow", []) if vs2 else []
     m = st.attributes.get("morgen_prognose") or []
     assert len(m) == 24, f"verwacht 24 prognose-uren, got {len(m)}"
     assert st.attributes.get("bron") in ("", None), \

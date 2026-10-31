@@ -7,6 +7,7 @@ EnerPrice → Nord Pool → EnergyZero, eerste die iets heeft levert de daglijst
 (attributes.bron); de andere bronnen dienen als verifiëring via de
 momentprijs-kruiscontrole (bestaat al) en de 15:15-melding (noem de bron).
 """
+import json
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ PKG_PATH = (Path(__file__).resolve().parents[1]
 def _prijslijst(t0, prijs, n=1):
     """n kwartieren van t0 (ISO-string) met vaste prijs. n=1 is genoeg
     voor de test (de daglijst-template telt alleen | count > 0)."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     d = datetime.fromisoformat(t0)
     out = []
     for i in range(n):
@@ -95,8 +96,7 @@ async def _setup_daglijst(hass):
 def _zaai(hass, raw_eid, t0, now):
     """Ruwe entiteit draagt 'prijs|vandaag-json|morgen-json' (n=1 kwartier
     per dag → onder de 255-char limiet). De bron-template split dat op."""
-    import json
-    from datetime import timedelta, timezone
+    from datetime import timedelta
     vandaag = _prijslijst(t0, 0.20)
     morgen = _prijslijst((now + timedelta(hours=12)).isoformat(), 0.25)
     state = "0.20|" + json.dumps(vandaag) + "|" + json.dumps(morgen)
@@ -156,7 +156,6 @@ async def test_daglijst_fallback_nordpool(hass):
     # EP op lege vandaag-lijst: de dag-attribute van de EP-bron is leeg
     # (prices_today = []) terwijl de prijs zelf nog levert.
     # EP op lege vandaag-lijst: state = 'prijs|[]|morgen'
-    import json
     e = hass.states.get(RAW_EP)
     parts = e.state.split("|")
     parts[1] = "[]"

@@ -1,3 +1,39 @@
+## 2026-10-31 — v1.8.6: restpunten uit de v1.8.5-review (CI-lint, docs, curtail-keus)
+
+**Aanleiding**: tweede review-rondje op v1.8.5 — geen nieuwe beslisbugs meer;
+lint, verouderde tekst en één ontwerppunt dat een bewuste keuze verdient.
+
+1. **CI-lint groen** (tests/): de acht ruff-F-vondsten in de testbestanden waren
+   de oorzaak dat de CI-lintjob (exact `ruff check --select F` op `tests/`)
+   faalde: ongebruikte `json`- en `timezone`-imports (test_voorspellingsbron,
+   test_daglijst_bron_fallback, dubbele lokale `json`-import), de onbruikte
+   `pt` in test_voorspellingsbron (F841 — de assertie op `morgen_prognose` was
+   de bedoeling) en een ongebruikte `installer`-import in
+   test_defaults_and_package. Ruff meldt nu 0 fouten over de hele repo.
+2. **Verouderd commentaar** (shadow.yaml): de bevroren-lijst-check noemde nog
+   "geen besluit (Neutraal)"; sinds v1.7.8 wordt de status `unavailable`.
+3. **e2e-test eerlijker** (test_package_e2e_ha): de e2e-reservetest was al
+   rood op v1.8.4 (pre-existing, bewezen met `git stash` op de oude HEAD).
+   Gemeten oorzaak: de reserve-sensor hangt aan een keten van twee
+   template-hops en de tweede herberekening valt na één `block_till_done`
+   weg door HA's coalescing. De losse render van de templates zelf gaf
+   True / 20.0 — de template is correct; de fix is een tijdstick na de
+   tweede hop (testfixture-timing, geen productiewijziging).
+4. **Cosmetica**: de versie-versie → versie, verwachtingen omdraaid →
+   omgedraaid en de verhaspelde v1.8.4-zin in het CHANGELOG; de
+   STATUS_MIGRATIE-commentaarblokken in installer.py samengevoegd boven de
+   dict (stonden op kolom 0 midden in de dict).
+5. **Curtail-keus vastgelegd** (shadow.yaml + nieuwe test):
+   `Ontladen (curtail)` telt bewust NIET mee in de verkoop-hysterese —
+   prev 'Ontladen (curtail)' ≠ 'Ontladen', dus direct na een curtail gelden
+   de instapregels van een vers besluit (uit > verkoop-eis + H én
+   SOC > flor + 2). Keuze: curtail is géén verkoop maar een verplichte
+   export-limiet van de grid-operator; de reserveband (v1.8.5-flapperfix)
+   bestaat precies om te voorkomen dat de verkoop bij SOC ≤ flor + 2 direct
+   na zo'n dwang-event doorgaat. Vastgelegd met
+   `test_shadow_curtail_geen_verkoop_hysterese_v186` (curtail gaat door op
+   SOC 21, verkoop mag daar níét direct na instappen, bij SOC 23 wél).
+
 ## 2026-10-31 — v1.8.5: review-fixes op v1.8.4 (hysteresen, reserve-band, migratie, CI, docs)
 
 **Aanleiding**: code-review (Claude) op de v1.8.4-stand: vijf echte bugs plus
@@ -15,7 +51,7 @@ onveranderd.
    (prev == 'Ontladen' and not band_uit)` flopte elke tick rond de reserve
    (vers besluit vrij → volgende tick geblokkeerd → tick daarna weer vrij).
    Nu: instappen pas boven flor+2, blijven tot flor. `test_onder_reserve_model`
-   verwachtingen omdraaid; e2e-reservescenario stap 6 aangepast (21 → géén
+   verwachtingen omgedraaid; e2e-reservescenario stap 6 aangepast (21 → géén
    Ontladen, 23 → wél); nieuwe flapper-test: 4 ticks bij SOC 21 wisselen
    niet.
 3. **Neutraal-bandbreedte écht gebouwd** (shadow.yaml): het CHANGELOG van
@@ -51,7 +87,7 @@ onveranderd.
 review-fixes op v1.8.0 — `ns_mn` in morgen-template, vandaag-min (wm) in
 morgen, lege-data guard (drem=-1), tmin-scan + negatieve-prijsdrempel
 (simulatie-fix), plus `scripts/simuleer_v181.py` als simulatie-generiek.
-De versie-versie in manifest/README telde toen óók niet mee (de CAPS-/
+De versie in manifest/README telde toen óók niet mee (de CAPS-/
 manifest-mismatch die later in v1.8.2 werd opgeruimd).
 
 ## 2026-10-31 — v1.8.4: Neutraal is de VERBRUIKSBAND (accu voert het huis)
@@ -59,9 +95,9 @@ manifest-mismatch die later in v1.8.2 werd opgeruimd).
 **Aanleiding**: Jan (31 okt '26): "Daar was eigenlijk de Neutraal-status ook voor
 bedoeld — de stroomprijs is te duur om te laden maar te goedkoop om te verkopen,
 ook rekening houdend met de efficiëntie." De code maakte er tot nu toe een passieve
-rustband van (huis op net zolang in ≤ V+H), dus elke prijs tussen laad- en
-verkoop-eis: alles daaronder viel stil op Spaar: dure uren (bv. €0,48 's middags, top-12 's
-avonds €0,50) werden nooit vermeden terwijl de accu 25% SOC had.
+rustband van (huis op net zolang in ≤ V+H), waardoor elke prijs tussen laad- en
+verkoop-eis stil viel op Spaar — dure uren (bv. €0,48 's middags, top-12 's avonds
+€0,50) werden nooit vermeden terwijl de accu 25% SOC had.
 
 **Fix**: één nieuwe tak vóór het Spaar-vangnet in de beslisboom:
 `in + w + m ≥ V + H` EN (`uit` onbekend of ≤ verkoop-eis + H) EN niet in reserve
