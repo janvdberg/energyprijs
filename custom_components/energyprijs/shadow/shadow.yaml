@@ -327,8 +327,15 @@ template:
             {%- elif R2 > 0 and not spaar_blokkade %}{% set besluit.s = 'Doorleveren' %}
             {%- elif prev == 'Laden' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'Laden' %}
             {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'Laden' %}
+            {# v1.8.4 — Jans definitie: Neutraal = de verbruiksband. Prijs te duur
+               om te laden (in + w + m ≥ V + H) én te goedkoop om te verkopen
+               (uit ≤ verkoop-eis + H): dan ontladen voor eigen verbruik, dure nettarieven
+               ontlopen. η zit al in V (top-n × roundtrip) en in de verkoop-eis.
+               Bandbreedte flor..flor+2 tegen geflapper; onder flor spaart men.
+               Spaar is het vangnet daarboven: uit-prijs tot aan verkoop-eis. #}
             {%- elif prev == 'Neutraal' and nu2.in_nu <= g_laden_uit %}{% set besluit.s = 'Neutraal' %}
             {%- elif nu2.in_nu <= g_laden %}{% set besluit.s = 'Neutraal' %}
+            {%- elif nu2.in_nu + w + m >= g_laden_uit and (nu2.uit_nu is none or nu2.uit_nu <= g_eis_in) and not in_reserve %}{% set besluit.s = 'Neutraal' %}
             {%- else %}{% set besluit.s = 'Spaar' %}{% endif %}
           {%- endif %}
           {{ besluit.s }}

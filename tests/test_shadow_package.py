@@ -190,7 +190,8 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.38))
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state in ("Neutraal", "Spaar"), st.state
+    assert st.state == "Neutraal", (
+        f"in_nu+w+m 0,34 > V en uit onder eis → verbruiksband, got {st.state}")
 
     # 2) te vol voor aankomende zon (S=40 → doel 56,5; SOC 80 → R=23,5) en PV-herlaad
     #    goedkoop (middag-uit 0,05 → pv_eis ≈ 0,096) → avondpiek 0,30 > pv_eis → Ontladen
@@ -452,6 +453,46 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
         f"kwartier-index: sensor mag niet unavailable zijn, got {st.state}")
     in_nu = st.attributes.get("in_nu")
     assert in_nu == 0.26, f"verwacht in_nu=0.26 (laatste entry met t ≤ nu), got {in_nu}"
+
+
+async def test_shadow_neutraal_als_verbruiksband(hass):
+    """v1.8.4 — Jans definitie van Neutraal: te duur om te laden (in + w + m ≥
+    V + H) én te goedkoop om te verkopen (uit ≤ verkoop-eis + H), mét η al in V
+    (top-n × roundtrip) en in de eis (herlaadkosten/η). Dan geeft de accu het
+    huis stroom: dure nettarieven ontlopen. Daartoe was deze band bedoeld;
+    voorheen viel zo'n kwartier stil op Spaar (huis op net)."""
+    await _setup_shadow(hass)
+    hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "0.0")
+    hass.states.async_set("sensor.verwachte_opbrengst_morgen", "0.0")
+    await hass.async_block_till_done()
+    # soc_min laag: flor mag hier niet storen (reserveregelement heeft eigen test)
+    await hass.services.async_call(
+        "input_number", "set_value",
+        {"entity_id": "input_number.shadow_soc_min", "value": 5}, blocking=True)
+    # 1) verbruiksgeval: nu in=0,40 (duur); top-12 = 0,45 → V=0,3735,
+    #    g_laden_uit=0,3785 < 0,40 → laden loont niet; hoogste uit 0,30 < eis
+    #    → verkopen loont niet. SOC 50 > flor → de accu voert het huis.
+    await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.45, 0.30, 0.30))
+    await _trig(hass, 50)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state == "Neutraal", (
+        f"te duur te laden + te goedkoop te verkopen → Neutraal, got {st.state} "
+        f"attrs={dict(st.attributes)}")
+    # 2) tegenpool: uit boven de verkoop-eis is het géén neutrale zone meer.
+    #    Prev was 'Neutraal' (geen verkoop-bandbreedte), SOC 18 > flor+2 →
+    #    de verkooptak neemt over: Ontladen, geen Neutraal.
+    await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.45, 0.62, 0.62))
+    await _trig(hass, 18)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state == "Ontladen", (
+        f"uit boven verkoop-eis → verkooptak, niet de verbruiksband, got {st.state}")
+    # 3) onder de huisreserve blijft de band geblokkeerd: dan wordt gespaard,
+    #    niet uit de accu gegeten.
+    await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.45, 0.30, 0.30))
+    await _trig(hass, 4)
+    st = hass.states.get("sensor.shadow_status")
+    assert st.state != "Neutraal", (
+        f"onder flor geen verbruik uit de accu, got {st.state}")
 
 
 async def test_bevroren_daglijst_geen_besluit(hass):

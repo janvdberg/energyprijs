@@ -1,3 +1,23 @@
+## 2026-10-31 — v1.8.4: Neutraal is de VERBRUIKSBAND (accu voert het huis)
+
+**Aanleiding**: Jan (31 okt '26): "Daar was eigenlijk de Neutraal-status ook voor
+bedoeld — de stroomprijs is te duur om te laden maar te goedkoop om te verkopen,
+ook rekening houdend met de efficiëntie." De code maakte er tot nu toe een passieve
+rustband van (huis op net zolang in ≤ V+H), dus elke prijs tussen laad- en
+verkoopfallemaal viel stil op Spaar: dure uren (bv. €0,48 's middags, top-12 's
+avonds €0,50) werden nooit vermeden terwijl de accu 25% SOC had.
+
+**Fix**: één nieuwe tak vóór het Spaar-vangnet in de beslisboom:
+`in + w + m ≥ V + H` EN (`uit` onbekend of ≤ verkoop-eis + H) EN niet in reserve
+→ **Neutraal** = ontladen voor eigen verbruik. η round-trip zit al in V
+(top-n × η_rt) én in de verkoop-eis (herlaadkosten/η + w + m). Bandbreedte
+flor..flor+2 tegen geflapper rond de reserve; onder flor blijft Spaar.
+Spaar wordt het vangnet daarboven (uit boven de eis → wachten op de top).
+Beslissingen-met-gekende-prijzen test aangepast + dedicated test
+`test_shadow_neutraal_als_verbruiksband` (8/8 groen). cards.py-tekst en
+accu_statusnamen.md band 3 bijgewerkt. Geen naamswijziging — geen
+STATUS_MIGRATIE-regel nodig (prev 'Neutraal' blijft geldige hysterese-waarde).
+
 ## 2026-10-31 — v1.8.3: band 4 hernoemd "Op het net" → "Doorleveren"
 
 **Aanleiding**: Jan's opmerking (31 okt '26) dat "op het net" te veel ruimte laat voor
