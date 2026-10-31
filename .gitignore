@@ -4,3 +4,8 @@ __pycache__/
 # virtuele envs lokaal, nooit meenemen
 pytest_venv/
 .venv*/
+
+# review-archief (losse documentatie, niet deel van de distributie)
+review/
+review_claude/
+review_v1.7.0_context.md
