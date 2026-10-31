@@ -3,7 +3,7 @@ template-component en de zes beslis-sensoren nameten met gekende prijzen.
 
 Bewijst wat een YAML-pars test niet kan: HA accepteert het package, de
 formules uit stroomhandel_tactiek.md (revisie 3) rekenen correct, en de vijf
-statuslabels verschijnen zoals bedoeld — inclusief de ruimtetak (Op het net bij te
+statuslabels verschijnen zoals bedoeld — inclusief de ruimtetak (Doorleveren bij te
 vol voor aankomende zon) en curtail (Ontladen bij negatieve uit).
 """
 from pathlib import Path
@@ -185,7 +185,7 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
 
 
     # 1) normale spread: in 0,30→0,40; uit 0,28→0,38; eis ≈ herlaad(0,30)/0,83+0,04 = 0,402
-    #    hoogste uit 0,38 < eis → geen Ontladen; R = 50−100 = −50 → geen Op het net;
+    #    hoogste uit 0,38 < eis → geen Ontladen; R = 50−100 = −50 → geen Doorleveren;
     #    V = 0,83×top-duurste(0,40)=0,332; in_nu=0,30 + w+m=0,34 > V → Neutraal/Spaar
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.38))
     await _trig(hass, 50)
@@ -201,11 +201,11 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Ontladen", f"avondpiek boven eis moet verkopen, got {st.state}"
 
-    # 3) te vol maar verkoop loont niet → ruimtetak: Op het net (ontladen naar huis)
+    # 3) te vol maar verkoop loont niet → ruimtetak: Doorleveren (ontladen naar huis)
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.30))   # uit 0,30 < eis 0,402
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Op het net", f"ruimtegebrek zonder marge → huis-ontlasting, got {st.state}"
+    assert st.state == "Doorleveren", f"ruimtegebrek zonder marge → huis-ontlasting, got {st.state}"
 
     # 3) negatieve uit → curtail binnen Ontladen-label
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
@@ -258,11 +258,11 @@ async def test_shadow_huisreserve_blokkeert_ontladen(hass):
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
     assert st.state != "Ontladen", f"onder reserve geen verkoop, got {st.state}"
-    # 2) ruimtetak zou Op het net vragen, ook geblokkeerd onder reserve
+    # 2) ruimtetak zou Doorleveren vragen, ook geblokkeerd onder reserve
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.30))
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Op het net", f"onder reserve geen spaar, got {st.state}"
+    assert st.state != "Doorleveren", f"onder reserve geen spaar, got {st.state}"
     # 3) negatieve prijs → curtail gaat WEL door (verplicht, geen keuze)
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
     await _trig(hass, 12)

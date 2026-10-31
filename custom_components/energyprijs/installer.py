@@ -117,6 +117,10 @@ STATUS_MIGRATIE: dict[str, str] = {
     "ONTLADEN (curtail)": "Ontladen (curtail)",
     "SPAAR": "Op het net",      # ruimtetak: lading houden = band 4
     "OP HET NET": "Spaar",      # else-vangnet: goedkoopste rust = band 2
+    # v1.8.3 (31 okt '26): band 4 hernoemd "Op het net" naar "Doorleveren"; de oude
+    # naam liet te veel ruimte voor verkeerde interpretatie (de accu staat niet in
+    # parallel met het net -- overschot wordt doorgesluisd, lading gehouden).
+    "Op het net": "Doorleveren",
 }
 
 

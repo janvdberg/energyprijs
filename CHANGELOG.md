@@ -1,3 +1,15 @@
+## 2026-10-31 — v1.8.3: band 4 hernoemd "Op het net" → "Doorleveren"
+
+**Aanleiding**: Jan's opmerking (31 okt '26) dat "op het net" te veel ruimte laat voor
+verkeerde interpretatie — de accu staat bij deze band niet parallel aan het net; het
+zonnoverschot wordt doorgesluisd en de lading wordt gehouden.
+
+**Fix**: alle code-labels, tests, README en kaarttekst hernoemd naar **Doorleveren**
+(⚪ behouden). Beslislogica ONVERANDERD — alleen de naam.
+STATUS_MIGRATIE krijgt een extra regel `"Op het net" → "Doorleveren"` zodat de
+hysterese-histore van bestaande instanties meegaat. Documentatie (accu_statusnamen.md)
+is apart aangepast.
+
 ## 2026-10-28 — v1.8.2: shadow-statusnamen gelijk aan de documentatie-banden
 
 **Aanleiding**: Jan's swap van 28 okt (accu_statusnamen.md): 'Spaar' en 'Op het net'

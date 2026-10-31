@@ -14,7 +14,7 @@
 | 💶 All-in formules | Afname/levering via instelbare velden: btw, energiebelasting, opslagen |
 | 🔔 Meldingen | Automatisch bij bronuitval, spreiding of ontbrekende morgenprijzen |
 | 🗓️ 2027-bestendig | Saldering vervalt 1-1-2027 → één schakelaar om, formules passen zichzelf aan |
-| 🔋 Shadow tactiek (v1.5.1) | Regime-vrije accuhandel: 5 statussen (Laden · Neutraal · Spaar · Op het net · Ontladen) op zonvenster van `sun.sun`, PV-ruimte en PV-herlaad-eis — meedraait in shadow-mode naast G1–G4. v1.7.4: verkoopstatus hernoemd COMFORT → Ontladen (zelfde naam als de eigen Ontladen-band). |
+| 🔋 Shadow tactiek (v1.5.1) | Regime-vrije accuhandel: 5 statussen (Laden · Neutraal · Spaar · Doorleveren · Ontladen) op zonvenster van `sun.sun`, PV-ruimte en PV-herlaad-eis — meedraait in shadow-mode naast G1–G4. v1.7.4: verkoopstatus hernoemd COMFORT → Ontladen (zelfde naam als de eigen Ontladen-band). |
 
 ## Installatie
 

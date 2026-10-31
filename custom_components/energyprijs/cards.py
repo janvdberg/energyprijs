@@ -241,7 +241,7 @@ SHADOW_CARD = {
         "{% if s == 'Laden' %}🟢 **Laden** — spotgoedkoop: we vullen de accu zélfs met netstroom."
         "{% elif s == 'Spaar' %}🟡 **Spaar** — goedkoop: huis op net, zon in de accu; lading sparen voor de dure uren."
         "{% elif s == 'Neutraal' %}🔵 **Neutraal** — nul op de meter: niets loont. Huis op zon, accu veert bij."
-        "{% elif s == 'Op het net' %}⚪ **Op het net** — duur: huis trekt van het net, overschot direct door; lading houden, nog niet verkopen."
+        "{% elif s == 'Doorleveren' %}⚪ **Doorleveren** — duur: huis trekt van het net, overschot direct door; lading houden, nog niet verkopen."
         "{% elif s == 'Ontladen' %}🔴 **Ontladen** — topprijs: accu verkoopt aan het net (boven verkoop-eis)"
         "{% elif s == 'Ontladen (curtail)' %}🔴 **Ontladen (curtail)** — negatieve prijs, export stoppen"
         "{% else %}❓ {{ s }}{% endif %}"

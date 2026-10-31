@@ -3,7 +3,7 @@
 #  Draait LOAST de bestaande G1–G4-logica; schrijft NOOIT naar de omvormer.
 #  Berekent per kwartier: doel-SOC, ruimtetak R, V, herlaadkosten, verkoop-eis
 #  en een SHADOW-status in de vijf bandennamen (Laden/Spaar/
-#  Neutraal/Op het net/Ontladen), gelijk aan accu_statusnamen.md. Log per beslissing via notify- of logboekregel.
+#  Neutraal/Doorleveren/Ontladen), gelijk aan accu_statusnamen.md. Log per beslissing via notify- of logboekregel.
 #
 #  Installatie: plaats dit bestand in /config/packages/ EN herstart HA.
 #  Bron: roi-monitor/stroomhandel_tactiek.md (revisie 3, okt '26).
@@ -251,7 +251,7 @@ template:
           {{ (soc - doel) | round(1) }}
 
       # ═══ BESLISSING — de zes stappen teruggebracht tot de vijf statussen ═══
-      #   Ontladen = verkopen (uit > verkoop-eis) · Op het net = ruimte-tak (lading houden)
+      #   Ontladen = verkopen (uit > verkoop-eis) · Doorleveren = ruimte-tak (lading houden)
       #   Laden = laden als in+w+m < V · Neutraal / Spaar = rust (Spaar = else-vangnet)
       #   curtail (negatieve uit) → eigen status 'Ontladen (curtail)': verplicht
       #   door de grid-operator, dus géén beslissing maar een export-limiet die
@@ -323,8 +323,8 @@ template:
             {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'Ontladen (curtail)' %}
             {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and not verkoop_blokkade %}{% set besluit.s = 'Ontladen' %}
             {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in and not verkoop_blokkade %}{% set besluit.s = 'Ontladen' %}
-            {%- elif prev == 'Op het net' and R2 >= 0 and not spaar_blokkade %}{% set besluit.s = 'Op het net' %}
-            {%- elif R2 > 0 and not spaar_blokkade %}{% set besluit.s = 'Op het net' %}
+            {%- elif prev == 'Doorleveren' and R2 >= 0 and not spaar_blokkade %}{% set besluit.s = 'Doorleveren' %}
+            {%- elif R2 > 0 and not spaar_blokkade %}{% set besluit.s = 'Doorleveren' %}
             {%- elif prev == 'Laden' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'Laden' %}
             {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'Laden' %}
             {%- elif prev == 'Neutraal' and nu2.in_nu <= g_laden_uit %}{% set besluit.s = 'Neutraal' %}
@@ -378,7 +378,7 @@ automation:
           - Laden
           - Spaar
           - Neutraal
-          - Op het net
+          - Doorleveren
           - Ontladen
           - Ontladen (curtail)
         not_from:
