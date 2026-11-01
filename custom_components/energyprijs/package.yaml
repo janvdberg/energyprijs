@@ -152,7 +152,7 @@ template:
         delay_off: "00:05:00"
         state: >
           {% set s = state_attr('sensor.stroomprijs_basis', 'spreiding') %}
-          {{ s is not none and s | float(0) > states('input_number.prijs_afwijkingsdrempel') | float(0.005) }}
+          {{ s is not none and s | float(0) > states('input_number.prijs_afwijkingsdrempel') | float(0.010) }}
 
       - name: "Prijzen morgen beschikbaar"
         unique_id: prijzen_morgen_beschikbaar
