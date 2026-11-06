@@ -41,6 +41,8 @@ async def _setup_shadow(hass):
     # eerst de input_text-helpers uit het package, vóór de template.
     if pkg.get("input_text"):
         assert await async_setup_component(hass, "input_text", {"input_text": pkg["input_text"]})
+    # v1.9.0: de accu-blokkade binary_sensor is genest onder template
+    # (pkg['template'][0]['binary_sensor']); er is geen top-level blok meer.
     assert await async_setup_component(hass, "template", {"template": pkg["template"]})
     # sun.sun zaaien na setup: zonvenster dekt de test-data rond 'nu'
     now = datetime.now(timezone.utc)
@@ -250,35 +252,67 @@ async def test_onder_reserve_model():
     assert render("-1") == "True"
 
 
-async def test_shadow_huisreserve_blokkeert_ontladen(hass):
-    """Flor-check: SOC onder de huisreserve mag niet verkopen of sparen;
-    curtail (negatieve prijs) blijft wel door; Laden wordt niet geblokkeerd."""
+async def test_shadow_huisreserve_is_apart_signaal_v190(hass):
+    """v1.9.0: de huisreserve (flor) staat UIT de statuskeuze. De status is
+    een zuivere prijs-/economiestatus; de reserve leeft apart in
+    binary_sensor.shadow_accu_blokkade. Met flor 15: SOC 18 > flor → geen
+    blokkade; SOC 12 < flor → blokkade on, en de latch houdt aan tot soc weer
+    boven flor klimt (v1.9.0 fix #1: géén flor+2-uitstapband). Curtail blijft
+    altijd door; Laden toont nooit een blokkade op de statussensor (het
+    puur-SOC-signaal kan er wél on staan — de statussensor filtert)."""
     await _setup_shadow(hass)
     async def zet(daglijst):
         await _zet_daglijst(hass, daglijst)
-    hass.states.async_set("input_number.shadow_soc_min", "20")
+    # flor 15 (async_set, geen write): SOC 21 moet buiten de reserve vallen
+    # (signaal off), SOC ≤ 15 erbinnen (on). Met flor 20 zou de ladder
+    # 18→21→23 precies op de rand vallen en de verwachtingen verwarren.
+    hass.states.async_set("input_number.shadow_soc_min", "15")
     hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "40.0")
-    # 1) verkoop zou lonen (avondpiek boven eis), maar SOC 12 ≤ flor 20
-    await _trig(hass, 12)
+    bs = lambda: hass.states.get("binary_sensor.shadow_accu_blokkade")
+    # Prev leeg (initiele prev 'Spaar' van de setup zou anders meekleuren)
+    await _zet_prev(hass, "")
+    # 1) verkoop zou lonen (avondpiek boven eis), SOC 18 > flor 15:
+    #    de status kiest puur op prijs (Neutraal of Ontladen); het puur-SOC-
+    #    signaal staat OFF (18 zit ruim boven flor). Flor is hier expres 15
+    #    gezet zodat de ladder 18→21→23 buiten de reserve valt en de latch
+    #    niet per ongeluk meekleurt.
+    await _trig(hass, 18)
     await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
-    await _trig(hass, 12)
+    await _trig(hass, 18)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Ontladen", f"onder reserve geen verkoop, got {st.state}"
-    # 2) ruimtetak zou Doorleveren vragen, ook geblokkeerd onder reserve
+    assert st.state in ("Neutraal", "Ontladen"), f"prijsstatus bij hoge prijs, got {st.state}"
+    assert bs().state == "off", f"SOC 18 > flor 15 → geen blokkade, got {bs().state}"
+    # 2) SOC diep onder flor (12) → signaal on, en de latch houdt aan tot soc
+    #    weer boven flor klimt (v1.9.0 fix #1: géén flor+2-uitstapband meer)
+    await _trig(hass, 12)
+    assert bs().state == "on", f"SOC 12 < flor → blokkade on, got {bs().state}"
+    # 3) SOC 16 (net boven flor 15) → latch geeft vrij (boven flor)
+    await _trig(hass, 16)
+    assert bs().state == "off", f"SOC 16 boven flor → off, got {bs().state}"
+    # 4) ruimtetak: R > 0 geeft Doorleveren, ONAFHANKELIJK van de prijskeuze.
+    #    Bij SOC 12 en flor 20 klemt de doelformule (max(flor,...)) → doel 20,
+    #    dus R negatief. Flor tijdelijk naar 5: doel = 100−40/92·100 ≈ 56,5?
+    #    Nee — met S=40, C=92 is raw ≈ 56,5 > 5 → doel 56,5, nog steeds R<0.
+    #    Eenvoudiger: hogere SOC dan doel. Zet flor 5 en SOC 60 → doel 56,5,
+    #    R = +3,5 → ruimtetak vuurt terwijl de blokkade uit is (SOC ≥ flor+2).
+    await hass.services.async_call(
+        "input_number", "set_value",
+        {"entity_id": "input_number.shadow_soc_min", "value": 5}, blocking=True)
     await zet(_daglijst_attr(0.30, 0.40, 0.28, 0.30))
-    await _trig(hass, 12)
+    await _trig(hass, 60)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Doorleveren", f"onder reserve geen spaar, got {st.state}"
-    # 3) negatieve prijs → curtail gaat WEL door (verplicht, geen keuze)
+    assert st.state == "Doorleveren", f"R>0 → Doorleveren ook zonder verkoopmarge, got {st.state}"
+    # terug naar flor 20 voor de volgende stappen
+    await hass.services.async_call(
+        "input_number", "set_value",
+        {"entity_id": "input_number.shadow_soc_min", "value": 20}, blocking=True)
+    # 5) negatieve prijs → curtail gaat ALTijd door (verplicht, geen keuze)
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Ontladen (curtail)", f"curtail moet altijd door, got {st.state}"
-    # 4) diepgooie inkoopprijs onder de reserve → Laden mag NIET geblokkeerd
-    #    worden (goedkoop laden is juist hoe je boven de reserve komt). Ruis
-    #    (w+m) op 0, η_rt=1 via shadow_eta (η_laad=1); de diepe dal staat in het verleden
-    #    en drukt V dus niet: V = top-dal 0.30 ≈ 0.20. in_nu 0.05 < g_laden ≈ 0.295
-    #    ⇒ de Laden-tak móét vuren.
+    # 6) diepe dalprijs ONDER de reserve → status Laden én de blokkade MOET
+    #    uit: goedkoop laden is juist hoe je boven de reserve komt.
     hass.states.async_set("input_number.shadow_w", "0")
     hass.states.async_set("input_number.shadow_m", "0")
     # η_rt=1 via de noodvallet shadow_eta: de gemeten rendements-helpers bestaan
@@ -289,29 +323,32 @@ async def test_shadow_huisreserve_blokkeert_ontladen(hass):
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Laden", f"goedkoop laden moet vrij zijn, got {st.state}"
-    # 5) SOC precies gelijk aan flor → grens is '≤', dus geblokkeerd
+    # Het SIGNAAL is puur-SOC: bij SOC 12 < flor staat het on, en de
+    # 'blokkade'-spiegel op de statussensor is dezelfde puur-SOC-waarde.
+    # Statusafhankelijk filteren kan hier niet: attributes worden vóór de
+    # state gezet (this.state is dan stale) en update_on_state forceert bij
+    # een statuswissel juist één render met die oude basis.
+    assert bs().state == "on", f"puur-SOC-signaal bij SOC 12, got {bs().state}"
+    a = dict(hass.states.get("sensor.shadow_status").attributes)
+    assert a["blokkade"] == "on", f"puur-SOC-spigel ook op statussensor, got {a}"
+    # 7) SOC precies gelijk aan flor (20) → grens is '≤', dus blokkade on
     await zet(_daglijst_piek_met_pv(0.40, 0.30, 0.30, 0.05))
     await _trig(hass, 20)
-    st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Ontladen", f"bij soc==flor nog geen verkoop, got {st.state}"
-    # 6) v1.8.5: net boven flor (21) met vers besluit is er nog GEEN Ontladen —
-    #    instappen vereist soc > flor+2 (anders flapt het elke tick rond de
-    #    reserve). Bij 23 (> flor+2) wordt de verkoop wél vrij.
+    assert bs().state == "on", f"soc==flor → on, got {bs().state}"
+    # 8) v1.9.0 fix #1: net boven flor (21) geeft de latch VRIJ (geen
+    #    flor+2-band meer). De STATUS doet mee op prijs (hoge avondpiek boven
+    #    de eis ⇒ Ontladen).
     await _trig(hass, 21)
+    assert bs().state == "off", f"21 boven flor → latch vrij, got {bs().state}"
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Ontladen", f"bij 21 fris besluit nog geen instap, got {st.state}"
-    await _trig(hass, 23)
-    st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Ontladen", f"bij 23 (> flor+2) verkoop vrij, got {st.state}"
-    # 7) SOC unavailable → fail-safe: geen verkoop
-    await _trig(hass, 80)
+    assert st.state == "Ontladen", f"prijsstatus bij hoge piek ≥ Ontladen, got {st.state}"
+    # 9) SOC unavailable → fail-safe: blokkade on, status blijft prijs-gebaseerd
     hass.states.async_set("sensor.accu_percentage", "unavailable")
     await hass.async_block_till_done()
     await _trig(hass, None)
+    assert bs().state == "on", f"unknown/unavailable SOC → fail-safe on, got {bs().state}"
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Ontladen", f"unknown/unavailable SOC fail-safe, got {st.state}"
-
-
+    assert st.state in ("Neutraal", "Ontladen"), f"status blijft prijs-gebaseerd, got {st.state}"
 async def test_shadow_hysterese_en_kwartierindex(hass):
     """v1.5.2 — de twee anti-knipperingsfixes:
     1. Hysterese: vlakke prijsspel rond de V-grens (in+w+m ≈ V) mag NIET elk
@@ -369,11 +406,12 @@ async def test_shadow_hysterese_en_kwartierindex(hass):
     # P2: in_nu = 0,285 → 0,285+0,040 = 0,325 < V−H = 0,327 → Laden
     # P3: in_nu = 0,292 → 0,292+0,040 = 0,332 → binnen band → Laden
     # P4: in_nu = 0,30  → 0,30+0,040 = 0,340 > V+H = 0,337 → uit Laden
-    # P1: in_nu = 0,295 → Neutraal
+    # P1: in_nu = 0,295 → 0,335 < V+H → Spaar (v1.9.0: de oude else-Spaar is
+    #     weg; Neutraal ís de verbruiksband in ≥ V+H en uit ≤ eis+H)
     await _zet_laden(0.295)
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Neutraal", f"P1: verwacht Neutraal, got {st.state}"
+    assert st.state == "Spaar", f"P1: verwacht Spaar, got {st.state}"
 
     # P2: in_nu = 0,285 → Laden
     await _zet_laden(0.285)
@@ -474,13 +512,19 @@ async def test_shadow_neutraal_als_verbruiksband(hass):
     hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "0.0")
     hass.states.async_set("sensor.verwachte_opbrengst_morgen", "0.0")
     await hass.async_block_till_done()
-    # soc_min laag: flor mag hier niet storen (reserveregelement heeft eigen test)
+    #    soc_min laag: flor mag hier niet storen (reserveregelement heeft eigen test)
     await hass.services.async_call(
         "input_number", "set_value",
         {"entity_id": "input_number.shadow_soc_min", "value": 5}, blocking=True)
-    # 1) verbruiksgeval: nu in=0,40 (duur); top-12 = 0,45 → V=0,3735,
-    #    g_laden_uit=0,3785 < 0,40 → laden loont niet; hoogste uit 0,30 < eis
-    #    → verkopen loont niet. SOC 50 > flor → de accu voert het huis.
+    # η_rt = 0,693 via de gemete rendements-helpers (77% × 90%; HELPERS_DEFAULTS
+    # in _setup_shadow). Alle in-prijzen 0,45 → V = 0,693·0,45 = 0,31185;
+    # eis = 0,45·0,693 + w + m = 0,35165. nu-kwartier in = 0,40 (duur):
+    #   Laden? in+w+m = 0,44 < V−H = 0,30685 → NEE (te duur om te laden)
+    #   Spaar? in = 0,40 < V+H = 0,31685 → NEE
+    #   Verkopen? uit = 0,30 ≤ eis+H = 0,35665 → NEE
+    # → verbruiksband: Neutraal. SOC 50 en blokkade off (flor 5).
+    # 1) verbruiksgeval: in_nu 0,40, top-12 = 0,45 → V = 0,31185,
+    #    hoogste uit 0,30 < eis → verkopen loont niet. De accu voert het huis.
     await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.45, 0.30, 0.30))
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
@@ -488,20 +532,23 @@ async def test_shadow_neutraal_als_verbruiksband(hass):
         f"te duur te laden + te goedkoop te verkopen → Neutraal, got {st.state} "
         f"attrs={dict(st.attributes)}")
     # 2) tegenpool: uit boven de verkoop-eis is het géén neutrale zone meer.
-    #    Prev was 'Neutraal' (geen verkoop-bandbreedte), SOC 18 > flor+2 →
-    #    de verkooptak neemt over: Ontladen, geen Neutraal.
+    #    eis = 0,35165; uit 0,62 > eis + H → de verkooptak neemt over:
+    #    Ontladen, geen Neutraal (SOC is prijszuiver, geen poort).
     await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.45, 0.62, 0.62))
     await _trig(hass, 18)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Ontladen", (
         f"uit boven verkoop-eis → verkooptak, niet de verbruiksband, got {st.state}")
-    # 3) onder de huisreserve blijft de band geblokkeerd: dan wordt gespaard,
-    #    niet uit de accu gegeten.
+    # 3) v1.9.0: óók onder de huisreserve beslist de status puur op prijs —
+    #    de blokkade leeft in binary_sensor.shadow_accu_blokkade (eigen test).
     await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.45, 0.30, 0.30))
     await _trig(hass, 4)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Neutraal", (
-        f"onder flor geen verbruik uit de accu, got {st.state}")
+    assert st.state == "Neutraal", (
+        f"prijsstatus is SOC-onafhankelijk, got {st.state}")
+    bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
+    assert bs is not None and bs.state == "on", (
+        f"SOC 4 ≤ flor → apart signaal aan, got {bs.state if bs else None}")
 
 
 async def _hysterese_fixture(hass):
@@ -530,6 +577,21 @@ def _lees_eis(hass):
     return float(st.state)
 
 
+async def _zet_prev(hass, value):
+    """Prev-status rechtstreeks schrijven via async_set — BEWUST géén
+    set_value-service-call. HA triggert de status-sensor op writes van
+    input_text.shadow_status_vorige; zo'n herberekening leest de net gezette
+    prev gecombineerd met de OUDE daglijst/SOC en de log-automation overschrijft
+    de prev dan meteen met die oude kant. async_set verandert alleen de state
+    zonder de sensor te triggeren; de volgende _trig zet daglijst/SOC en rendert
+    ééns met de nieuwe prev."""
+    hass.states.async_set("input_text.shadow_status_vorige", value)
+    await hass.async_block_till_done()
+
+
+
+
+
 async def test_shadow_ontladen_hysterese_v185(hass):
     """v1.8.5 — de uit-tak ving vóór deze fix met g_eis_uit (= eis − H) alles op
     tot onder de instapdrempel eis + H: instappen gebeurde al op eis−H en de
@@ -545,23 +607,21 @@ async def test_shadow_ontladen_hysterese_v185(hass):
     await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.44, 0.44, 0.44))
     eis = _lees_eis(hass)
     assert abs(eis - 0.44) < 1e-9, f"fixture-eis verrast: {eis}"
-    # 1) prev='Neutraal' + uit = v_eis → de uit-band is te laag voor instappen
-    #    en de prev-kant van de neutraaltak geldt nog → Neutraal blijft staan.
-    await hass.services.async_call(
-        "input_text", "set_value",
-        {"entity_id": "input_text.shadow_status_vorige", "value": "Neutraal"},
-        blocking=True)
+    # 1) prev leeg + uit = v_eis → de uit-band is te laag voor instappen; de
+    #    Spaar-tak wél: η_rt=1 en alle in-prijzen 0,44 behalve nu 0,40 →
+    #    V ≈ 0,365, dus in_nu 0,40 < V+H → Spaar (restval pas bij ≥ V+H).
+    await _zet_prev(hass, "")
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Neutraal", (
-        f"uit tussen eis−H en eis+H met prev Neutraal → Neutraal, got {st.state} "
+    assert st.state == "Spaar", (
+        f"uit tussen eis−H en eis+H met prev leeg → Spaar (in < V+H), got {st.state} "
         f"attrs={dict(st.attributes)}")
     # 2) prev='Ontladen' + dezelfde uit → binnen de band blijft men aan het
-    #    verkopen (uit > eis − H volstaat).
-    await hass.services.async_call(
-        "input_text", "set_value",
-        {"entity_id": "input_text.shadow_status_vorige", "value": "Ontladen"},
-        blocking=True)
+    #    verkopen (uit > eis − H volstaat). async_set i.p.v. set_value: een
+    #    service-call is een write en de status-sensor triggert op writes van
+    #    input_text.shadow_status_vorige — die herberekening zou de net gezette
+    #    prev meteen overlopen met de oude kant.
+    await _zet_prev(hass, "Ontladen")
     await _trig(hass, 50)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Ontladen", (
@@ -570,86 +630,92 @@ async def test_shadow_ontladen_hysterese_v185(hass):
 
 async def test_shadow_reserve_band_flappert_niet_v185(hass):
     """v1.8.5 — de oude band (instap ≤ flor, uitstap > flor+2) flopte elke
-    tick: vers besluit vrij → volgende tick prev=Ontladen en binnen de band
-    geblokkeerd → tick daarna weer vrij. Nu instappen pas boven flor+2 en
-    blijven tot flor: vier opeenvolgende ticks bij SOC 21 (net boven flor)
-    met vers besluit mogen NIET wisselen.
+    tick. v1.9.0 fix #1 maakt de band STRICTER: instappen zodra soc ≤ flor,
+    latch houdt aan tot soc weer boven flor klimt (géén flor+2-uitstapband).
+    Daarmee is er geen grijs gebied tussen flor en flor+2 waarin het signaal
+    per tick kon kantelen.
 
-    Verkoopsituatie: η_rt=1 → eis = 0,44; uit = 0,45 > eis + H → instap zou
-    mogen, maar soc_min=20 → flor=20 en SOC 21 ≤ flor+2 → verkoop_blokkade bij
-    vers besluit (prev leeg). In 0,40 ≥ g_laden_uit ≈ 0,37 → laden loont niet.
-    Vier ticks bij SOC 21 mogen dus niet in Ontladen wisselen; bij 23 wel.
+    Verkoopsituatie: η_rt=1 → eis = 0,44; uit = 0,45 > eis + H.
+    De STATUS kiest puur op prijs — bij elke SOC Ontladen. De anti-fladder-
+    eigenschap zit in binary_sensor.shadow_accu_blokkade: vier identieke
+    ticks bij dezelfde SOC mogen het signaal niet doen wisselen. Bij SOC 21
+    (boven flor 20) is het signaal off en blijft off; bij SOC 18 (onder flor)
+    on; bij terugkeer naar 21 geeft de latch direct vrij (soc > flor).
     """
     await _hysterese_fixture(hass)
     await hass.services.async_call(
         "input_number", "set_value",
         {"entity_id": "input_number.shadow_soc_min", "value": 20}, blocking=True)
     await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.44, 0.45, 0.45))
-    eis = _lees_eis(hass)
-    assert abs(eis - 0.44) < 1e-9, f"fixture-eis verrast: {eis}"
-    for i in range(4):
-        await _trig(hass, 21)
-        st = hass.states.get("sensor.shadow_status")
-        assert st.state != "Ontladen", (
-            f"tick {i + 1}/4 bij SOC 21: fris besluit mag niet instappen, got {st.state}")
-    # En boven de band (23) WÉL instappen — de instapkant is intakt.
-    await _trig(hass, 23)
+    # 1) status is prijszuiver: ook bij SOC 21 gewoon Ontladen. Prev leeg
+    #    zetten: de log-automation heeft 'Spaar' achtergelaten en in deze
+    #    fixture is Spaar een vers besluit (geen writes).
+    await _zet_prev(hass, "")
+    await _trig(hass, 21)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Ontladen", (
-        f"SOC 23 > flor+2: instappen vrij, got {st.state}")
+        f"prijsstatus kent geen SOC-poort, got {st.state}")
+    # 2) het SIGNAAL flopt niet: vier identieke ticks bij SOC 21 (net boven
+    #    flor 20) — puur-SOC → off, en blijft off zolang de inputs gelijk zijn.
+    for i in range(4):
+        await _trig(hass, 21)
+        bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
+        assert bs.state == "off", (
+            f"tick {i + 1}/4 bij SOC 21: signaal mag niet aan/uit fladderen, got {bs.state}")
+    # 3) onder flor → signaal on.
+    await _trig(hass, 18)
+    bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
+    assert bs.state == "on", f"SOC 18 < flor 20: blokkade on, got {bs.state}"
+    # 4) v1.9.0 fix #1: terug boven flor (21) → latch geeft DIRECT vrij (geen
+    #    flor+2-band meer die nog vasthoudt).
+    await _trig(hass, 21)
+    bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
+    assert bs.state == "off", (
+        f"SOC 21 > flor: strikte latch geeft vrij, got {bs.state}")
+    # 5) nog hoger (23) → blijft off
+    await _trig(hass, 23)
+    bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
+    assert bs.state == "off", (f"SOC 23 boven flor: blokkade vrij, got {bs.state}")
 
 
 async def test_shadow_neutraal_bandbreedte_v185(hass):
-    """v1.8.5 — de v1.8.4-beloofde band flor..flor+2 bestond in de code niet
-    (alleen not in_reserve); Neutraal en Spaar konden rond flor flapperen.
-    Nu: neutraal_vrij = soc > flor+2, of (prev == 'Neutraal' en soc > flor).
-    SOC 21 met vers besluit → Spaar; SOC 21 met prev Neutraal → Neutraal;
-    SOC 20 (op flor) → altijd Spaar."""
+    """v1.9.0: de SOC-band is uit de statuskeuze — de reserve leeft in
+    binary_sensor.shadow_accu_blokkade. Wat blijft is de PRIJSHYSTERESE rond
+    V ± H (stap 4): een vers besluit spaart bij in < V + H; vanuit Neutraal
+    houdt de neutraaltak aan zolang in ≥ V − H, en pas daaronder kapt de
+    Spaar-tak om. Zelfde scenario, nu zonder SOC-verwachtingen: overal SOC
+    21, flor 20 — de status doet daar niets mee."""
     await _hysterese_fixture(hass)
     await hass.services.async_call(
         "input_number", "set_value",
         {"entity_id": "input_number.shadow_soc_min", "value": 20}, blocking=True)
-    # Verbruiksgeval (η_rt=1): alle in-prijzen 0,40 → V = 0,40, dus
-    # g_laden = 0,395 en g_laden_uit = 0,405. in_nu + w + m = 0,44 ≥ 0,405 →
-    # niet laden; in_nu 0,40 ≥ g_laden → geen vroege Neutraal-takken.
-    # uit 0,30 ≤ g_eis_in (eis = herlaad 0,40 + w + m = 0,44) → geen verkoop.
-    # Enige tak die overblijft: de verbruiksband-tak, geblokkeerd door
-    # neutraal_vrij bij SOC 21 (≤ flor+2).
-    await _zet_daglijst(hass, _daglijst_voortgang(0.45, 0.45, 0.30, 0.30))
-    # 1) SOC 21 met vers besluit: binnen de band → geen instap, Spaar. Een
-    #    lege input_text rendert als 'unknown' — dus een dummy-prev (Spaar).
-    await hass.services.async_call(
-        "input_text", "set_value",
-        {"entity_id": "input_text.shadow_status_vorige", "value": "Spaar"},
-        blocking=True)
+    # Verbruiksgeval met η_rt = 1 (shadow_eta=1 in de fixture). De eerste twee
+    # kwartieren van _daglijst_voortgang bepalen in_nu (eerste verstreken
+    # kwartier); de dure prijzen bepalen V via het top-12-gemiddelde. Met
+    # dure=in 0,39 is élke toekomstprijs 0,39 → V = 0,39 exact. Dus
+    # g_laden_uit = V + H = 0,395 en g_laden = V − H = 0,385; in_nu = 0,39
+    # zit midden in de band V±H.
+    await _zet_daglijst(hass, _daglijst_voortgang(0.39, 0.39, 0.30, 0.30))
+    # 1) prev leeg (vers besluit): in 0,39 < V+H = 0,395 → Spaar-tak wint.
+    await _zet_prev(hass, "")
     await _trig(hass, 21)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Spaar", (
-        f"SOC 21 met vers besluit → Spaar (geen Neutraal-instap < flor+2), got {st.state}")
-    # 2) SOC 21 met prev Neutraal: blijven tot flor → Neutraal.
-    await hass.services.async_call(
-        "input_text", "set_value",
-        {"entity_id": "input_text.shadow_status_vorige", "value": "Neutraal"},
-        blocking=True)
+        f"vers besluit + in < V+H → Spaar, got {st.state} attrs={dict(st.attributes)}")
+    # 2) prev Neutraal (dezelfde daglijst): in 0,39 ≥ V−H = 0,385 → de
+    #    neutraaltak (vóór de Spaar-tak) houdt aan → géén fladder rond V.
+    await _zet_prev(hass, "Neutraal")
     await _trig(hass, 21)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Neutraal", (
-        f"SOC 21 met prev Neutraal → Neutraal (blijven tot flor), got {st.state}")
-    # 3) SOC 20 (op flor): onder de bandgrens — neutraal_vrij-eis is soc > flor,
-    #    dus prev Neutraal helpt hier niet: altijd Spaar. Prev op 'Spaar' zetten
-    #    kan hier niet: de log-automation heeft prev na fase 2 al op 'Neutraal'
-    #    gezet en schrijft dezelfde waarde niet opnieuw (geen state-change → geen
-    #    herberekening). Dummy-prev 'Laden' is wél een echte overgang; het
-    #    besluit valt daarna terug op neutraal_vrij=False → Spaar.
-    await hass.services.async_call(
-        "input_text", "set_value",
-        {"entity_id": "input_text.shadow_status_vorige", "value": "Laden"},
-        blocking=True)
-    await _trig(hass, 20)
+        f"prev Neutraal + in ≥ V−H → Neutraal blijft (geen fladder), got {st.state}")
+    # 3) in_nu zakt naar 0,38 (< V−H = 0,385): de neutraaltak valt af en de
+    #    Spaar-tak pakt — vanuit Neutraal is er dus wél een route naar beneden.
+    await _zet_daglijst(hass, _daglijst_voortgang(0.38, 0.39, 0.30, 0.30))
+    await _trig(hass, 21)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Spaar", (
-        f"SOC 20 op flor → Spaar, got {st.state}")
-
+        f"in < V−H → overschakel naar Spaar, got {st.state}")
 
 async def test_bevroren_daglijst_geen_besluit(hass):
     """v1.7.8: is het laatste verstreken kwartier ouder dan 45 min (bevroren
@@ -675,10 +741,12 @@ async def test_shadow_curtail_geen_verkoop_hysterese_v186(hass):
 
     Curtail is géén verkoop maar een verplichte export-limiet (grid-operator):
     zodra 'uit' weer boven 0 komt, geldt de instapregel van een VERS besluit —
-    uit > verkoop-eis + H EN SOC > flor + 2 (verkoop_blokkade). Pas daarna mag
-    de gewone Ontladen-band beginnen. Als curtail wél zou meetellen, zou de
-    instap al bij SOC ≤ flor+2 direct na een curtail doorgaan — de reserveband
-    (flapper-test) bestaat precies om dat te voorkomen.
+    uit > verkoop-eis + H EN soc > flor (v1.9.0: de SOC-poort zit niet meer in
+    de beslisketen; binary_sensor.shadow_accu_blokkade is het apart te raadplegen
+    signaal — de test checkt hier expliciet dat signaal mee). Pas daarna mag de
+    gewone Ontladen-band beginnen. Als curtail wél zou meetellen, zou de instap
+    direct na een curtail doorgaan binnen de reserveband — de flapper-test
+    bestaat precies om dat te voorkomen.
     """
     await _setup_shadow(hass)
     # η_rt=1 via shadow_eta (gemeten rendements-helpers bestaan hier niet),
@@ -697,19 +765,40 @@ async def test_shadow_curtail_geen_verkoop_hysterese_v186(hass):
     await _trig(hass, 21)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Ontladen (curtail)", f"curtail gaat door, got {st.state}"
-    # 2) uit springt terug boven de verkoop-eis, maar SOC blijft 21 (≤ flor+2):
-    #    curtail telt níét als 'Ontladen' voor de hysterese → vers besluit,
-    #    verkoop_blokkade werkt → géén Ontladen.
+    # 2) uit springt terug boven de verkoop-eis, SOC 21 (flor 20 → signaal off):
+    #    curtail telt níét als 'Ontladen' voor de hysterese → vers besluit.
+    #    v1.9.0: de statusketen heeft géén SOC-poort meer, dus Ontladen mag hier
+    #    wel — het RESERVE-SIGNAAL moet off zijn (soc > flor) én mag niet latchen.
     await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
     await _trig(hass, 21)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state != "Ontladen", (
-        f"direct na curtail bij SOC ≤ flor+2 mag geen verkoop instappen, got {st.state}")
+    bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
+    assert bs.state == "off", (
+        f"SOC 21 > flor 20 → reserve-signaal off (latch aan flor, niet flor+2), got {bs.state}")
+    assert st.state == "Ontladen", (
+        f"v1.9.0: na curtail, uit boven eis en soc > flor → vers besluit Ontladen, got {st.state}")
     # 3) zelfde situatie (uit wél boven de verkoop-eis) met SOC boven de
     #    band (23 > flor+2): verkoop mag Wél instappen.
     await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
     await _trig(hass, 23)
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Ontladen", f"boven flor+2 mag verkoop wel, got {st.state}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

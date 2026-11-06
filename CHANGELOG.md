@@ -1,3 +1,37 @@
+## 2026-11-05 — v1.9.0: shadow_status ontkoppeld van SOC — prijsstatus zuiver, reserve apart signaal
+
+**Aanleiding**: in v1.8.x verstopte `sensor.shadow_status` twee dingen tegelijk:
+de economische beslissing (prijzen vs. eis) én de accu-reserveband
+(flor..flor+2). Daardoor was "Neutraal" soms "geen winst" en soms "reserve",
+onverklaarbaar vanaf het dashboard. Ontkoppelen per besluit van oktober.
+
+1. **`sensor.shadow_status` is nu een zuivere prijs-/economiestatus.** De
+   beslis-logica zelf is ONVERANDERD (regression-test
+   `test_shadow_beslissing_blijft_gedrag_v186_na_v190` bewijst het): de band
+   blijft alleen via `Doorleveren`/R in de uitkomst, niet als eigen statuslabel.
+2. **Vier gate-attributes op de status-sensor**: `verkoop_blokkade`,
+   `spaar_blokkade`, `neutraal_vrij`, `in_reserve` — elk met zijn eigen
+   volledige `{% set %}`-reeks in `>`-scalarstijl (consistent met `in_nu`/
+   `uit_nu`). Het dashboard kan de blokkade nu verklaren zónder te gokken.
+3. **Nieuwe `binary_sensor.shadow_accu_blokkade`** (`template.binary_sensor`,
+   unique_id `energyprijs_shadow_accublokkade`): on wanneer de reserve een
+   vers verkoop/spaar-besluit blokkeert. Fail-safe: onbekende SOC → on
+   (nooit stille verkoop uit de reserve). Laden en curtail zijn NOOIT een
+   blokkade — laden is juist hoe je boven de reserve komt, curtail is verplicht.
+4. **Eenheid**: `unit_of_measurement: "prijsstatus"` zoals getipt faalt in de
+   praktijk — HA's sensor-component weigert niet-numerieke states bij een
+   eigenlijke eenheid (ValueError → state `unknown`, alle regression-tests rood).
+   Oplossing: de eenheid staat als attribute `prijsstatus: "prijsstatus"` op de
+   sensor; `unit_of_measurement` blijft afwezig. Test aangepast + commentaar.
+5. **Top-level `binary_sensor:` naast `template:` faalt ook**: de core
+   binary_sensor vraagt `platform:`. Template-binaire sensoren moeten ín
+   `template:` staan — sectie daarheen verplaatst.
+
+**Getest**: `tests/test_shadow_package.py` + `tests/test_shadow_yaml_valid.py`
+— 23 passed. De 71 errors/1 failure in de rest van suite zijn pre-existing
+(bewezen met `git stash`: 66 errors/1 failure op schone HEAD; +5 errors door
+nieuwe testnamen).
+
 ## 2026-10-31 — v1.8.6: restpunten uit de v1.8.5-review (CI-lint, docs, curtail-keus)
 
 **Aanleiding**: tweede review-rondje op v1.8.5 — geen nieuwe beslisbugs meer;
