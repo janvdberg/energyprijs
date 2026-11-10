@@ -206,7 +206,7 @@ template:
           {% for e in state_attr('sensor.stroomprijs_daglijst', 'morgen') | default([], true) %}
             {% if e.t is defined and e.in is defined %}
               {% set ts = e.t | as_datetime %}
-              {% if ts <= ns.nu + timedelta(hours=24) %}
+              {% if ts >= ns.nu and ts <= ns.nu + timedelta(hours=24) %}
                 {% set ns.net = ns.net + [e.in | float(9)] %}
                 {#── PV-herlaad alleen binnen het zonvenster (sun.sun) ──#}
                 {% if e.uit is defined and son is not none and op is not none and ts >= op and ts <= son %}
