@@ -187,6 +187,105 @@ async def sync_package_if_changed(hass: HomeAssistant) -> bool:
     return changed or shadow_changed
 
 
+async def controleer_helper_aanwezigheid(hass: HomeAssistant) -> list[str]:
+    """Bewak of elke door het package gedefinieerde helper live in de registry staat.
+
+    Achtergrond (september 2026): een HACS-update herschrijft alleen
+    custom_components/; sha256-gelijkheid tussen bron en disk laat dan een
+    per ongeluk verwijderde helper ongemerkt verdwijnen — het package is
+    'bijgewerkt' volgens de hash, maar de instantie bestaat niet meer. Deze
+    check vergelijkt de definitie met de LIVE entity-registry:
+
+      - afwezige helpers → forceer packageschrijven (omzeilt de hash-skip van
+        sync_package_if_changed) + Repairs-issue 'helpers_verwijderd' met het
+        verzoek HA te herstarten (packages laden alleen bij startup);
+      - alles aanwezig → issue opruimen.
+
+    Geeft de lijst afwezige entity-id's terug (leeg = alles in orde).
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    defined = await hass.async_add_executor_job(_helper_ids_sync)
+    reg = er.async_get(hass)
+    ontbrekend = [eid for eid in defined if reg.async_get(eid) is None]
+
+    if ontbrekend:
+        await hass.async_add_executor_job(_forceer_package_herschrijf_sync, hass)
+        try:
+            ir.async_create_issue(
+                hass, DOMAIN, "helpers_verwijderd",
+                is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key="helpers_verwijderd",
+                translation_placeholders={
+                    "aantal": str(len(ontbrekend)),
+                    "helpers": ", ".join(ontbrekend[:12])
+                    + (" …" if len(ontbrekend) > 12 else ""),
+                },
+            )
+        except Exception:  # noqa: BLE001 — issue is behulpzaam, niet kritiek
+            _LOGGER.debug("energyprijs: helper-repair-issue aanmaken mislukt",
+                          exc_info=True)
+        _LOGGER.warning("energyprijs: %d helpers ontbreken in de registry — "
+                        "package geforceerd herschreven, herstart HA om ze te "
+                        "herstellen: %s", len(ontbrekend), ", ".join(ontbrekend))
+    else:
+        try:
+            ir.async_delete_issue(hass, DOMAIN, "helpers_verwijderd")
+        except Exception:  # noqa: BLE001
+            pass
+    return ontbrekend
+
+
+def _helper_ids_sync() -> list[str]:
+    """Alle helper-entity-id's die in onze eigen package-bestanden gedefinieerd zijn.
+
+    Leest de ingebedde bron-YAML's (package.yaml + shadow/shadow.yaml) en geeft
+    input_number/input_boolean/input_text-sleutels terug als entity-id's. De
+    aanname 'sleutel == object_id' klopt voor alle helpers van deze integratie;
+    afwijkende sleutels (geen geldige identifier) worden genegeerd — onleesbare
+    informatie is geen informatie, dus geen gok op een entity-id.
+    """
+    ids: list[str] = []
+    for source in (PACKAGE_SOURCE, SHADOW_PACKAGE_SOURCE):
+        try:
+            tekst = (Path(__file__).parent / source).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for sec in ("input_number", "input_boolean", "input_text"):
+            m = re.search(rf"(?m)^{sec}:.*?(?=^\w|\Z)", tekst, re.S)
+            if not m:
+                continue
+            for key in re.findall(r"(?m)^  ([a-z0-9_]+):", m.group(0)):
+                eid = f"{sec}.{key}"
+                if eid not in ids:
+                    ids.append(eid)
+    return ids
+
+
+def _forceer_package_herschrijf_sync(hass: HomeAssistant) -> None:
+    """Zorg dat beide packages op disk exact de ingebedde bron weergeven.
+
+    De normale sync skip op gelijke sha256 — maar bij verwijderde helpers is de
+    disk-inhoud vaak al gelijk aan de bron terwijl de live instanties ontbreken.
+    Deze functie forceert dus niet blind schrijven; ze schrijft alleen waar het
+    bestand ontbreekt of afwijkt, en wordt uitsluitend aangeroepen nadat de
+    registry-afwezigheid is vastgesteld.
+    """
+    packages_dir = _config_dir(hass) / "packages"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+    import hashlib
+
+    def h(path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    for filename, source_name in ((PACKAGE_FILENAME, PACKAGE_SOURCE),
+                                  (SHADOW_PACKAGE_FILENAME, SHADOW_PACKAGE_SOURCE)):
+        target = packages_dir / filename
+        source = Path(__file__).parent / source_name
+        if not target.exists() or h(target) != h(source):
+            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+
 def _package_gelijk_sync(hass: HomeAssistant) -> bool:
     """Heeft het package op disk exact dezelfde inhoud als het ingebedde?"""
     target = _config_dir(hass) / "packages" / PACKAGE_FILENAME

@@ -26,6 +26,10 @@
     "packages_include_handmatig": {
       "title": "Energyprijs: packages worden niet geladen",
       "description": "De include-regel voor packages ontbreekt in configuration.yaml, dus de sensoren en het dashboard van Energyprijs laden niet. {toelichting}"
+    },
+    "helpers_verwijderd": {
+      "title": "Energyprijs package helpers are missing",
+      "description": "{aantal} helper(s) defined by the energyprijs package are no longer present in the live entity registry (manually removed or lost after an update): {helpers}. The package has been rewritten to disk; Home Assistant only loads packages at startup: restart now (Settings → System → Restart) to restore the helpers. Until then, sensors and automations using them may be incomplete."
     }
   }
 }

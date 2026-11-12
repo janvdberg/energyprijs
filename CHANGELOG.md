@@ -1,3 +1,42 @@
+## 2026-11-11 — v1.9.3: shadow-beslisladder onder de huisreserve gecorrigeerd
+
+**Aanleiding**: `test_shadow_huisreserve_is_apart_signaal_v190` bleef falen: bij
+SOC 12 (onder flor 20), goedkope in-prijs 0,30 en dure toppen (V≈0,664) werd de
+status `Spaar` in plaats van het verwachte vrije `Laden`.
+
+**Oorzaak (bewezen via dump)**: de ladder had een Spaar-poort `in_reserve and
+n_top <= 0`. Onder de reserve is het ontlaadbudget negatief (kwh_tot_reserve=0 →
+n_top ≤ 0), dus die tak sneed élke laadbeslissing af — terwijl laden fysisch vrij
+is en de reserve al als apart binair signaal (`binary_sensor.shadow_accu_blokkade`)
+bestaat. Daarna bleek een tweede fout: de Ontladen-tak `uit_nu > v_eis + H` vuurde
+ook onder de reserve, waar niets te ontladen valt.
+
+**Oplossing** in custom_components/energyprijs/shadow/shadow.yaml:
+- Spaar-poort op budgetloos geschrapt; de prijsregels beslissen nu vrij.
+- Ontladen-taken krijgen `not in_reserve` (geen verkoop uit een lege accu).
+- De hysterese-prev-tak `prev == 'Laden' … < g_laden_uit` staat vóór de
+  beslisregels (dubbele exemplaren dedupliceerd).
+
+**Gedrag**: onder de huisreserve blijft de status puur economisch (Laden/Neutraal/
+Spaar op prijs); de blokkade voor ontladen blijft het aparte SOC-signaal.
+Suite: 96 passed (tests/test_shadow_package.py + rest).
+
+## 2026-11-11 — v1.9.2: helper-bewaking — verwijderde helpers blijven niet meer onzichtbaar
+
+**Aanleiding**: `sync_package_if_changed` vergelijkt alleen de sha256 van het
+package-bestand op disk met de ingebedde bron. Een per ongeluk verwijderde helper
+wordt daardoor nóóit hersteld: het bestand is gelijk, dus de sync skip — terwijl de
+live instanties verdwenen zijn. Precies dit verklaarde de "Shadow lukt niet"-klachten.
+
+**Oplossing**: `controleer_helper_aanwezigheid(hass)` in installer.py:
+- verzamelt alle helper-id's uit package.yaml + shadow/shadow.yaml (`_helper_ids_sync`),
+- vergelijkt met de LIVE entity-registry,
+- forceert bij afwezigheid het packageschrijven (`_forceer_package_herschrijf_sync`,
+  omzeilt de hash-skip),
+- maakt Repairs-issue `helpers_verwijderd` (NL/EN) met instructie HA te herstarten;
+  issue verdwijnt automatisch zodra alles aanwezig is.
+- Hook zit in `_sync_package_and_defaults()` → draait bij setup én bij elke update.
+
 ## 2026-11-05 — v1.9.0: shadow_status ontkoppeld van SOC — prijsstatus zuiver, reserve apart signaal
 
 **Aanleiding**: in v1.8.x verstopte `sensor.shadow_status` twee dingen tegelijk:

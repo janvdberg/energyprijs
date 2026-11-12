@@ -30,6 +30,7 @@ from .installer import (
     _ensure_helper_defaults,
     defaults_klaar,
     sync_package_if_changed as installer_sync_package,
+    controleer_helper_aanwezigheid,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -190,6 +191,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await _ensure_helper_defaults(hass)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("energyprijs: defaults-setten mislukt", exc_info=True)
+        try:
+            await controleer_helper_aanwezigheid(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("energyprijs: helper-bewaking mislukt", exc_info=True)
 
     task = hass.async_create_task(_sync_package_and_defaults())
     entry.async_on_unload(lambda: task.cancel() if not task.done() else None)

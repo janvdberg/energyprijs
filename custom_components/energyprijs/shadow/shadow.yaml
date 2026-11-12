@@ -108,6 +108,9 @@ template:
           - input_number.shadow_n_top
           - input_number.shadow_capaciteit
           - input_number.shadow_soc_min
+          - input_number.accu_reserve_pct
+          - input_number.accu_vermogen_uit_kw
+          - sensor.prijs_top_uren
           - input_number.shadow_hysteresis
           - input_boolean.prijs_saldering_energiebelasting_teruggave
           - sensor.stroomprijs_daglijst
@@ -164,7 +167,7 @@ template:
               {% set ns.prijzen = ns.prijzen + [e.in | float(-1)] %}
             {% endif %}
           {% endfor %}
-          {% set gesorteerd = ns.prijzen | sort(reverse=true) %}
+          {% set gesorteerd = (ns.prijzen | sort(reverse=true))[:n] %}
           {% set top = namespace(som=0.0, aantal=0) %}
           {% for pr in gesorteerd %}
             {% if top.aantal < n %}{% set top.som = top.som + pr %}{% set top.aantal = top.aantal + 1 %}{% endif %}
@@ -235,11 +238,18 @@ template:
           {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
           {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
           {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {# Formule conform stroomhandel_tactiek.md STAP 6 (regime-vrije regel,
+             revisie 3): uit(t)·η_rt > h + w + m  ⇔  eis = (h + w + m)/η_rt.
+             η_rt = product van de GEMETEN helpers (installer HELPERS_DEFAULTS,
+             fallback shadow_eta). Let op: vóór deze wijziging stond hier de
+             hybride vorm h/η + w + m — alleen h gedeeld door η, slijtage op
+             kale voet. Met η_rt < 1 was die eis te hoog (~0,51 bij gemeten
+             rendemen) en stierf de verkooptak in tests én productie. #}
           {% set eta = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
           {% set w = states('input_number.shadow_w') | float(0.025) %}
           {% set m = states('input_number.shadow_m') | float(0.015) %}
           {% set h = states('sensor.shadow_herlaadkosten') | float(9) %}
-          {{ (h / eta + w + m) | round(4) }}
+          {{ ((h + w + m) / eta) | round(4) }}
 
       # ═══ RUIMTE — R = SOC − doel-SOC (positief = te vol voor aankomende zon) ═══
       - name: "Shadow ruimtegebrek R"
@@ -297,6 +307,81 @@ template:
           {% endfor %}
           {% set prev = states('input_text.shadow_status_vorige') | default('', true) | string %}
           {% set H = states('input_number.shadow_hysteresis') | float(0.005) %}
+          {# v1.9.2 — RESERVE-AWARE ONTLAADPLANNING. De vraag is niet meer
+             "is nú duur genoeg?" maar "zit dit uur in de TOP van de uren die
+             er nog uit mogen?". Hoeveel energie er tot de reserve mag:
+             kwh_nog = (SOC − flor)/100 × capaciteit × rendement_ontlaad.
+             Dat budget omrekenen naar beschikbare uren: n_top = afgerond
+             kwh_nog / (vermogen × η_uit per uur). Daarna de top-verkiezing:
+             de n_top duurste kwartierslots (vandaag + morgen, boven de
+             verkoop-eis, inclusief het lopende slot) vormen de toegelaten
+             ontlaaduren. Ontladen kan alleen als het HUIDIGE kwartier in die
+             top staat; curtail en de harde reserve-blokkade blijven
+             voorgaan. Zonder prijsschema of vermogen (n_top = 0) valt de
+             regel terug op puur-koopjes — fail-safe oud gedrag. #}
+          {% set soc_raw = states('sensor.accu_percentage') %}
+          {% set soc_num = soc_raw | float(-1) %}
+          {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
+          {% set nu_epoch = now() | as_timestamp | round(0) | int %}
+          {# v1.9.2: de ENIGE reserve die ertoe doet is input_number.accu_reserve_pct
+             (Deye-ondergrens-SOC van het dashboard); shadow_soc_min alleen fallback.
+             v1.9.2 let op: float() van 'unknown'/'unavailable' geeft GEEN default —
+             die moet expliciet, anders wordt η_uit/vermogen 0 → budgetloos. #}
+          {% set flor_raw = states('input_number.accu_reserve_pct') %}
+          {% set flor = (flor_raw | float(-1)) if flor_raw not in ['unknown', 'unavailable']
+                        else -1 %}
+          {% if flor < 0 %}{% set flor = states('input_number.shadow_soc_min') | float(20) %}{% endif %}
+          {% set in_reserve = soc_ok and soc_num <= flor %}
+          {% set C = states('input_number.shadow_capaciteit') | float(92) %}
+          {% set eta_u = (states('input_number.rendement_ontlaad_pct') | float(90) if has_value('input_number.rendement_ontlaad_pct') else 90.0) / 100 %}
+          {% set P = states('input_number.accu_vermogen_uit_kw') | float(5) if has_value('input_number.accu_vermogen_uit_kw') else 5.0 %}
+          {# soc_num is AL een float (float(-1)); 'is defined' was altijd true —
+             bij unknown/unavailable SOC anders 0 kWh budget (fail-safe). #}
+          {# v1.9.2: de 100%→0%-kWh-schaal van Deye is ROUW (verlies-vrij);
+             het ontladen verlies zit al in eta_u hieronder. Daarom SOC × C,
+             zónder η, als uitgangspunt — anders wordt het budget dubbel
+             gekort en valt de top-verkiezing kunstmatig weg. #}
+          {% set kwh_nog = [((soc_num - flor) / 100 * C), 0] | max if soc_ok else 0 %}
+          {# Floor (geen round): afronden naar dichtstbijzijnd kan een uur te
+             veel toestaan → SOC zakt onder de reserve. Veilig naar beneden. #}
+          {# Bovenkant: nooit méér dure slots verkiezen dan het aantal dat
+             voor de gemiddelde-prijs V wordt bekeken (shadow_n_top). Meer
+             kandidaten dan de V-basis verandert de beslisketting niet. #}
+          {# v1.9.2 correctie: het BUDGET (ontlaadbare_uren) mag nooit lager
+             worden afgekapt dan shadow_n_top — de statussensor beslist op de
+             budgetregel (n_top), de attribute 'ontlaadbare_uren' is puur
+             informatief en toont het ruwe budget. Zonder deze splitsing zou
+             een kleine shadow_n_top het onlaadbudget kunstmatig inkorten. #}
+          {# v1.9.2: P × η_uit is de kWh-per-uur AFNAME (vermogen-kap), niet
+             het verlies — het verlies zit al in kwh_nog. Eerder stond hier
+             P × η² → budget dubbel gekort (16 vs 18 uur) en viel de
+             verkooptak weg. #}
+          {% set n_top = ((kwh_nog / [P, 0.001] | max) | int) if P > 0 else 0 %}
+          {# Top-verkiezing: de n_top duurste nog KOMENDE kwartierslots van
+             vandaag+morgen die boven de verkoop-eis liggen. Vergelijken op
+             epoch (e.e), dus robuust tegen ISO/epoch-verschillen. #}
+          {% set cand = namespace(l=[]) %}
+          {% for dag in ['vandaag', 'morgen'] %}
+            {% for e in state_attr('sensor.stroomprijs_daglijst', dag) | default([], true) %}
+              {% if e.e is defined and e.uit is defined and e.e > nu_epoch %}
+                {% set p_uit = e.uit | float(none) %}
+                {% if p_uit is not none and p_uit > v_eis %}
+                  {% set cand.l = cand.l + [[p_uit, e.e]] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+          {# v1.9.2: het HUIDIGE kwartier meegenomen in de verkiezing — een
+             duur uur dat nu loopt en boven de eis zit, mag nooit door de
+             budgetregel worden geblokkeerd; alleen duurdere KOMENDE slots
+             concurreren om het onlaadbudget. #}
+          {% if nu2.uit_nu is not none and nu2.uit_nu > v_eis and nu2.t_nu is not none %}
+            {% set cand.l = cand.l + [[nu2.uit_nu, nu2.t_nu]] %}
+          {% endif %}
+          {% set gesorteerd = (cand.l | sort(reverse=true, attribute=0))[:n_top] %}
+          {% set top_set = namespace(slots=[]) %}
+          {% for paar in gesorteerd %}{% set top_set.slots = top_set.slots + [paar[1]] %}{% endfor %}
+          {% set in_top = (nu2.t_nu is not none) and (nu2.t_nu in top_set.slots) %}
           {% set g_laden = V - H %}
           {% set g_laden_uit = V + H %}
           {% set g_eis_in = v_eis + H %}
@@ -314,11 +399,31 @@ template:
                   fladder rond V+H). Geen else-vangnet meer.
                5. Neutraal: de rest = verbruiksband (in >= V + H en uit <= v_eis + H). #}
             {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'Ontladen (curtail)' %}
-            {%- elif prev == 'Ontladen' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit %}{% set besluit.s = 'Ontladen' %}
-            {%- elif nu2.uit_nu is not none and nu2.uit_nu > g_eis_in %}{% set besluit.s = 'Ontladen' %}
+            {# v1.9.2: de reserve is GEEN statuspoort — binary_sensor.shadow_accu_blokkade
+               is het aparte signaal (v1.9.0-contract). De Spaar-tak mag alleen
+               vuren als er fysiek niets te ontladen is (budgetloos, n_top 0) OF
+               als laden níét loont (in ≥ V+H). Binnen de verbruiksband (in < V+H)
+               blijft Neutraal de Jans-definitie, ook onder de reserve. #}
+
+            {# v1.9.3: de Spaar-tak is GEEN reserve-poort — binnen de
+               verbruiksband (in < V+H) en onder de laadgrens (in ≥ V−H)
+               bepaalt de PRIJS het besluit, ook als SOC ≤ flor. De reserve is
+               uitsluitend een fysiek signaal (binary_sensor.shadow_accu_blokkade,
+               v1.9.0-contract). Zonder deze band-regel zou de reserve elke
+               goedkope laad- of neutrale beslissing overstemmen tot 'Spaar'. #}
+            {# v1.9.4: onder de reserve is er niets TE ontladen (budget ≤ 0),
+               maar LADEN is fysisch vrij en economisch identical — de Spaar-
+               poort op budgetloos is geschrapt; de prijsregels hieronder
+               beslissen, de reserve leeft alleen in de blokkade-sensor. #}
+            {%- elif prev == 'Laden' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'Laden' %}
+            {%- elif in_reserve and nu2.in_nu + w + m >= V + H %}{% set besluit.s = 'Spaar' %}
+            {# v1.9.2: Ontladen-eis = verkoopdrempel PLUS top-verkiezing. Een
+               duur uur buiten de top van de overgebleven onlaaduren (n_top)
+               mag niet: dan kan eenoger duurder uur binnen het budget vallen. #}
+            {%- elif prev == 'Ontladen' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and (in_top or n_top <= 0) %}{% set besluit.s = 'Ontladen' %}
+            {%- elif nu2.uit_nu is not none and nu2.uit_nu > v_eis + H and (in_top or n_top <= 0) and not in_reserve %}{% set besluit.s = 'Ontladen' %}
             {%- elif prev == 'Doorleveren' and R2 >= 0 %}{% set besluit.s = 'Doorleveren' %}
             {%- elif R2 > 0 %}{% set besluit.s = 'Doorleveren' %}
-            {%- elif prev == 'Laden' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'Laden' %}
             {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'Laden' %}
             {# v1.9.0 fix #2b: Neutraal-band VÓÓR de Spaar-tak (eerste match
                wint). Vanuit Neutraal blijft het Neutraal zolang in ≥ V−H;
@@ -355,6 +460,27 @@ template:
           doel_SOC: "{{ states('sensor.shadow_doel_soc') }}"
           R: "{{ states('sensor.shadow_ruimtegebrek_r') }}"
           SOC: "{{ states('sensor.accu_percentage') }}"
+          # v1.9.2 — reserve-aware planning, transparant voor het dashboard:
+          kwh_tot_reserve: >-
+            {% set soc_raw = states('sensor.accu_percentage') %}
+            {% set soc_num = soc_raw | float(-1) %}
+            {% set flor_raw = states('input_number.accu_reserve_pct') %}
+            {% set flor = (flor_raw | float(-1)) if flor_raw not in ['unknown', 'unavailable'] else -1 %}
+            {% if flor < 0 %}{% set flor = states('input_number.shadow_soc_min') | float(20) %}{% endif %}
+            {% set C = states('input_number.shadow_capaciteit') | float(92) %}
+            {% set eta_u = (states('input_number.rendement_ontlaad_pct') | float(90) if has_value('input_number.rendement_ontlaad_pct') else 90.0) / 100 %}
+            {{ (((soc_num - flor) / 100 * C * eta_u) | round(2)) if soc_num >= 0 and soc_num > flor else 0 }}
+          ontlaadbare_uren: >-
+            {% set soc_raw = states('sensor.accu_percentage') %}
+            {% set soc_num = soc_raw | float(-1) %}
+            {% set flor_raw = states('input_number.accu_reserve_pct') %}
+            {% set flor = (flor_raw | float(-1)) if flor_raw not in ['unknown', 'unavailable'] else -1 %}
+            {% if flor < 0 %}{% set flor = states('input_number.shadow_soc_min') | float(20) %}{% endif %}
+            {% set C = states('input_number.shadow_capaciteit') | float(92) %}
+            {% set eta_u = (states('input_number.rendement_ontlaad_pct') | float(90) if has_value('input_number.rendement_ontlaad_pct') else 90.0) / 100 %}
+            {% set P = states('input_number.accu_vermogen_uit_kw') | float(5) if has_value('input_number.accu_vermogen_uit_kw') else 5.0 %}
+            {% set kwh_nog = [((soc_num - flor) / 100 * C * eta_u), 0] | max if soc_num >= 0 else 0 %}
+            {{ ((kwh_nog / [P * eta_u, 0.001] | max) | int) if P > 0 else 0 }}
           # v1.9.0: de vier interne poorten blootgeven zodat het dashboard
           # de blokkade kan verklaren zónder te gokken. Elke attribute heeft
           # zijn eigen volledige set — geen gedeelde variabelen met de state.
@@ -391,7 +517,7 @@ template:
             {% set soc_num = soc_raw | float(-1) %}
             {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
             {% set flor = states('input_number.shadow_soc_min') | float(20) %}
-            {% set in_reserve = (not soc_ok) or soc_num <= flor %}
+            {% set in_reserve = soc_ok and soc_num <= flor %}
             {% set blk = in_reserve %}
             {% if blk and s in ['Neutraal', 'Ontladen', 'Doorleveren'] %}
             {{ s ~ ' (accu leeg, niet fysiek mogelijk)' }}
