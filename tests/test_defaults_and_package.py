@@ -208,9 +208,9 @@ def test_status_migratie_geen_ketens():
     """v1.8.5 — de migratie in __init__.py doet ÉÉN lookup: een waarde die zelf
     een sleutel is (bv. "SPAAR" → "Op het net" → "Doorleveren") komt nooit bij
     het eindlabel uit. Iedere waarde moet dus direct een geldig eindlabel
-    zijn (Laden, Neutraal, Spaar, Doorleveren, Ontladen, Ontladen (curtail))."""
+    zijn (Laden, Neutraal, Spaar, Doorleveren, Ontladen)."""
     import custom_components.energyprijs.installer as inst
-    eindlabels = {"Laden", "Neutraal", "Spaar", "Doorleveren", "Ontladen", "Ontladen (curtail)"}
+    eindlabels = {"Laden", "Neutraal", "Spaar", "Doorleveren", "Ontladen"}
     for key, value in inst.STATUS_MIGRATIE.items():
         assert value in eindlabels, f"{key!r} → {value!r} is geen eindlabel"
         assert value not in inst.STATUS_MIGRATIE, (

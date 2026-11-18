@@ -2,9 +2,10 @@
 template-component en de zes beslis-sensoren nameten met gekende prijzen.
 
 Bewijst wat een YAML-pars test niet kan: HA accepteert het package, de
-formules uit stroomhandel_tactiek.md (revisie 3) rekenen correct, en de vijf
-statuslabels verschijnen zoals bedoeld — inclusief de ruimtetak (Doorleveren bij te
-vol voor aankomende zon) en curtail (Ontladen bij negatieve uit).
+formules uit stroomhandel_tactiek.md (revisie 3) rekenen correct, en de
+statuslabels van de vijfwegingsketen (Laden, Ontladen, Doorleveren, Spaar,
+Neutraal) verschijnen zoals bedoeld — inclusief de ruimtetak (Doorleveren bij
+te vol voor aankomende zon).
 """
 from datetime import datetime
 from pathlib import Path
@@ -202,10 +203,11 @@ async def test_shadow_helpers_en_sensoren_bestaan(hass):
     await _setup_shadow(hass)
     for h in ("input_number.shadow_eta", "input_number.shadow_w", "input_number.shadow_m",
               "input_number.shadow_n_top", "input_number.shadow_capaciteit",
-              "input_number.shadow_soc_min"):
+              "input_number.shadow_soc_min", "input_number.shadow_laden_hold_r2"):
         assert hass.states.get(h) is not None, f"{h} ontbreekt"
     for s in ("sensor.shadow_doel_soc", "sensor.shadow_v_waarde_opgeslagen_kwh", "sensor.shadow_herlaadkosten",
-              "sensor.shadow_verkoop_eis", "sensor.shadow_ruimtegebrek_r", "sensor.shadow_status"):
+              "sensor.shadow_verkoop_eis_net", "sensor.shadow_verkoop_eis_zon",
+              "sensor.shadow_ruimtegebrek_r", "sensor.shadow_status"):
         assert hass.states.get(s) is not None, f"{s} ontbreekt"
     # startwaarden = tactiek-revisie 3
     assert float(hass.states.get("input_number.shadow_eta").state) == 0.83
@@ -261,11 +263,12 @@ async def test_shadow_beslissingen_met_gekende_prijzen(hass):
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Doorleveren", f"ruimtegebrek zonder marge → huis-ontlasting, got {st.state}"
 
-    # 3) negatieve uit → curtail binnen Ontladen-label
+    # 4) negatieve uit → geen extra status: een negatieve verkoop-prijs
+    #    zit onder elke eis, dus de accu blijft staan — bij zon als Doorleveren.
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
     await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Ontladen (curtail)", st.state
+    assert st.state == "Doorleveren", f"negatieve uit < eis → geen verkoop, got {st.state}"
 
 
 async def test_onder_reserve_model():
@@ -307,8 +310,9 @@ async def test_shadow_huisreserve_is_apart_signaal_v190(hass):
     een zuivere prijs-/economiestatus; de reserve leeft apart in
     binary_sensor.shadow_accu_blokkade. Met flor 15: SOC 18 > flor → geen
     blokkade; SOC 12 < flor → blokkade on, en de latch houdt aan tot soc weer
-    boven flor klimt (v1.9.0 fix #1: géén flor+2-uitstapband). Curtail blijft
-    altijd door; Laden toont nooit een blokkade op de statussensor (het
+    boven flor klimt (v1.9.0 fix #1: géén flor+2-uitstapband). De vijf prijs-
+    statussen kennen geen blokkade voor Laden; Laden toont nooit een blokkade op
+    de statussensor (het
     puur-SOC-signaal kan er wél on staan — de statussensor filtert)."""
     await _setup_shadow(hass)
     async def zet(daglijst):
@@ -369,11 +373,13 @@ async def test_shadow_huisreserve_is_apart_signaal_v190(hass):
         {"entity_id": "input_number.shadow_soc_min", "value": 20}, blocking=True)
     hass.states.async_set("input_number.accu_reserve_pct", "20")
     await hass.async_block_till_done()
-    # 5) negatieve prijs → curtail gaat ALTijd door (verplicht, geen keuze)
+    # 5) negatieve uit → geen extra status: onder elke verkoop-eis, dus
+    #    geen verkoop. SOC 12 < flor en ruimtetak uit (R<0) → de accu blijft
+    #    staan als Spaar.
     await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
     await _trig(hass, 12)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Ontladen (curtail)", f"curtail moet altijd door, got {st.state}"
+    assert st.state == "Spaar", f"negatieve uit mag nooit verkopen, got {st.state}"
     # 6) diepe dalprijs ONDER de reserve → status Laden én de blokkade MOET
     #    uit: goedkoop laden is juist hoe je boven de reserve komt.
     hass.states.async_set("input_number.shadow_w", "0")
@@ -381,7 +387,7 @@ async def test_shadow_huisreserve_is_apart_signaal_v190(hass):
     # v1.9.4: η_rt = shadow_eta-noodvallet 0,83 (gemeten rendements-helpers
     # bestaan niet in deze fixture). Twee valken blokkeerden hier 'Laden':
     # 1)
-    #    curtail-uur (-0,02) uit stap 5 als diepste in-prijs in de top van de
+    #    negatieve uit-prijs (-0,02) uit stap 5 als diepste in-prijs in de top van de
     #    24u-venster-ladder → de herlaadkosten-sensor berekende h = 0,10 en
     #    overschreef daarmee elke handmatige h-doneer. Met eis = (h+w+m)/η ≈
     #    0,12 kon géén enkele prijsstructuur meer zuiver laden.
@@ -730,7 +736,7 @@ async def _hysterese_fixture(hass):
 
 def _lees_eis(hass):
     """Verkoop-eis ná de daglijst (de sensor is unavailable zolang die leeg is)."""
-    st = hass.states.get("sensor.shadow_verkoop_eis")
+    st = hass.states.get("sensor.shadow_verkoop_eis_net")
     assert st.state not in ("unavailable", "unknown"), f"eis niet berekend: {st.state}"
     return float(st.state)
 
@@ -765,6 +771,10 @@ async def test_shadow_ontladen_hysterese_v185(hass):
     de twee dure slots (incl. het lopende kwartier) passen in het budget en
     vormen de hele top → ontladen toegestaan zolang de band dat wil."""
     await _hysterese_fixture(hass)
+    # v1.9.5: deze test draait de PRIJSHYSTERESE rond eis 0,44 — de nieuwe
+    # verkoop-vloer (default 0,20) staat hier deliberately op 0 zodat de
+    # instap-/uitstapdrempels exact eis±H blijven.
+    hass.states.async_set("input_number.shadow_verkoop_eis_min", "0")
     # v1.9.2 reserve-aware: flor = accu_reserve_pct = 20 en SOC 50 →
     # kwh_nog = 30% × 92 kWh × η_ontlaad 0,9 ≈ 24,8 kWh. Bij de default P=5 kW
     # zijn er dan maar ~4 dure slots budget; deze tests draaien de PRIJSHYSTERESE
@@ -960,79 +970,92 @@ async def test_bevroren_daglijst_geen_besluit(hass):
         f"bevroren lijst (60 min oud) mag geen besluit leveren, got {st.state}")
 
 
-async def test_shadow_curtail_geen_verkoop_hysterese_v186(hass):
-    """v1.8.6 (stap 5, keuze vastgelegd): 'Ontladen (curtail)' telt NIET mee in de
-    verkoop-hysterese — bewuste keus, deels door de vorige review gedragen.
-
-    Curtail is géén verkoop maar een verplichte export-limiet (grid-operator):
-    zodra 'uit' weer boven 0 komt, geldt de instapregel van een VERS besluit —
-    uit > verkoop-eis + H EN soc > flor (v1.9.0: de SOC-poort zit niet meer in
-    de beslisketen; binary_sensor.shadow_accu_blokkade is het apart te raadplegen
-    signaal — de test checkt hier expliciet dat signaal mee). Pas daarna mag de
-    gewone Ontladen-band beginnen. Als curtail wél zou meetellen, zou de instap
-    direct na een curtail doorgaan binnen de reserveband — de flapper-test
-    bestaat precies om dat te voorkomen.
-    """
+async def test_shadow_negatieve_uit_geen_zesde_status_v195(hass):
+    """v1.9.5: de zesde status is geschrapt. Een negatieve uit-prijs zit per
+    definitie onder elke verkoop-eis, dus er wordt NOOIT ontladen/verkocht: bij
+    te vol voor aankomende zon → Doorleveren (ruimtetak), anders → Spaar."""
     await _setup_shadow(hass)
-    # η_rt=1 via shadow_eta (gemeten rendements-helpers bestaan hier niet),
-    # zodat de verkoop-eis exact te berekenen is: min-in + w + m.
-    await hass.services.async_call(
-        "input_number", "set_value",
-        {"entity_id": "input_number.shadow_eta", "value": 1}, blocking=True)
-    # v1.9.2: bij flor 20 / SOC 21 is het onlaadbudget ~1 kWh → n_top zou 0 of 1
-    # zijn en de verkooptak stikken. P op minimum → budget ruimschoots.
-    # v1.9.2: accu_vermogen_uit_kw is een MAIN-helper en bestaat niet in de
-    # geisoleerde shadow-fixture; de service-call hierboven faalde dus stil en
-    # de template viel terug op z'n eigen fallback (5 kW): budget ~4 u < de
-    # dure slots van deze daglijst → de top-verkiezing verstikte de verkooptak.
-    # async_set zet de state wél → P 0,1 kW, géén kap.
-    hass.states.async_set("input_number.accu_vermogen_uit_kw", "0.1")
-    await hass.async_block_till_done()
-    await hass.async_block_till_done()
-    # SOC 21: in de reserveband (flor 20..22) → verkoop is hier geblokkeerd.
-    # Daglijst: nu-kwartier duurt (in 0.50 → laden loont níét; uit 0.30),
-    # straks goedkooper (in 0.30 → V wordt laag, verkoop-eis laag).
-    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
-    await _trig(hass, 21)
-    # 1) negatieve uit → curtail is verplicht en gaat door, óók onder de band
-    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, -0.02, 0.10))
-    await _trig(hass, 21)
+    hass.states.async_set("sensor.accu_percentage", "70")
+    hass.states.async_set("input_number.shadow_w", "0")
+    hass.states.async_set("input_number.shadow_m", "0")
+    hass.states.async_set("input_number.shadow_laden_hold_r2", "2")
+    # Ruimte ontbreekt (SOC boven doel-SOC) en de zon staat hoog genoeg om R2 > 0
+    # te maken → ruimtetak; de negatieve uit-prijs mag hier geen 'Ontladen'- of
+    # een zesde statusopleverende toestand.
+    from datetime import timedelta as _td, timezone
+    hass.states.async_set("sun.sun", "above_horizon", {
+        "next_rising": (datetime.now(timezone.utc) - _td(hours=1)).isoformat(),
+        "next_setting": (datetime.now(timezone.utc) + _td(hours=12)).isoformat(),
+    })
+    async def zet(daglijst):
+        await _zet_daglijst(hass, daglijst)
+    await zet(_daglijst_attr(0.30, 0.40, 0.28, -0.02))
+    await _trig(hass, 80)
     st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Ontladen (curtail)", f"curtail gaat door, got {st.state}"
-    # 2) uit springt terug boven de verkoop-eis, SOC 21 (flor 20 → signaal off):
-    #    curtail telt níét als 'Ontladen' voor de hysterese → vers besluit.
-    #    v1.9.0: de statusketen heeft géén SOC-poort meer, dus Ontladen mag hier
-    #    wel — het RESERVE-SIGNAAL moet off zijn (soc > flor) én mag niet latchen.
-    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
-    await _trig(hass, 21)
+    # De kern van deze test: géén zesde status en geen verkoop bij negatieve
+    # uit-prijs. In de vijfstappen-keten valt dit uur in de verbruiksband →
+    # Neutraal (Spaar is het zuivere-sparen-lid daarvan; beide zijn OK,
+    # Ontladen/Doorleveren NOOIT).
+    assert st.state in ("Neutraal", "Spaar"), \
+        f"negatieve uit mag nooit tot verkoop leiden, got {st.state}"
+    assert st.state in ("Laden", "Spaar", "Neutraal", "Doorleveren", "Ontladen"), \
+        f"statusset is exact vijf, got {st.state}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def test_shadow_verkoop_eis_floor_v195(hass):
+    """v1.9.5: de verkoop-eis kent een ondergrens (shadow_verkoop_eis_min).
+    Zonder heffing over de hele verkoopsom zakt de berekende eis naar ~0,08;
+    met floor 0,20 blijft hij op de floor — élke euro daarboven is geen winst."""
+    await _setup_shadow(hass)
+    # diep dal in de lijst: herlaadkosten-net = 0,05 → eis zonder floor ≈ 0,06.
+    await _zet_daglijst(hass, _daglijst_attr(0.30, 0.40, 0.35, 0.45, dal=0.05))
+    hass.states.async_set("input_number.shadow_w", "0")
+    hass.states.async_set("input_number.shadow_m", "0")
+    await _trig(hass, 50)
+    eis = hass.states.get("sensor.shadow_verkoop_eis_net")
+    assert eis is not None and eis.state != "unavailable", \
+        f"eis-sensor niet berekend: {eis}"
+    assert float(eis.state) >= 0.20 - 1e-6, \
+        f"verkoop-eis moet op of boven de floor, got {eis.state}"
+
+async def test_shadow_ontladen_verkoopstak_wint_van_ruimtetak_v195(hass):
+    """v1.9.5: de verkoop-tak staat VÓÓR de ruimtetak — een uit-prijs boven de
+    winstdrempel (max(eis IN, floor+marge)) verkoopt zelfs bij R2 > 0. Met de
+    vloer van 0,20 was dit vóór 1.9.5 onmogelijk: toen viel elke euro boven de
+    kale eis (~0,12) al in Ontladen en dumpte de reserve rond 0,12."""
+    await _setup_shadow(hass)
+    # zon-op + PV-herlaadmoment goedkoper dan nu → R2 > 0 (ruimte zou roepen)
+    from datetime import timedelta as _td, timezone
+    hass.states.async_set("sun.sun", "above_horizon", {
+        "next_rising": (datetime.now(timezone.utc) - _td(hours=1)).isoformat(),
+        "next_setting": (datetime.now(timezone.utc) + _td(hours=12)).isoformat(),
+    })
+    hass.states.async_set("sensor.vandaag_verwachte_zonnestroom", "40.0")
+    hass.states.async_set("input_number.shadow_w", "0")
+    hass.states.async_set("input_number.shadow_m", "0")
+    # Kwartier 1 = nu (avondpiek), kwartier 2 = binnen het zonvenster (PV-laag).
+    await _zet_daglijst(hass, _daglijst_piek_met_pv(0.30, 0.30, 0.10, 0.10))
+    await _trig(hass, 70)
     st = hass.states.get("sensor.shadow_status")
-    bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
-    assert bs.state == "off", (
-        f"SOC 21 > flor 20 → reserve-signaal off (latch aan flor, niet flor+2), got {bs.state}")
-    assert st.state == "Ontladen", (
-        f"v1.9.0: na curtail, uit boven eis en soc > flor → vers besluit Ontladen, got {st.state}")
-    # 3) zelfde situatie (uit wél boven de verkoop-eis) met SOC boven de
-    #    band (23 > flor+2): verkoop mag Wél instappen.
-    await _zet_daglijst(hass, _daglijst_voortgang(0.30, 0.50, 0.30, 0.10))
-    await _trig(hass, 23)
-    st = hass.states.get("sensor.shadow_status")
-    assert st.state == "Ontladen", f"boven flor+2 mag verkoop wel, got {st.state}"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    assert st.state == "Ontladen", \
+        f"uit 0.30 >= max(eis IN, floor 0.20 + marge H) moet verkopen, got {st.state}"
