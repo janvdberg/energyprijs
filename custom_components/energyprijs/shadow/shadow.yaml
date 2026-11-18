@@ -63,6 +63,16 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     icon: mdi:battery-low
+  # R2-hold voor de Laden-tak: prev 'Laden' houdt zolang c < V+H én de
+  # verwachte SOC-stijging onder deze grens blijft (%). 2% is een gok en dus
+  # instelbaar.
+  shadow_laden_hold_r2:
+    name: "Shadow laad-hold — maximale verwachte SOC-stijging (%)"
+    min: 0
+    max: 10
+    step: 0.5
+    unit_of_measurement: "%"
+    icon: mdi:battery-arrow-down
   shadow_hysteresis:
     name: "Shadow hysteresis — band aan de prijsgrens (€/kWh)"
     min: 0
@@ -71,11 +81,25 @@ input_number:
     unit_of_measurement: "€/kWh"
     mode: box
     icon: mdi:wave-sine
+  # v1.9.5: ondergrens van de verkoop-eis. Zonder heffing over de volledige
+  # verkoopsom is de eis ~0,08 €/kWh en wint élke euro boven die drempel —
+  # dan verkoopt de keten uit de reserve terwijl laden in het dal véél
+  # goedkoper was geweest. De eis mag nooit lager dan dit floor.
+  shadow_verkoop_eis_min:
+    name: "Shadow verkoop-eis-ondergrens (€/kWh)"
+    min: 0
+    max: 0.50
+    step: 0.01
+    unit_of_measurement: "€/kWh"
+    mode: box
+    icon: mdi:sell
+    unit_of_measurement: "€/kWh"
+    icon: mdi:shield-half-full
 
 input_text:
   # v1.7.4: hernoemd van shadow_vorige_status (de entiteit 'shadow_vorige_status'
   # raakte onleesbaar nadat COMFORT → Ontladen ging); de installer migreert de
-  # waarde eenmalig. max 32 past 'Ontladen (curtail)'.
+  # waarde eenmalig.
   shadow_status_vorige:
     name: "Shadow voorafgaande status (hysterese)"
     mode: text
@@ -112,6 +136,7 @@ template:
           - input_number.accu_vermogen_uit_kw
           - sensor.prijs_top_uren
           - input_number.shadow_hysteresis
+          - input_number.shadow_verkoop_eis_min
           - input_boolean.prijs_saldering_energiebelasting_teruggave
           - sensor.stroomprijs_daglijst
           - input_text.shadow_status_vorige
@@ -227,13 +252,71 @@ template:
           {% endif %}
 
       # ═══ STAP 6 — verkoop-eis ═══
-      - name: "Shadow verkoop-eis"
-        unique_id: shadow_verkoop_eis
+      # ═══ STAP 6a — herlaadkosten NET: goedkoopste in-prijs over de hele
+      # beschikbare horizon (vandaag-restant + morgen), volume = tot de reserve.
+      - name: "Shadow herlaadkosten net"
+        unique_id: shadow_herlaadkosten_net
         unit_of_measurement: "€/kWh"
         state_class: measurement
         availability: >
           {{ has_value('sensor.stroomprijs_daglijst')
-             and has_value('sensor.shadow_herlaadkosten') }}
+             and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
+        state: >
+          {% set ns = namespace(net=[], nu=now()) %}
+          {% for dag in ['vandaag', 'morgen'] %}
+            {% for e in state_attr('sensor.stroomprijs_daglijst', dag) | default([], true) %}
+              {% if e.t is defined and e.in is defined %}
+                {% set ts = e.t | as_datetime %}
+                {% if ts >= ns.nu and ts <= ns.nu + timedelta(hours=48) %}
+                  {% set ns.net = ns.net + [e.in | float(9)] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+          {% if ns.net | length == 0 %}unavailable
+          {% else %}{{ (ns.net | min) | round(4) }}
+          {% endif %}
+
+      # ═══ STAP 6b — herlaadkosten ZON: goedkoopste PV-prijs (uit) in het
+      # zonvenster, volume alleen het stuk boven doel-SOC = max(R,0)/100 × C.
+      - name: "Shadow herlaadkosten zon"
+        unique_id: shadow_herlaadkosten_zon
+        unit_of_measurement: "€/kWh"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.stroomprijs_daglijst')
+             and (state_attr('sensor.stroomprijs_daglijst', 'vandaag') | default([], true) | length) > 0 }}
+        state: >
+          {% set ns = namespace(pv=[], nu=now()) %}
+          {% set son_raw = state_attr('sun.sun', 'next_setting') %}
+          {% set op_raw = state_attr('sun.sun', 'next_rising') %}
+          {% set son = son_raw | as_datetime if son_raw else none %}
+          {% set op = op_raw | as_datetime if op_raw else none %}
+          {% if states('sun.sun') == 'above_horizon' and son is not none %}{% set op = now() %}{% endif %}
+          {% if son is none or op is none %}unavailable
+          {% else %}
+            {% for dag in ['vandaag', 'morgen'] %}
+              {% for e in state_attr('sensor.stroomprijs_daglijst', dag) | default([], true) %}
+                {% if e.t is defined and e.uit is defined %}
+                  {% set ts = e.t | as_datetime %}
+                  {% if ts >= ns.nu and ts <= ns.nu + timedelta(hours=48) and ts >= op and ts <= son %}
+                    {% set ns.pv = ns.pv + [e.uit | float(9)] %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+            {% if ns.pv | length == 0 %}unavailable
+            {% else %}{{ (ns.pv | min) | round(4) }}
+            {% endif %}
+          {% endif %}
+
+      - name: "Shadow verkoop-eis net"
+        unique_id: shadow_verkoop_eis_net
+        unit_of_measurement: "€/kWh"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.stroomprijs_daglijst')
+             and has_value('sensor.shadow_herlaadkosten_net') }}
         state: >
           {#── rendement-contract (v1.5.5): η uit de GEMETEN helpers (installer HELPERS_DEFAULTS), niet meer los getypt ─#}
           {# availability via has_value: float()-fallback's vullen anders altijd 77/90 #}
@@ -248,8 +331,28 @@ template:
           {% set eta = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
           {% set w = states('input_number.shadow_w') | float(0.025) %}
           {% set m = states('input_number.shadow_m') | float(0.015) %}
-          {% set h = states('sensor.shadow_herlaadkosten') | float(9) %}
-          {{ ((h + w + m) / eta) | round(4) }}
+          {% set h = states('sensor.shadow_herlaadkosten_net') | float(9) %}
+          {# v1.9.5: ondergrens op de eis (shadow_verkoop_eis_min) — zie kop. #}
+          {% set vloer = states('input_number.shadow_verkoop_eis_min') | float(0.20) %}
+          {{ ([vloer, (h + w + m) / eta] | max) | round(4) }}
+
+      # ═══ STAP 6b — verkoop-eis ZON (herladen uit de zon, volume boven doel-SOC) ═══
+      - name: "Shadow verkoop-eis zon"
+        unique_id: shadow_verkoop_eis_zon
+        unit_of_measurement: "€/kWh"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.stroomprijs_daglijst')
+             and has_value('sensor.shadow_herlaadkosten_zon') }}
+        state: >
+          {% set rend_ok = has_value('input_number.rendement_laad_pct') and has_value('input_number.rendement_ontlaad_pct') %}
+          {% set eta = ((states('input_number.rendement_laad_pct') | float(77) * states('input_number.rendement_ontlaad_pct') | float(90)) / 10000) if rend_ok else states('input_number.shadow_eta') | float(0.83) %}
+          {% set w = states('input_number.shadow_w') | float(0.025) %}
+          {% set m = states('input_number.shadow_m') | float(0.015) %}
+          {% set h = states('sensor.shadow_herlaadkosten_zon') | float(9) %}
+          {# v1.9.5: ondergrens op de eis (shadow_verkoop_eis_min) — zie kop. #}
+          {% set vloer = states('input_number.shadow_verkoop_eis_min') | float(0.20) %}
+          {{ ([vloer, (h + w + m) / eta] | max) | round(4) }}
 
       # ═══ RUIMTE — R = SOC − doel-SOC (positief = te vol voor aankomende zon) ═══
       - name: "Shadow ruimtegebrek R"
@@ -263,12 +366,21 @@ template:
           {% set doel = states('sensor.shadow_doel_soc') | float(100) %}
           {{ (soc - doel) | round(1) }}
 
-      # ═══ BESLISSING — de zes stappen teruggebracht tot de vijf statussen ═══
-      #   Ontladen = verkopen (uit > verkoop-eis) · Doorleveren = ruimte-tak (lading houden)
-      #   Laden = laden als in+w+m < V · Neutraal / Spaar = rust (Spaar = else-vangnet)
-      #   curtail (negatieve uit) → eigen status 'Ontladen (curtail)': verplicht
-      #   door de grid-operator, dus géén beslissing maar een export-limiet die
-      #   de automatiek doorzet (zie automation-log).
+      # ═══ BESLISSING — vijf statussen, laag → hoog in prijs ═══
+      #   Laden        net goedkoop genoeg om te laden (c = in+w+m < V−H) én de
+      #                  verwachte zon vult de accu niet vanzelf (R2 < 0).
+      #   Spaar        net goedkoop genoeg om te gebruiken (in < V+H), maar
+      #                  laden vuurt niet; de accu blijft staan.
+      #   Neutraal     in ≥ V+H: de accu voedt het huis, er wordt niets verkocht.
+      #   Doorleveren  zon boven horizon, de prijs is te laag om te verkopen en
+      #                  de accu kan de opwek niet kwijt (R2 > 0 of SOC = 100%):
+      #                  de zon gaat naar het net, de accu blijft staan.
+      #   Ontladen     verkopen uit de accu in de duurste uren; bij zon toetst
+      #                  de eis voor het zonvolume (boven doel-SOC), 's nachts
+      #                  voor het netvolume (vullen tot de reserve).
+      #   Er is géén PV-overschot-sensor en géén zesde status: een negatieve
+      #   uit-prijs is per definitie onder elke verkoop-eis, dus de accu blijft
+      #   staan — bij zon als Doorleveren, anders als Spaar.
       - name: "Shadow status"
         unique_id: shadow_status
         icon: mdi:content-save-settings-outline
@@ -290,7 +402,9 @@ template:
              binary_sensor.shadow_accu_blokkade. Formules (V, v_eis,
              herlaadkosten, w, m, H, eta, doel-SOC, R) zijn NIET veranderd. #}
           {% set R2 = states('sensor.shadow_ruimtegebrek_r') | float(0) %}
-          {% set v_eis = states('sensor.shadow_verkoop_eis') | float(9) %}
+          {% set v_eis_net = states('sensor.shadow_verkoop_eis_net') | float(9) %}
+          {% set v_eis_zon = states('sensor.shadow_verkoop_eis_zon') | float(v_eis_net) %}
+          {% set R2H = states('input_number.shadow_laden_hold_r2') | float(2) %}
           {# HUIDIGE KWARTIERPRIJS v1.5.2: nu = laatste entry met t <= nu. #}
           {# v1.7.8: bevroren daglijst-check — laatste verstreken kwartier
              ouder dan 45 min → geen beslissing → 'unavailable' (fail-safe). #}
@@ -316,8 +430,9 @@ template:
              de n_top duurste kwartierslots (vandaag + morgen, boven de
              verkoop-eis, inclusief het lopende slot) vormen de toegelaten
              ontlaaduren. Ontladen kan alleen als het HUIDIGE kwartier in die
-             top staat; curtail en de harde reserve-blokkade blijven
-             voorgaan. Zonder prijsschema of vermogen (n_top = 0) valt de
+             top staat; de statusketen gaat eerst door Laden-hold en
+             Doorleveren, en de harde reserve-blokkade leeft in
+             binary_sensor.shadow_accu_blokkade. Zonder prijsschema of vermogen (n_top = 0) valt de
              regel terug op puur-koopjes — fail-safe oud gedrag. #}
           {% set soc_raw = states('sensor.accu_percentage') %}
           {% set soc_num = soc_raw | float(-1) %}
@@ -365,7 +480,7 @@ template:
             {% for e in state_attr('sensor.stroomprijs_daglijst', dag) | default([], true) %}
               {% if e.e is defined and e.uit is defined and e.e > nu_epoch %}
                 {% set p_uit = e.uit | float(none) %}
-                {% if p_uit is not none and p_uit > v_eis %}
+                {% if p_uit is not none and p_uit > v_eis_net %}
                   {% set cand.l = cand.l + [[p_uit, e.e]] %}
                 {% endif %}
               {% endif %}
@@ -375,7 +490,7 @@ template:
              duur uur dat nu loopt en boven de eis zit, mag nooit door de
              budgetregel worden geblokkeerd; alleen duurdere KOMENDE slots
              concurreren om het onlaadbudget. #}
-          {% if nu2.uit_nu is not none and nu2.uit_nu > v_eis and nu2.t_nu is not none %}
+          {% if nu2.uit_nu is not none and nu2.uit_nu > v_eis_net and nu2.t_nu is not none %}
             {% set cand.l = cand.l + [[nu2.uit_nu, nu2.t_nu]] %}
           {% endif %}
           {% set gesorteerd = (cand.l | sort(reverse=true, attribute=0))[:n_top] %}
@@ -384,52 +499,64 @@ template:
           {% set in_top = (nu2.t_nu is not none) and (nu2.t_nu in top_set.slots) %}
           {% set g_laden = V - H %}
           {% set g_laden_uit = V + H %}
-          {% set g_eis_in = v_eis + H %}
-          {% set g_eis_uit = v_eis - H %}
+          {% set g_eis_in_zon = v_eis_zon + H %}
+          {% set g_eis_uit_zon = v_eis_zon - H %}
+          {% set g_eis_in_net = v_eis_net + H %}
+          {% set g_eis_uit_net = v_eis_net - H %}
+          {# v1.9.5: Ontladen vereist minimaal marge G boven de eis (net) — een
+             euro net boven de drempel is geen winst na omzettingverliezen. #}
+          {# v1.9.5: eis + marge — de OR-valteinden van vóór 1.9.5 (> eis)
+             bestaan niet meer: verkopen moet méér dan de eis plus marge
+             opleveren. De input is de ABSOLUTE ondergrens (default 0,20);
+             als marge geldt een tiende daarvan (0,02 €/kWh). #}
+          {# v1.9.5: de marge is zélf de hysterese H — zo sluit de winstdrempel
+             exact op de uit-band aan en verandert de floor niets aan het
+             bandgedrag dat test_shadow_ontladen_hysterese_v185 contracteert. #}
+          {% set MARGE = H %}
+          {% set FLOOR = states('input_number.shadow_verkoop_eis_min') | float(0.20) %}
+          {% set g_winst_net = [g_eis_in_net, FLOOR - MARGE] | max %}
+          {% set g_winst_zon = [g_eis_in_zon, FLOOR - MARGE] | max %}
+          {% set zon_op = state_attr('sun.sun', 'above_horizon') == 'true'
+                          or states('sun.sun') == 'above_horizon' %}
+          {# v1.9.6 (Claude-patch): de Ontladen-eis wordt bepaald door de
+             GOEDKOOPSTE herlaadroute. Bij zon kan het overschot gratis via de
+             zon terugkomen; dan is v_eis_zon (vaak lager dan v_eis_net) leidend.
+             Zonder deze min() toetst de verkooptak bij zon_op tegen de dure
+             zon-eis terwijl het attr verkoop_eis alleen de net-eis toont —
+             precies wat test_shadow_ontladen_hysterese_v185 en
+             test_shadow_reserve_band_flappert_niet_v185 deed falen. #}
+          {% set v_eis_act = ([v_eis_net, v_eis_zon] | min) if zon_op else v_eis_net %}
+          {% set g_eis_in_act = v_eis_act + H %}
+          {% set g_eis_uit_act = v_eis_act - H %}
           {% set besluit = namespace(s='unavailable') %}
           {% if nu2.in_nu is not none and nu_epoch - nu2.t_nu <= 2700 %}
-            {# v1.9.0 beslisketen — eerste treffer wint. Laag → hoog:
-               Laden → Spaar → Neutraal → Doorleveren → Ontladen.
-               0. curtail (uit < 0): verplicht door de netbeheerder, ongewijzigd.
-               1. Ontladen: uit > v_eis + H (prev Ontladen: uit > v_eis − H).
-               2. Doorleveren: R > 0 (prev Doorleveren: R >= 0).
-               3. Laden: in + w + m < V − H (prev Laden: < V + H).
-               4. Spaar: vers besluit bij in < V + H; vanuit Neutraal pas bij
-                  in < V − H (de neutraaltak houdt aan binnen de band → geen
-                  fladder rond V+H). Geen else-vangnet meer.
-               5. Neutraal: de rest = verbruiksband (in >= V + H en uit <= v_eis + H). #}
-            {%- if nu2.uit_nu is not none and nu2.uit_nu < 0 %}{% set besluit.s = 'Ontladen (curtail)' %}
-            {# v1.9.2: de reserve is GEEN statuspoort — binary_sensor.shadow_accu_blokkade
-               is het aparte signaal (v1.9.0-contract). De Spaar-tak mag alleen
-               vuren als er fysiek niets te ontladen is (budgetloos, n_top 0) OF
-               als laden níét loont (in ≥ V+H). Binnen de verbruiksband (in < V+H)
-               blijft Neutraal de Jans-definitie, ook onder de reserve. #}
 
-            {# v1.9.3: de Spaar-tak is GEEN reserve-poort — binnen de
-               verbruiksband (in < V+H) en onder de laadgrens (in ≥ V−H)
-               bepaalt de PRIJS het besluit, ook als SOC ≤ flor. De reserve is
-               uitsluitend een fysiek signaal (binary_sensor.shadow_accu_blokkade,
-               v1.9.0-contract). Zonder deze band-regel zou de reserve elke
-               goedkope laad- of neutrale beslissing overstemmen tot 'Spaar'. #}
-            {# v1.9.4: onder de reserve is er niets TE ontladen (budget ≤ 0),
-               maar LADEN is fysisch vrij en economisch identical — de Spaar-
-               poort op budgetloos is geschrapt; de prijsregels hieronder
-               beslissen, de reserve leeft alleen in de blokkade-sensor. #}
-            {%- elif prev == 'Laden' and nu2.in_nu + w + m < g_laden_uit %}{% set besluit.s = 'Laden' %}
-            {%- elif in_reserve and nu2.in_nu + w + m >= V + H %}{% set besluit.s = 'Spaar' %}
-            {# v1.9.2: Ontladen-eis = verkoopdrempel PLUS top-verkiezing. Een
-               duur uur buiten de top van de overgebleven onlaaduren (n_top)
-               mag niet: dan kan eenoger duurder uur binnen het budget vallen. #}
-            {%- elif prev == 'Ontladen' and nu2.uit_nu is not none and nu2.uit_nu > g_eis_uit and (in_top or n_top <= 0) %}{% set besluit.s = 'Ontladen' %}
-            {%- elif nu2.uit_nu is not none and nu2.uit_nu > v_eis + H and (in_top or n_top <= 0) and not in_reserve %}{% set besluit.s = 'Ontladen' %}
-            {%- elif prev == 'Doorleveren' and R2 >= 0 %}{% set besluit.s = 'Doorleveren' %}
-            {%- elif R2 > 0 %}{% set besluit.s = 'Doorleveren' %}
-            {%- elif nu2.in_nu + w + m < g_laden %}{% set besluit.s = 'Laden' %}
-            {# v1.9.0 fix #2b: Neutraal-band VÓÓR de Spaar-tak (eerste match
-               wint). Vanuit Neutraal blijft het Neutraal zolang in ≥ V−H;
-               zonder deze tak overstemt de Spaar-tak (in < V+H) elke
-               Neutraal-render binnen de band en fladdert de status rond V. #}
+            {# Beslisketen — eerste treffer wint, volgorde zoals gespecificeerd:
+               Laden-hold → Ontladen (hold, vers) → Doorleveren (hold, vers) →
+               Laden-vers → Neutraal-hold → Spaar → Neutraal.
+               De zesde status die hier ooit stond is opgeheven; de reserve leeft
+               alleen in binary_sensor.shadow_accu_blokkade (niet wijzigen).
+               Ontladen-eis splitst: zonvolume (boven doel-SOC) toetst tegen
+               v_eis_zon, netvolume (vullen tot de reserve) tegen v_eis_net. #}
+            {%- if prev == 'Laden' and nu2.in_nu + w + m < g_laden_uit and R2 < R2H %}{% set besluit.s = 'Laden' %}
+            {%- elif prev == 'Ontladen' and not in_reserve and nu2.uit_nu is not none
+                 and nu2.uit_nu > g_eis_uit_act
+                 and (in_top or (nu2.uit_nu is not none
+                                 and nu2.uit_nu >= (g_winst_zon if zon_op else g_winst_net))) %}{% set besluit.s = 'Ontladen' %}
+            {%- elif not in_reserve and nu2.uit_nu is not none
+                 and nu2.uit_nu > g_eis_in_act
+                 and (in_top or (nu2.uit_nu is not none
+                                 and nu2.uit_nu >= (g_winst_zon if zon_op else g_winst_net))) %}{% set besluit.s = 'Ontladen' %}
+            {%- elif prev == 'Doorleveren' and zon_op and (R2 >= 0 or states('sensor.accu_percentage') | float(0) >= 98) %}{% set besluit.s = 'Doorleveren' %}
+            {%- elif zon_op and (R2 > 0 or states('sensor.accu_percentage') | float(0) >= 100) and nu2.uit_nu is not none and nu2.uit_nu <= g_eis_in_net %}{% set besluit.s = 'Doorleveren' %}
+            {%- elif nu2.in_nu + w + m < g_laden and (R2 < 0 or in_reserve) %}{% set besluit.s = 'Laden' %}
             {%- elif prev == 'Neutraal' and nu2.in_nu >= g_laden %}{% set besluit.s = 'Neutraal' %}
+            {# v1.9.6 (Claude-patch): Spaar-tak onder de reserve, zoals in HEAD.
+               Bij een lege accu-blokkade mag dure stroom niet door de Neutraal-tak
+               worden opgepikt: soc <= flor en dure in-prijs met V boven eis+H is
+               verwachte-verlies-laden → Spaar. Verwacht door stap 5 van
+               test_shadow_huisreserve_is_apart_signaal_v190. #}
+            {%- elif in_reserve and nu2.in_nu + w + m >= g_eis_in_act %}{% set besluit.s = 'Spaar' %}
             {%- elif nu2.in_nu < g_laden_uit %}{% set besluit.s = 'Spaar' %}
             {%- else %}{% set besluit.s = 'Neutraal' %}{% endif %}
           {%- endif %}
@@ -455,8 +582,10 @@ template:
             {% endfor %}
             {{ ns.v }}
           V: "{{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}"
-          verkoop_eis: "{{ states('sensor.shadow_verkoop_eis') }}"
-          herlaadkosten: "{{ states('sensor.shadow_herlaadkosten') }}"
+          verkoop_eis: "{{ states('sensor.shadow_verkoop_eis_net') }}"
+          verkoop_eis_zon: "{{ states('sensor.shadow_verkoop_eis_zon') }}"
+          herlaadkosten_net: "{{ states('sensor.shadow_herlaadkosten_net') }}"
+          herlaadkosten_zon: "{{ states('sensor.shadow_herlaadkosten_zon') }}"
           doel_SOC: "{{ states('sensor.shadow_doel_soc') }}"
           R: "{{ states('sensor.shadow_ruimtegebrek_r') }}"
           SOC: "{{ states('sensor.accu_percentage') }}"
@@ -493,18 +622,17 @@ template:
                Zelfstandig uitgerekend (dezelfde formules als
                binary_sensor.shadow_accu_blokkade) — de sensor kijgt hier géén
                cycliciteit: hij leest alleen de STATUS (die dit attribuut zelf
-               niet beïnvloedt), SOC en flor. Laden en curtail tonen hier geen
-               blokkade: laden is juist hoe je boven de reserve komt, curtail
-               is verplicht. #}
+               niet beïnvloedt), SOC en flor. Laden toont hier geen
+               blokkade: laden is juist hoe je boven de reserve komt. #}
             {# v1.9.0 fix: puur-SOC-spigel van binary_sensor.shadow_accu_blokkade
                (dezelfde band, zonder latch). Géén statusfilter hier: het
                attributes-dict wordt VÓÓR de state gezet en `this.state` is
                dan stale (vorige render), terwijl update_on_state bij een
-               statuswissel naar Laden/curtail precies één render met die oude
-               basis forcéérde — de test ving dat. Laden/curtail hoeven geen
+               statuswissel naar Laden precies één render met die oude
+               basis forcéérde — de test ving dat. Laden hoeft geen
                blokkade te *tonen* om toch correct te werken: de statussensor
-               adviseert ze onafhankelijk van SOC (curtail is verplicht,
-               Laden heeft eigen SOC-gates), en de binaire sensor is de
+               adviseert het onafhankelijk van SOC (Laden heeft eigen
+               SOC-gates), en de binaire sensor is de
                bron van waarheid voor downstream-acties. #}
             {% set soc_raw = states('sensor.accu_percentage') %}
             {% set soc_num = soc_raw | float(-1) %}
@@ -529,8 +657,8 @@ template:
 #  gehaald: shadow_status is nu een zuivere prijs-/economiestatus.
 #  Deze binaire sensor geeft aan of de accu-reserve een verkoop/spaar-
 #  besluit blokkeert. Fail-safe: onbekende SOC → on (nooit stille
-#  verkoop uit de reserve). Laden en curtail zijn NOOIT een blokkade:
-#  laden is juist hoe je boven de reserve komt, curtail is verplicht.
+#  verkoop uit de reserve). Laden is NOOIT een blokkade:
+#  laden is juist hoe je boven de reserve komt.
 # ═══════════════════════════════════════════════════════════════════
     binary_sensor:
       # v1.9.0: HA wil binaire template-sensoren NESTED onder `template:`
@@ -545,9 +673,9 @@ template:
              GEEN status-afhankelijkheid — bewust. De status-sensor spiegelt
              dit signaal in zijn attributen (status→attributen→herberekening);
              zou DIT signaal ook naar de status kijken, dan ontstaat een
-             terugkoppel-cyclus die bij Laden/curtail elke tick aan/uit flopt
+             terugkoppel-cyclus die bij Laden elke tick aan/uit flopt
              (de latch kan zichzelf niet handhaven door een status-heenweg).
-             Laden/curtail worden daarom hier NIET uitgezonderd: de
+             Laden wordt daarom hier NIET uitgezonderd: de
              statussensor filtert ze in zijn eigen 'blokkade'-attribuut. #}
           {% set prev_bs = states('binary_sensor.shadow_accu_blokkade') | default('', true) | string %}
           {% set soc_raw = states('sensor.accu_percentage') %}
@@ -588,7 +716,6 @@ automation:
           - Neutraal
           - Doorleveren
           - Ontladen
-          - Ontladen (curtail)
         not_from:
           - unavailable
           - unknown
@@ -610,7 +737,7 @@ automation:
           shadow_log_rij: >
             {{ states('sensor.shadow_status') }} | in={{ state_attr('sensor.shadow_status','in_nu') }}
             uit={{ state_attr('sensor.shadow_status','uit_nu') }} V={{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}
-            eis={{ states('sensor.shadow_verkoop_eis') }} R={{ states('sensor.shadow_ruimtegebrek_r') }}
+            eis={{ states('sensor.shadow_verkoop_eis_net') }} R={{ states('sensor.shadow_ruimtegebrek_r') }}
             doelSOC={{ states('sensor.shadow_doel_soc') }}% SOC={{ states('sensor.accu_percentage') }}%
             blokkade={{ state_attr('sensor.shadow_status','blokkade') }}
       - action: event
@@ -622,7 +749,7 @@ automation:
           in_nu: "{{ state_attr('sensor.shadow_status','in_nu') }}"
           uit_nu: "{{ state_attr('sensor.shadow_status','uit_nu') }}"
           v: "{{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }}"
-          verkoop_eis: "{{ states('sensor.shadow_verkoop_eis') }}"
+          verkoop_eis: "{{ states('sensor.shadow_verkoop_eis_net') }}"
           r: "{{ states('sensor.shadow_ruimtegebrek_r') }}"
           doel_soc: "{{ states('sensor.shadow_doel_soc') }}"
           soc: "{{ states('sensor.accu_percentage') }}"
@@ -644,7 +771,7 @@ automation:
             Status: {{ states('sensor.shadow_status') }} —
             in {{ state_attr('sensor.shadow_status','in_nu') }} ·
             uit {{ state_attr('sensor.shadow_status','uit_nu') }} ·
-            V {{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }} · eis {{ states('sensor.shadow_verkoop_eis') }} ·
+            V {{ states('sensor.shadow_v_waarde_opgeslagen_kwh') }} · eis {{ states('sensor.shadow_verkoop_eis_net') }} ·
             R {{ states('sensor.shadow_ruimtegebrek_r') }} W · SOC {{ states('sensor.accu_percentage') }}%
             (doel {{ states('sensor.shadow_doel_soc') }}%) ·
             blokkade {{ state_attr('sensor.shadow_status','blokkade') }}.

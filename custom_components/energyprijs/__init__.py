@@ -98,9 +98,10 @@ async def _ruim_verouderde_helpers(hass: HomeAssistant) -> None:
             _LOGGER.info("energyprijs: verouderde helper %s verwijderd", eid)
 
     # v1.7.4: hernoemde geheugenknop voor de status-hysterese — de waarde
-    # 'COMFORT'/'COMFORT (curtail)' wordt eenmalig vertaald naar
-    # 'Ontladen'/'Ontladen (curtail)' zodat de hysterese-takken direct na
-    # de hernoeming meeklinken.
+    # 'COMFORT' wordt eenmalig vertaald naar 'Ontladen' zodat de
+    # hysterese-takken direct na de hernoeming meeklinken. (v1.9.5: de
+    # curtail-ingangen zijn uit STATUS_MIGRATIE gehaald — curtail is hier
+    # nooit een status geweest en komt nergens meer terug.)
     from .installer import STATUS_HISTORIE, STATUS_MIGRATIE
     for old in STATUS_HISTORIE:
         st = hass.states.get(old)

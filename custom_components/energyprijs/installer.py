@@ -71,7 +71,13 @@ HELPERS_DEFAULTS: dict[str, float] = {
     "shadow_n_top": 12,
     "shadow_capaciteit": 92,
     "shadow_soc_min": 20,
+    "shadow_laden_hold_r2": 2,  # R2-grens voor de Laden-hold-tak (%, gok → instelbaar)
     "shadow_hysteresis": 0.005,
+    # v1.9.5: ondergrens van de verkoop-eis (zie shadow.yaml). Zonder heffing
+    # over de hele verkoopsom is de berekende eis ~0,08 €/kWh en wint élke
+    # euro daarboven — reserve verkoopt dan voor ~0,12 terwijl dal-laden
+    # ~0,07 kostte. 0,20 = marge boven die herlaadkosten.
+    "shadow_verkoop_eis_min": 0.20,
     # ── gemeten accu-rendement (accu_verlies_meten.py, meetperiode aug-okt '26):
     #    laden net->cel ~77% (zwaar AC-laden), ontladen cel->AC ~90%, roundtrip
     #    ~70%. shadow_eta is de GEWOGEN standaard voor de solver en blijft op de
@@ -118,13 +124,15 @@ STATUS_HISTORIE: dict[str, str] = {
 # één lookup per herstart, dus "SPAAR" → "Op het net" → "Doorleveren" zou nooit
 # tot "Doorleveren" komen. Nieuwe statussen alleen toevoegen als nieuwste
 # eindlabel (niet als tussenstation).
+# v1.9.5: curtail is NOOIT een status van Jan geweest en is volledig geschrapt —
+# ook deze vertaal-ingangen verdwijnen. Een hysterese-knop die nog een curtail-
+# waarde draagt valt buiten deze tabel en wordt door de fail-safe (unavailable)
+# alsnog proper hersteld; hij komt nooit meer als status terug.
 STATUS_MIGRATIE: dict[str, str] = {
     "COMFORT": "Ontladen",                    # v1.7.4
-    "COMFORT (curtail)": "Ontladen (curtail)",  # v1.7.4
     "LADEN": "Laden",
     "NEUTRAAL": "Neutraal",
     "ONTLADEN": "Ontladen",
-    "ONTLADEN (curtail)": "Ontladen (curtail)",
     "SPAAR": "Doorleveren",     # ruimtetak: lading houden = band 4
     "OP HET NET": "Spaar",      # else-vangnet: goedkoopste rust = band 2
     "Op het net": "Doorleveren",  # oude naam band 4 (vóór hernoeming v1.8.3)

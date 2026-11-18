@@ -243,7 +243,6 @@ SHADOW_CARD = {
         "{% elif s == 'Neutraal' %}🔵 **Neutraal** — te duur om te laden, te goedkoop om te verkopen: huis uit de accu, dure netprijzen ontlopen."
         "{% elif s == 'Doorleveren' %}⚪ **Doorleveren** — duur: huis trekt van het net, overschot direct door; lading houden, nog niet verkopen."
         "{% elif s == 'Ontladen' %}🔴 **Ontladen** — topprijs: accu verkoopt aan het net (boven verkoop-eis)"
-        "{% elif s == 'Ontladen (curtail)' %}🔴 **Ontladen (curtail)** — negatieve prijs, export stoppen"
         "{% else %}❓ {{ s }}{% endif %}"
         "\n\nin {{ state_attr('sensor.shadow_status','in_nu') }} · "
         "uit {{ state_attr('sensor.shadow_status','uit_nu') }} · "
