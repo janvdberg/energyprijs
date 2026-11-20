@@ -9,3 +9,7 @@ pytest_venv/
 review/
 review_claude/
 review_v1.7.0_context.md
+
+# werkdocs voor externe modellen — buiten de repo houden
+/*_CLAUDE*.md
+/TOETSING_HERMES.md
