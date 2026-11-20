@@ -700,6 +700,10 @@ async def test_shadow_neutraal_als_verbruiksband(hass):
     st = hass.states.get("sensor.shadow_status")
     assert st.state == "Neutraal", (
         f"prijsstatus is SOC-onafhankelijk, got {st.state}")
+    # v1.9.7: binary_sensor.shadow_accu_blokkade leest flor via
+    # accu_reserve_pct — dus die moet omhoog voordat SOC 4 ≤ flor kan zijn.
+    hass.states.async_set("input_number.accu_reserve_pct", "20")
+    await _trig(hass, 4)
     bs = hass.states.get("binary_sensor.shadow_accu_blokkade")
     assert bs is not None and bs.state == "on", (
         f"SOC 4 ≤ flor → apart signaal aan, got {bs.state if bs else None}")
@@ -864,17 +868,15 @@ async def test_shadow_reserve_band_flappert_niet_v185(hass):
     # dus STIL. De template-valt terug op P=5 kW → budget ~4 u = 4 slots, en
     # deze daglijst heeft méér dure slots dan het verleden → de top-verkiezing
     # verstikte de verkooptak (got 'Neutraal'). async_set zet de states wél:
-    # P 0,1 kW (géén kap) en reserve 0 voor de STATUS-takken (geen
-    # Spaar-overstemming). De binaire signaaltesten hieronder toetsen de band
-    # bij flor 20 — de productie-value van accu_reserve_pct én de soc_min-
-    # default — en binary_sensor.shadow_accu_blokkade leest UITSLOITEND
-    # shadow_soc_min (de hysterese-fixture zette die op 5). Dus soc_min terug
-    # naar 20; de status-Spaar-tak blijft buiten spel via accu_reserve_pct=0.
+    # P 0,1 kW (géén kap). v1.9.7: binary_sensor.shadow_accu_blokkade leest
+    # — net als alle andere flor-takken — accu_reserve_pct. De signaaltests
+    # hieronder toetsen de band bij flor 20 via die helper zelf; de status-
+    # Spaar-tak wordt níét meer overstemd door reserve 0 te zetten (dat zou
+    # het signaal op flor 0 zetten). Bij SOC 21 en daglijst-prijzen rond de
+    # verkoop-eis beslist de prijs: Ontladen; flor 20 maakt pas bij SOC ≤ 20
+    # het aparte signaal on.
     hass.states.async_set("input_number.accu_vermogen_uit_kw", "0.1")
-    hass.states.async_set("input_number.accu_reserve_pct", "0")
-    await hass.services.async_call(
-        "input_number", "set_value",
-        {"entity_id": "input_number.shadow_soc_min", "value": 20}, blocking=True)
+    hass.states.async_set("input_number.accu_reserve_pct", "20")
     await _zet_daglijst(hass, _daglijst_voortgang(0.40, 0.44, 0.45, 0.45))
     # 1) status is prijszuiver: ook bij SOC 21 gewoon Ontladen. Prev leeg
     #    zetten: de log-automation heeft 'Spaar' achtergelaten en in deze

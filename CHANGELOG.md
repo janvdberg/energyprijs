@@ -1,3 +1,21 @@
+## 2026-11-20 — v1.9.7: alle flor-takken lezen accu_reserve_pct (één bron)
+
+**Aanleiding**: live zag Jan de status 'vloeiend' rond de SOC-grens switches
+klappen. Oorzaak: `binary_sensor.shadow_accu_blokkade`, het `blokkade`/
+`in_reserve`-attribuut en de doel-SOC-grens lazen `shadow_soc_min` (legacy,
+default/fallback 20), terwijl de status-/laden-takken `accu_reserve_pct`
+(huisreserve, production-waarde) lazen. Bij gelijke numerieke grens ging het
+signaal per SOC-tik afwisselend on/off en sleepde `sensor.shadow_status` mee.
+
+**Fix**: één contract — elke flor-lezing in shadow.yaml is nu
+`states('input_number.accu_reserve_pct') | float(20)`; de legacy
+shadow_soc_min-fallback-blokken zijn verwijderd (helper-bewaking v1.9.2
+vangt een ontbrekende helper al af). De binary-sensor triggerlijst en het
+`flor`-display-attribuut wijzen mee naar accu_reserve_pct.
+
+**Testimpact**: twee fixtures (neutraal/stap-3, flappert) toetsten het signaal
+via soc_min; die zetten nu de echte flor-bron (accu_reserve_pct). 14/14 groen.
+
 ## 2026-11-11 — v1.9.3: shadow-beslisladder onder de huisreserve gecorrigeerd
 
 **Aanleiding**: `test_shadow_huisreserve_is_apart_signaal_v190` bleef falen: bij
