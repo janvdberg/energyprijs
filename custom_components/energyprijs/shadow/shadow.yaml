@@ -131,7 +131,6 @@ template:
           - input_number.shadow_m
           - input_number.shadow_n_top
           - input_number.shadow_capaciteit
-          - input_number.shadow_soc_min
           - input_number.accu_reserve_pct
           - input_number.accu_vermogen_uit_kw
           - sensor.prijs_top_uren
@@ -161,7 +160,7 @@ template:
           {% set S = (states('sensor.vandaag_verwachte_zonnestroom') | float(0)
                       + states('sensor.verwachte_opbrengst_morgen') | float(0)) %}
           {% set C = states('input_number.shadow_capaciteit') | float(92) %}
-          {% set grens = states('input_number.shadow_soc_min') | float(20) %}
+          {% set grens = states('input_number.accu_reserve_pct') | float(20) %}
           {% set raw = 100 - (S / C * 100) %}
           {{ ([grens, [100, raw] | min] | max) | round(1) }}
 
@@ -439,13 +438,10 @@ template:
           {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
           {% set nu_epoch = now() | as_timestamp | round(0) | int %}
           {# v1.9.2: de ENIGE reserve die ertoe doet is input_number.accu_reserve_pct
-             (Deye-ondergrens-SOC van het dashboard); shadow_soc_min alleen fallback.
+             (Deye-ondergrens-SOC van het dashboard) — v1.9.7: alle flor-takken lezen deze helper
              v1.9.2 let op: float() van 'unknown'/'unavailable' geeft GEEN default —
              die moet expliciet, anders wordt η_uit/vermogen 0 → budgetloos. #}
-          {% set flor_raw = states('input_number.accu_reserve_pct') %}
-          {% set flor = (flor_raw | float(-1)) if flor_raw not in ['unknown', 'unavailable']
-                        else -1 %}
-          {% if flor < 0 %}{% set flor = states('input_number.shadow_soc_min') | float(20) %}{% endif %}
+          {% set flor = states('input_number.accu_reserve_pct') | float(20) %}
           {% set in_reserve = soc_ok and soc_num <= flor %}
           {% set C = states('input_number.shadow_capaciteit') | float(92) %}
           {% set eta_u = (states('input_number.rendement_ontlaad_pct') | float(90) if has_value('input_number.rendement_ontlaad_pct') else 90.0) / 100 %}
@@ -593,18 +589,14 @@ template:
           kwh_tot_reserve: >-
             {% set soc_raw = states('sensor.accu_percentage') %}
             {% set soc_num = soc_raw | float(-1) %}
-            {% set flor_raw = states('input_number.accu_reserve_pct') %}
-            {% set flor = (flor_raw | float(-1)) if flor_raw not in ['unknown', 'unavailable'] else -1 %}
-            {% if flor < 0 %}{% set flor = states('input_number.shadow_soc_min') | float(20) %}{% endif %}
+            {% set flor = states('input_number.accu_reserve_pct') | float(20) %}
             {% set C = states('input_number.shadow_capaciteit') | float(92) %}
             {% set eta_u = (states('input_number.rendement_ontlaad_pct') | float(90) if has_value('input_number.rendement_ontlaad_pct') else 90.0) / 100 %}
             {{ (((soc_num - flor) / 100 * C * eta_u) | round(2)) if soc_num >= 0 and soc_num > flor else 0 }}
           ontlaadbare_uren: >-
             {% set soc_raw = states('sensor.accu_percentage') %}
             {% set soc_num = soc_raw | float(-1) %}
-            {% set flor_raw = states('input_number.accu_reserve_pct') %}
-            {% set flor = (flor_raw | float(-1)) if flor_raw not in ['unknown', 'unavailable'] else -1 %}
-            {% if flor < 0 %}{% set flor = states('input_number.shadow_soc_min') | float(20) %}{% endif %}
+            {% set flor = states('input_number.accu_reserve_pct') | float(20) %}
             {% set C = states('input_number.shadow_capaciteit') | float(92) %}
             {% set eta_u = (states('input_number.rendement_ontlaad_pct') | float(90) if has_value('input_number.rendement_ontlaad_pct') else 90.0) / 100 %}
             {% set P = states('input_number.accu_vermogen_uit_kw') | float(5) if has_value('input_number.accu_vermogen_uit_kw') else 5.0 %}
@@ -637,14 +629,14 @@ template:
             {% set soc_raw = states('sensor.accu_percentage') %}
             {% set soc_num = soc_raw | float(-1) %}
             {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
-            {% set flor = states('input_number.shadow_soc_min') | float(20) %}
+            {% set flor = states('input_number.accu_reserve_pct') | float(20) %}
             {{ 'on' if (not soc_ok) or soc_num <= flor else 'off' }}
           toelichting: >
             {% set s = states('sensor.shadow_status') %}
             {% set soc_raw = states('sensor.accu_percentage') %}
             {% set soc_num = soc_raw | float(-1) %}
             {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
-            {% set flor = states('input_number.shadow_soc_min') | float(20) %}
+            {% set flor = states('input_number.accu_reserve_pct') | float(20) %}
             {% set in_reserve = soc_ok and soc_num <= flor %}
             {% set blk = in_reserve %}
             {% if blk and s in ['Neutraal', 'Ontladen', 'Doorleveren'] %}
@@ -681,16 +673,18 @@ template:
           {% set soc_raw = states('sensor.accu_percentage') %}
           {% set soc_num = soc_raw | float(-1) %}
           {% set soc_ok = soc_raw not in ['unknown', 'unavailable'] and soc_num >= 0 %}
-          {% set flor = states('input_number.shadow_soc_min') | float(20) %}
-          {# v1.9.0 fix #1: strengere band. Activeren zodra soc ≤ flor; de
-             latch houdt aan tot soc weer boven flor klimt (geen flor+2-
-             uitstapband meer). Puur soc > flor — GEEN prev_bs-term: dit
-             attribuut wordt VÓÓR de state gerenderd en states() van deze
-             sensor zelf is dan stale, dus een latch-op-prev flopt telkens
-             bij een statuswissel (update_on_state). #}
+          {% set flor = states('input_number.accu_reserve_pct') | float(20) %}
+          {# v1.9.7: puur soc ≤ flor — het v1.9.0-contract (geen flor+2-band,
+             géén prev-latch: states() van deze sensor is hier stale). De
+             anti-fladder- eigenschap komt van de NIEUWE flor-bron: primary
+             accu_reserve_pct, exact zoals de verbruiks-/reserve-takken die
+             al lezen. Eerder las dit signaal shadow_soc_min (fallback 20)
+             terwijl de takken accu_reserve_pct lazen: bij gelijke SOC-grens
+             ging on/off per tick afwisselen en sleepde de statussensor mee
+             (de 'vloeiende overgang' die Jan live zag, nov '26). #}
           {{ (not soc_ok) or soc_num <= flor }}
         attributes:
-          flor: "{{ states('input_number.shadow_soc_min') }}"
+          flor: "{{ states('input_number.accu_reserve_pct') }}"
           SOC: "{{ states('sensor.accu_percentage') }}"
           status: "{{ states('sensor.shadow_status') }}"
 
