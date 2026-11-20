@@ -325,7 +325,8 @@ template:
             {# v1.8.1: accumulators voor het vooruitkijkend minimum (zie scan hieronder) #}
             {% set ns_mn = namespace(wm=9.0, tm=9.0, tmin=None) %}
             {% for i in state_attr(ns.eid_tm, 'prices_tomorrow') | default([], true) %}
-              {% if i.time is defined and i.price is defined %}
+              {% set _dt = (i.time | as_datetime(none)) if i is mapping else none %}
+              {% if _dt is not none and i.price is defined %}
                 {% set dtx = (i.time | as_datetime).astimezone() %}
                 {% if ns_mn.tmin is none or dtx < ns_mn.tmin %}{% set ns_mn.tmin = dtx %}{% endif %}
               {% endif %}
@@ -341,7 +342,8 @@ template:
                Doel: laden = goedkoopste uren van het ROLLENDE venster; álle kwartieren
                tellen mee, niet alleen het huidige. Zelfde formule als hoofd-lus hieronder. #}
             {% for x0 in state_attr(ns.eid, 'prices_today') | default([], true) %}
-              {% if x0.time is defined and x0.price is defined %}
+              {% set _dt = (x0.time | as_datetime(none)) if x0 is mapping else none %}
+              {% if _dt is not none and x0.price is defined %}
                 {% set h0 = (x0.time | as_datetime).astimezone().hour %}
                 {% set mnd0 = (x0.time | as_datetime).astimezone().month %}
                 {% set nsb0 = namespace(f=None) %}
@@ -365,7 +367,8 @@ template:
               {% endif %}
             {% endfor %}
             {% for i in state_attr(ns.eid, 'prices_today') | default([], true) %}
-              {% if i.time is defined and i.price is defined %}
+              {% set _dt = (i.time | as_datetime(none)) if i is mapping else none %}
+              {% if _dt is not none and i.price is defined %}
                 {% set p = i.price | float(0) %}
                 {# ── tariefcontract 2028: toeslag per lokaal uur; vóór 1-1-2028
                    is ts=0 en valt alles terug op de vaste contract-opslagen ── #}
@@ -401,7 +404,8 @@ template:
                all-in-formule; minimum in ns_mn.tm. Zo telt een laag blok dat straks
                nachts begint al mee in de fractiegrens van vandaag. #}
             {% for i in state_attr(ns.eid_tm, 'prices_tomorrow') | default([], true) %}
-              {% if i.time is defined and i.price is defined %}
+              {% set _dt = (i.time | as_datetime(none)) if i is mapping else none %}
+              {% if _dt is not none and i.price is defined %}
                 {% set dtx = (i.time | as_datetime).astimezone() %}
                 {% if ns_mn.tmin is not none and (dtx - ns_mn.tmin) < timedelta(hours=6) %}
                   {% set px = i.price | float(0) %}
@@ -477,7 +481,8 @@ template:
             {# v1.8.1 (simulatie-fix): tmin-scana net als in 'vandaag' — zonder deze
                scan blijft tmin None en doet de VOORLOOP-lus hieronder niets. #}
             {% for i in state_attr(ns.eid_tm, 'prices_tomorrow') | default([], true) %}
-              {% if i.time is defined and i.price is defined %}
+              {% set _dt = (i.time | as_datetime(none)) if i is mapping else none %}
+              {% if _dt is not none and i.price is defined %}
                 {% set dtx = (i.time | as_datetime).astimezone() %}
                 {% if ns_mn.tmin is none or dtx < ns_mn.tmin %}{% set ns_mn.tmin = dtx %}{% endif %}
               {% endif %}
@@ -492,7 +497,8 @@ template:
               {% if eid_wm == '' and state_attr(eid, 'prices_today') | default([], true) | count > 0 %}{% set eid_wm = eid %}{% endif %}
             {% endfor %}
             {% for x0 in state_attr(eid_wm, 'prices_today') | default([], true) %}
-              {% if x0.time is defined and x0.price is defined %}
+              {% set _dt = (x0.time | as_datetime(none)) if x0 is mapping else none %}
+              {% if _dt is not none and x0.price is defined %}
                 {% set h0 = (x0.time | as_datetime).astimezone().hour %}
                 {% set mnd0 = (x0.time | as_datetime).astimezone().month %}
                 {% set nsb0 = namespace(f=None) %}
@@ -516,7 +522,8 @@ template:
               {% endif %}
             {% endfor %}
             {% for i in state_attr(ns.eid, 'prices_tomorrow') | default([], true) %}
-              {% if i.time is defined and i.price is defined %}
+              {% set _dt = (i.time | as_datetime(none)) if i is mapping else none %}
+              {% if _dt is not none and i.price is defined %}
                 {% set p = i.price | float(0) %}
                 {# ── tariefcontract 2028: toeslag per lokaal uur; vóór 1-1-2028
                    is ts=0 en valt alles terug op de vaste contract-opslagen ── #}
@@ -552,7 +559,8 @@ template:
                all-in-formule; minimum in ns_mn.tm. Zo telt een laag blok dat straks
                nachts begint al mee in de fractiegrens van vandaag. #}
             {% for i in state_attr(ns.eid_tm, 'prices_tomorrow') | default([], true) %}
-              {% if i.time is defined and i.price is defined %}
+              {% set _dt = (i.time | as_datetime(none)) if i is mapping else none %}
+              {% if _dt is not none and i.price is defined %}
                 {% set dtx = (i.time | as_datetime).astimezone() %}
                 {% if ns_mn.tmin is not none and (dtx - ns_mn.tmin) < timedelta(hours=6) %}
                   {% set px = i.price | float(0) %}
@@ -642,7 +650,8 @@ template:
             {% set morgen_datum = (now() + timedelta(days=1)).date() %}
             {% for i in state_attr('sensor.prijzen_bron_voorspelling', 'prices_tomorrow')
                        | default([], true) %}
-              {% if i.time is defined and i.price is defined %}
+              {% set _dt = (i.time | as_datetime(none)) if i is mapping else none %}
+              {% if _dt is not none and i.price is defined %}
                 {% set dt = i.time | as_datetime %}
                 {% set _skip = morgen_datum is not none and dt.date() != morgen_datum %}
                 {# Ruwe datum van het punt (offset behouden — as_datetime
