@@ -380,6 +380,14 @@ template:
       #   Er is géén PV-overschot-sensor en géén zesde status: een negatieve
       #   uit-prijs is per definitie onder elke verkoop-eis, dus de accu blijft
       #   staan — bij zon als Doorleveren, anders als Spaar.
+      #
+      #   v1.9.8 (jan '26): ONDER DE RESERVE IS NEUTRAAL VERBODEN. Zolang SOC ≤
+      #   flor haalt het huis stroom uit de accu; 'Neutraal' zou dat passief
+      #   laten doorgaan tot de accu leegloopt (bewezen: 19 nov '26, 23:00 →
+      #   02:41, SOC 33→2% terwijl Shadow Neutrael hield omdat geen enkele
+      #   prijsdrempel werd geraakt). Daarom geldt bij in_reserve altijd een
+      #   actieve status: Laden als de netprijs onder V+H zakt (netbijvullen),
+      #   anders Spaar (net voor het huis, beschikbare zonnestroom vult de accu).
       - name: "Shadow status"
         unique_id: shadow_status
         icon: mdi:content-save-settings-outline
@@ -546,13 +554,12 @@ template:
             {%- elif prev == 'Doorleveren' and zon_op and (R2 >= 0 or states('sensor.accu_percentage') | float(0) >= 98) %}{% set besluit.s = 'Doorleveren' %}
             {%- elif zon_op and (R2 > 0 or states('sensor.accu_percentage') | float(0) >= 100) and nu2.uit_nu is not none and nu2.uit_nu <= g_eis_in_net %}{% set besluit.s = 'Doorleveren' %}
             {%- elif nu2.in_nu + w + m < g_laden and (R2 < 0 or in_reserve) %}{% set besluit.s = 'Laden' %}
+            {# v1.9.8: onder de reserve bestaat Neutraal niet — zie doc-blok.
+               Laadbaar (in < V+H) → Laden; anders → Spaar (net voor het huis,
+               zon in de accu). De v1.9.6-duur-stroomtak is hierin opgegaan. #}
+            {%- elif in_reserve and nu2.in_nu < g_laden_uit %}{% set besluit.s = 'Laden' %}
+            {%- elif in_reserve %}{% set besluit.s = 'Spaar' %}
             {%- elif prev == 'Neutraal' and nu2.in_nu >= g_laden %}{% set besluit.s = 'Neutraal' %}
-            {# v1.9.6 (Claude-patch): Spaar-tak onder de reserve, zoals in HEAD.
-               Bij een lege accu-blokkade mag dure stroom niet door de Neutraal-tak
-               worden opgepikt: soc <= flor en dure in-prijs met V boven eis+H is
-               verwachte-verlies-laden → Spaar. Verwacht door stap 5 van
-               test_shadow_huisreserve_is_apart_signaal_v190. #}
-            {%- elif in_reserve and nu2.in_nu + w + m >= g_eis_in_act %}{% set besluit.s = 'Spaar' %}
             {%- elif nu2.in_nu < g_laden_uit %}{% set besluit.s = 'Spaar' %}
             {%- else %}{% set besluit.s = 'Neutraal' %}{% endif %}
           {%- endif %}
