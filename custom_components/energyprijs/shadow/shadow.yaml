@@ -757,8 +757,7 @@ automation:
             eis={{ states('sensor.shadow_verkoop_eis_net') }} R={{ states('sensor.shadow_ruimtegebrek_r') }}
             doelSOC={{ states('sensor.shadow_doel_soc') }}% SOC={{ states('sensor.accu_percentage') }}%
             blokkade={{ state_attr('sensor.shadow_status','blokkade') }}
-      - action: event
-        event_type: energyprijs_shadow_statusbeslissing
+      - event: energyprijs_shadow_statusbeslissing
         event_data:
           timestamp: "{{ now().isoformat() }}"
           status: "{{ trigger.to_state.state }}"
@@ -826,8 +825,7 @@ automation:
             {{ ts is none or (now() - ts).total_seconds() > grens * 60 }}
           {% endif %}
     actions:
-      - action: event
-        event_type: energyprijs_shadow_stilstand
+      - event: energyprijs_shadow_stilstand
         event_data:
           timestamp: "{{ now().isoformat() }}"
           laatst_berekend: "{{ state_attr('sensor.shadow_status', 'laatst_berekend') }}"

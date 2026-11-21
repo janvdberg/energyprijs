@@ -102,9 +102,11 @@ def test_shadow_automation_event_log_actie():
     log_auto = next(a for a in pkg["automation"]
                     if a.get("id") == "energyprijs_shadow_log")
     ev = [a for a in log_auto["actions"]
-          if isinstance(a, dict) and a.get("action") == "event"]
+          if isinstance(a, dict) and "event" in a]
     assert ev, "log-automation mist de event-actie (beslissingslog)"
-    assert ev[0]["event_type"] == "energyprijs_shadow_statusbeslissing"
+    assert ev[0]["event"] == "energyprijs_shadow_statusbeslissing"
+    assert "event_type" not in ev[0], "HA 2026.11: event-actie gebruikt `event:`, niet `event_type:`"
+    assert "action" not in ev[0], "HA 2026.11: `- action: event` is géén geldige actie — de kale `event:`-sleutel is de enige vorm (live bewezen op 2026.11.2)"
     data = ev[0].get("event_data", {})
     for key in ("timestamp", "status", "from", "in_nu", "uit_nu",
                 "v", "verkoop_eis", "r", "doel_soc", "soc"):
@@ -153,8 +155,10 @@ def test_shadow_watchdog_automation_structuur():
     assert any("has_value('sensor.shadow_status')" in c["value_template"]
                for c in conds), "geen has_value-bescherming op de statussensor"
     ev = [a for a in wd["actions"] if isinstance(a, dict)
-          and a.get("action") == "event"]
-    assert ev and ev[0]["event_type"] == "energyprijs_shadow_stilstand"
+          and "event" in a]
+    assert ev and ev[0]["event"] == "energyprijs_shadow_stilstand"
+    assert "event_type" not in ev[0], "HA 2026.11: event-actie gebruikt `event:`, niet `event_type:`"
+    assert "action" not in ev[0], "HA 2026.11: `- action: event` is géén geldige actie — de kale `event:`-sleutel is de enige vorm (live bewezen op 2026.11.2)"
     pn = [a for a in wd["actions"] if isinstance(a, dict)
           and a.get("action") == "persistent_notification.create"]
     assert pn and pn[0]["data"]["notification_id"] == "energyprijs_shadow_stilstand"
