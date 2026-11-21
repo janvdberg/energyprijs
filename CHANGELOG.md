@@ -1,3 +1,26 @@
+## 2026-11-21 — v1.9.10: fix — event-acties in de shadow-package gebruikten `event_type:` (ongeldig veld)
+
+**Aanleiding**: HA 2026.11 meldde beide shadow-automations als
+`unavailable`: "does not match expected format ... actions[0].event_type".
+Oorzaak: `- action: event` verwacht het veld `event:` (bron:
+`helpers/script.py::_async_step_event` leest `CONF_EVENT`;
+`const.py: CONF_EVENT = "event"`). `event_type:` was de oude trigger-sleutel
+en wordt bij acties afwezig-valideerd. Hierdoor stond ook de
+beslissingslog-automation (v1.5.9) sinds jaar en dag onbruikbaar —
+verklaard: nooit een enkele `energyprijs_shadow_statusbeslissing` in het
+event-log.
+
+**Fix**: `event_type:` → `event:` in beide event-acties van
+`shadow/shadow.yaml` (id `energyprijs_shadow_log`, id
+`energyprijs_shadow_watchdog`) én in `shadow_work.yaml`. De tests in
+`test_shadow_yaml_valid.py` controleren nu expliciet `ev[0]["event"]` en
+verwerpen `"event_type" in ev[0]` — de bug kan niet meer stil terugkeren.
+
+**Testimpact**: `test_shadow_yaml_valid.py` 10/10 groen. De full-suite-fouten
+(102 errors, pytest-9 async-fixture-deprecation) zijn vooraf bestaand en
+onafhankelijk van deze wijziging (bewezen via `git stash`: zelfde 102 errors op
+HEAD zonder deze diff).
+
 ## 2026-11-21 — v1.9.9: shadow-watchdog — stilstand van de schaduw-berekening blijft niet meer onzichtbaar
 
 **Aanleiding**: de log-automation triggert op STATUSWIJZIGING. Een stille
