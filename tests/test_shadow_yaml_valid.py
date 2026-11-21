@@ -109,3 +109,70 @@ def test_shadow_automation_event_log_actie():
     for key in ("timestamp", "status", "from", "in_nu", "uit_nu",
                 "v", "verkoop_eis", "r", "doel_soc", "soc"):
         assert key in data, f"event_data mist {key}"
+
+
+# ── v1.9.9: stilstand-watchdog ─────────────────────────────────────────────
+
+
+def test_shadow_watchdog_helper_present():
+    """De drempel-helper moet bestaan en binnen HA's input_number-schema."""
+    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
+    cfg = pkg["input_number"].get("shadow_watchdog_minuten")
+    assert cfg, "shadow.yaml mist input_number.shadow_watchdog_minuten"
+    assert cfg["min"] <= 16, (
+        "min mag niet boven het prijskwartier (15 min) uitkomen — anders "
+        "waarschuwt de helper-grens zelf bij een gezonde keten")
+    validated = input_number.CONFIG_SCHEMA(
+        {"input_number": {"shadow_watchdog_minuten": cfg}})
+    assert "input_number" in validated
+
+
+def test_shadow_status_has_laatst_berekend():
+    """Het laatst_berekend-attribuut is het anker van de watchdog: zonder
+    bevriest er niets en is stilstand-detectie onmogelijk."""
+    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
+    sensors = pkg["template"][0]["sensor"]
+    status = next(s for s in sensors if s["name"] == "Shadow status")
+    assert "laatst_berekend" in status["attributes"], (
+        "sensor.shadow_status mist het laatst_berekend-attribuut")
+    assert "now()" in status["attributes"]["laatst_berekend"]
+
+
+def test_shadow_watchdog_automation_structuur():
+    """Watchdog-automation: time_pattern /5, twee template-condities, geen
+    hardcoded notify-doel (les v1.5.9), event + persistent_notification."""
+    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
+    wd = next((a for a in pkg["automation"]
+               if a.get("id") == "energyprijs_shadow_watchdog"), None)
+    assert wd, "shadow.yaml mist de watchdog-automation"
+    trig = wd["triggers"][0]
+    assert trig["trigger"] == "time_pattern" and trig["minutes"] == "/5"
+    conds = [c for c in wd["conditions"] if c.get("condition") == "template"]
+    assert len(conds) >= 2, (
+        "watchdog heeft een has_value-bescherming én een stilstand-vergelijking nodig")
+    assert any("has_value('sensor.shadow_status')" in c["value_template"]
+               for c in conds), "geen has_value-bescherming op de statussensor"
+    ev = [a for a in wd["actions"] if isinstance(a, dict)
+          and a.get("action") == "event"]
+    assert ev and ev[0]["event_type"] == "energyprijs_shadow_stilstand"
+    pn = [a for a in wd["actions"] if isinstance(a, dict)
+          and a.get("action") == "persistent_notification.create"]
+    assert pn and pn[0]["data"]["notification_id"] == "energyprijs_shadow_stilstand"
+    # Geen enkele notify-service-action mag hardcoded zijn in de watchdog.
+    for act in wd["actions"]:
+        if isinstance(act, dict) and str(act.get("action", "")).startswith("notify."):
+            assert "{{" in act["action"], "hardcoded notify-doel in de watchdog"
+
+
+def test_shadow_watchdog_geen_actuator_writing():
+    """Dit is SHADOW: ook de watchdog mag niets schrijven naar actuators."""
+    pkg = yaml.safe_load(SHADOW_PATH.read_text(encoding="utf-8"))
+    wd = next(a for a in pkg["automation"]
+              if a.get("id") == "energyprijs_shadow_watchdog")
+    verboden = ("switch.", "service.turn_on", "homeassistant.turn_on",
+                "homeassistant.turn_off", "number.set_value",
+                "input_number.set_value", "input_text.set_value")
+    for act in wd["actions"]:
+        action = str(act.get("action", "")) if isinstance(act, dict) else str(act)
+        assert not any(action.startswith(v) for v in verboden), (
+            f"watchdog schrijft naar een actuator/helper: {action}")

@@ -1,3 +1,33 @@
+## 2026-11-21 — v1.9.9: shadow-watchdog — stilstand van de schaduw-berekening blijft niet meer onzichtbaar
+
+**Aanleiding**: de log-automation triggert op STATUSWIJZIGING. Een stille
+storing (daglijst of SOC raakt unavailable, trigger kapot, HA-deel herstart
+zonder package) levert géén wijziging op: de schaduw draait dan blind door op
+de laatste berekening.
+
+**Fix**: `sensor.shadow_status` krijgt het attribuut `laatst_berekend`
+(`now().isoformat()`, verandert bij élke render — een kapotte upstream
+bevriest het). Nieuwe automation `energyprijs_shadow_watchdog` tikt elke
+5 min en waarschuwt (event `energyprijs_shadow_stilstand` + persistent
+notification) als de laatste berekening ouder is dan
+`input_number.shadow_watchdog_minuten` (installer-default 45 = drie
+prijskwartieren; min 16 zodat een gezonde keten nooit zelf alarmeert).
+Bewust GEEN notify-service: een kapotte notify mag de melding niet slopen
+(les v1.5.9). has_value-bescherming tegen alarm op een verse install.
+
+**Testimpact**: 4 nieuwe tests in test_shadow_yaml_valid.py (helper-schema,
+laatst_berekend-presentie, watchdog-structuur, geen-actuator-writing).
+Suite: 102/102 groen.
+
+## 2026-11-20 — v1.9.8: onder de reserve is Neutraal verboden
+
+**Aanleiding**: 19 nov — SOC liep van 33% naar 2% terwijl de status Neutraal
+was: passief doortonnen onder de huisreserve.
+
+**Fix**: onder de reserve is Neutraal geen geldige status meer — de ladder
+kiest Laden (in < V+H) of Spaar, nooit passief doorleveren. Manifest per
+ongeluk op 1.9.7 blijven staan (rechtgezet in latere commit).
+
 ## 2026-11-20 — v1.9.7: alle flor-takken lezen accu_reserve_pct (één bron)
 
 **Aanleiding**: live zag Jan de status 'vloeiend' rond de SOC-grens switches
