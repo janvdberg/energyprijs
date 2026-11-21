@@ -95,6 +95,17 @@ input_number:
     icon: mdi:sell
     unit_of_measurement: "€/kWh"
     icon: mdi:shield-half-full
+  # v1.9.9: stilstand-drempel van de watchdog. De status-sensor hoort per
+  # kwartier te herberekenen (laatst_berekend-attribuut); staat die ouder
+  # dan deze minuten, dan is de keten ergens gestopt (gebroken trigger,
+  # unavailable daglijst) en waarschuwt energyprijs_shadow_watchdog.
+  shadow_watchdog_minuten:
+    name: "Shadow watchdog — stilstand-grens"
+    min: 16
+    max: 240
+    step: 1
+    unit_of_measurement: "min"
+    icon: mdi:watch
 
 input_text:
   # v1.7.4: hernoemd van shadow_vorige_status (de entiteit 'shadow_vorige_status'
@@ -649,6 +660,11 @@ template:
             {% if blk and s in ['Neutraal', 'Ontladen', 'Doorleveren'] %}
             {{ s ~ ' (accu leeg, niet fysiek mogelijk)' }}
             {% else %}{{ '' }}{% endif %}
+          # v1.9.9: stilstand-baken voor de watchdog. Dit attribuut verandert
+          # bij ELKE render van de sensor (now()), dus een kapotte upstream
+          # (daglijst/SOC unavailable → geen render) bevriest het. De watchdog
+          # (automation energyprijs_shadow_watchdog) vergelijkt het met now().
+          laatst_berekend: "{{ now().isoformat() }}"
 
 # ═══════════════════════════════════════════════════════════════════
 #  v1.9.0 — SHADOW ACCU-BLOKKADE (apart signaal, geen prijsstatus)
@@ -776,4 +792,56 @@ automation:
             R {{ states('sensor.shadow_ruimtegebrek_r') }} W · SOC {{ states('sensor.accu_percentage') }}%
             (doel {{ states('sensor.shadow_doel_soc') }}%) ·
             blokkade {{ state_attr('sensor.shadow_status','blokkade') }}.
+            Dit is SHADOW: er wordt niet geschreven.
+
+  # ── v1.9.9 — WATCHDOG: stilstand van de schaduw-berekening ──────────────
+  #  De log-automation hierboven triggert op STATUSWIJZIGING. Een stille
+  #  storing (daglijst of SOC raakt unavailable, trigger kapot, HA-deel
+  #  herstart zonder package) levert géén wijziging op: de schaduw draait
+  #  dan blind door op de laatste berekening. Deze automation tikt elke
+  #  5 minuten en vergelijkt now() met het laatst_berekend-attribuut van
+  #  de statussensor. Die sensor herberekent per kwartier (prijzen) én bij
+  #  elke SOC-wijziging; staat hij ouder dan input_number.shadow_watchdog_
+  #  minuten (standaard 45 = drie prijskwartieren), dan klopt er iets
+  #  niet. Bewust GEEN notify-service: een kapotte notify mag de melding
+  #  niet slopen (les v1.5.9) — persistent notification + event altijd.
+  - alias: "Shadow handel — bewaak stilstand"
+    id: energyprijs_shadow_watchdog
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+    conditions:
+      # Nooit alarm boven een sensor die zelf nog niet bestaat (verse install).
+      - condition: template
+        value_template: "{{ has_value('sensor.shadow_status') }}"
+      - condition: template
+        value_template: >
+          {% set lb = state_attr('sensor.shadow_status', 'laatst_berekend') %}
+          {% if lb in [none, '', 'unknown', 'unavailable'] %}
+            true
+          {% else %}
+            {% set ts = lb | as_datetime(none) %}
+            {% set grens = states('input_number.shadow_watchdog_minuten') | float(45) %}
+            {{ ts is none or (now() - ts).total_seconds() > grens * 60 }}
+          {% endif %}
+    actions:
+      - action: event
+        event_type: energyprijs_shadow_stilstand
+        event_data:
+          timestamp: "{{ now().isoformat() }}"
+          laatst_berekend: "{{ state_attr('sensor.shadow_status', 'laatst_berekend') }}"
+          status: "{{ states('sensor.shadow_status') }}"
+          grens_minuten: "{{ states('input_number.shadow_watchdog_minuten') }}"
+      - action: persistent_notification.create
+        data:
+          notification_id: energyprijs_shadow_stilstand
+          title: "Shadow handel — STILSTAND"
+          message: >
+            De schaduwbeslissing is al meer dan
+            {{ states('input_number.shadow_watchdog_minuten') | float(45) | round(0) | int }}
+            minuten niet herberekend (laatste berekening:
+            {{ state_attr('sensor.shadow_status', 'laatst_berekend') | default('nooit', true) }}).
+            Laatste status: {{ states('sensor.shadow_status') }}.
+            Controleer sensor.stroomprijs_daglijst en sensor.accu_percentage.
             Dit is SHADOW: er wordt niet geschreven.

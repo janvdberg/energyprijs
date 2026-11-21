@@ -78,6 +78,10 @@ HELPERS_DEFAULTS: dict[str, float] = {
     # euro daarboven — reserve verkoopt dan voor ~0,12 terwijl dal-laden
     # ~0,07 kostte. 0,20 = marge boven die herlaadkosten.
     "shadow_verkoop_eis_min": 0.20,
+    # v1.9.9: stilstand-grens van de watchdog (automation energyprijs_shadow_
+    # watchdog in shadow.yaml). De statussensor herberekent per kwartier via de
+    # daglijst; 45 min = drie prijskwartieren tolerantie voor een late tick.
+    "shadow_watchdog_minuten": 45,
     # ── gemeten accu-rendement (accu_verlies_meten.py, meetperiode aug-okt '26):
     #    laden net->cel ~77% (zwaar AC-laden), ontladen cel->AC ~90%, roundtrip
     #    ~70%. shadow_eta is de GEWOGEN standaard voor de solver en blijft op de
